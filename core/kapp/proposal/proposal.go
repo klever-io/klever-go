@@ -23,7 +23,7 @@ import (
 
 var _ kapp.ProposalKapp = (*proposalKapp)(nil)
 
-// MaxVotersPerProposal limits the number of unique voters per proposal
+// MaxVotersPerProposal limits the number of unique voters on proposals created before FixAuditChangesV7,
 // to prevent exceeding the MaxLeafSize (786KB) storage limit.
 // Each voter entry is ~100 bytes serialized, so 7000 voters ≈ 700KB (safe margin).
 const MaxVotersPerProposal = 7000
@@ -214,7 +214,8 @@ func (p *proposalKapp) validateCreateInput(tc *transaction.ProposalContract) err
 
 func (p *proposalKapp) validateNewParameters(params map[int32][]byte, controller *kapps.ProposalController) error {
 	for parameter, value := range params {
-		if len(kapps.EnumParameter_name[parameter]) == 0 {
+		if len(kapps.EnumParameter_name[parameter]) == 0 ||
+			(parameter == int32(kapps.EnumParameter_MinKFIVoteAmount) && !p.forkController.FixAuditChangesV7()) {
 			return common.ErrInvalidParameter
 		}
 
@@ -372,10 +373,82 @@ func updateActiveProposals(controller *kapps.ProposalController, proposal *kapps
 	}
 }
 
+func (p *proposalKapp) storesVotersUnderOwnKeys(proposal *kapps.ProposalData) bool {
+	return p.forkController.FixAuditChangesV7InEpoch(proposal.GetEpochStart())
+}
+
+// GetVoter returns a voter's record on the proposal, or nil when there is none.
+func (p *proposalKapp) GetVoter(
+	proposalKapp state.KAppAccountHandler,
+	proposal *kapps.ProposalData,
+	proposalID uint64,
+	encodedAddr string,
+) (*kapps.ProposalData_VoteDetail, error) {
+	if !p.storesVotersUnderOwnKeys(proposal) {
+		return proposal.Voters[encodedAddr], nil
+	}
+
+	raw, err := retrieveOptional(proposalKapp.DataTrieTracker(), kdautils.ToProposalVoterKey(proposalID, encodedAddr))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	detail := &kapps.ProposalData_VoteDetail{}
+	if err := p.marshalizer.Unmarshal(detail, raw); err != nil {
+		return nil, err
+	}
+
+	return detail, nil
+}
+
+// SetVoter stores a voter's record. For inline voters it only updates proposal.Voters, so the caller must still call SetProposal.
+func (p *proposalKapp) SetVoter(
+	proposalKapp state.KAppAccountHandler,
+	proposal *kapps.ProposalData,
+	proposalID uint64,
+	encodedAddr string,
+	detail *kapps.ProposalData_VoteDetail,
+) error {
+	if !p.storesVotersUnderOwnKeys(proposal) {
+		if proposal.Voters == nil {
+			proposal.Voters = make(map[string]*kapps.ProposalData_VoteDetail)
+		}
+		proposal.Voters[encodedAddr] = detail
+
+		return nil
+	}
+
+	raw, err := p.marshalizer.Marshal(detail)
+	if err != nil {
+		return err
+	}
+
+	return proposalKapp.DataTrieTracker().SaveKeyValue(kdautils.ToProposalVoterKey(proposalID, encodedAddr), raw)
+}
+
+// RemoveVoter deletes a voter's record. For inline voters the caller must still call SetProposal.
+func (p *proposalKapp) RemoveVoter(
+	proposalKapp state.KAppAccountHandler,
+	proposal *kapps.ProposalData,
+	proposalID uint64,
+	encodedAddr string,
+) error {
+	if !p.storesVotersUnderOwnKeys(proposal) {
+		delete(proposal.Voters, encodedAddr)
+
+		return nil
+	}
+
+	return proposalKapp.DataTrieTracker().SaveKeyValue(kdautils.ToProposalVoterKey(proposalID, encodedAddr), nil)
+}
+
 // isVoterLimitExceeded checks if adding a new voter would exceed the maximum limit.
-// Returns true only if: EpochRewardsV2 is enabled, voter doesn't exist, and limit is reached.
+// Returns true only if: EpochRewardsV2 is enabled, the proposal predates FixAuditChangesV7 (inline voters), the voter doesn't exist, and the limit is reached.
 func (p *proposalKapp) isVoterLimitExceeded(proposal *kapps.ProposalData, encodedAddr string) bool {
-	if !p.forkController.EpochRewardsV2() {
+	if !p.forkController.EpochRewardsV2() || p.storesVotersUnderOwnKeys(proposal) {
 		return false
 	}
 	_, exists := proposal.Voters[encodedAddr]
@@ -385,9 +458,8 @@ func (p *proposalKapp) isVoterLimitExceeded(proposal *kapps.ProposalData, encode
 // processExistingVote handles vote type changes and returns the old amount for same-type votes.
 // If the voter changed their vote type, it subtracts from the old type's count and returns 0.
 // If the voter is updating the same type, it returns the old amount for incremental update.
-func (p *proposalKapp) processExistingVote(proposal *kapps.ProposalData, encodedAddr string, newType kapps.ProposalData_VoteDetail_EnumVoteType) int64 {
-	v, ok := proposal.Voters[encodedAddr]
-	if !ok || v == nil {
+func (p *proposalKapp) processExistingVote(proposal *kapps.ProposalData, v *kapps.ProposalData_VoteDetail, newType kapps.ProposalData_VoteDetail_EnumVoteType) int64 {
+	if v == nil {
 		return 0
 	}
 	if v.Type != newType {
@@ -408,6 +480,12 @@ func (p *proposalKapp) Vote(sender []byte, tc *transaction.VoteContract) (transa
 	if tc.GetProposalID() <= 0 || tc.GetAmount() <= 0 {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidVoteAmount, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	if p.forkController.FixAuditChangesV7() &&
+		tc.GetAmount() < p.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MinKFIVoteAmount) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidVoteAmount, common.ErrProposalVoteBelowMinimum.Error())
+		return transaction.Transaction_ParameterInvalid, common.ErrProposalVoteBelowMinimum
 	}
 
 	proposalKapp, proposal, controller, err := p.GetProposal(tc.GetProposalID())
@@ -465,13 +543,21 @@ func (p *proposalKapp) Vote(sender []byte, tc *transaction.VoteContract) (transa
 		return transaction.Transaction_ParameterInvalid, common.ErrProposalMaxVotersReached
 	}
 
-	oldAmount := p.processExistingVote(proposal, encodedAddr, kapps.ProposalData_VoteDetail_EnumVoteType(tc.GetType()))
+	existingVoter, err := p.GetVoter(proposalKapp, proposal, tc.GetProposalID(), encodedAddr)
+	if err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+
+	oldAmount := p.processExistingVote(proposal, existingVoter, kapps.ProposalData_VoteDetail_EnumVoteType(tc.GetType()))
 	proposal.Votes[int32(tc.GetType())] += tc.GetAmount() - oldAmount
 
-	proposal.Voters[encodedAddr] = &kapps.ProposalData_VoteDetail{
+	err = p.SetVoter(proposalKapp, proposal, tc.GetProposalID(), encodedAddr, &kapps.ProposalData_VoteDetail{
 		Type:      kapps.ProposalData_VoteDetail_EnumVoteType(tc.GetType()),
 		Amount:    tc.GetAmount(),
 		Timestamp: ctx.Block().GetTimestamp(),
+	})
+	if err != nil {
+		return transaction.Transaction_KAPPError, err
 	}
 
 	proposal.TotalStaked = staking.TotalStaked

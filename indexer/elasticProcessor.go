@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +34,8 @@ import (
 
 const numDecimalsInFloatBalance = 10  // Number of decimals to use when storing balances as float64
 const revertAccountBatchSize = 10_000 // Elasticsearch max result window
+
+const maxIndexedProposalVoters = 10000
 
 var ZeroAddressDecoded = "klv1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpgm89z"
 
@@ -691,6 +694,14 @@ func (ei *elasticProcessor) getProposal(proposalKapp state.KAppAccountHandler, p
 		return nil, err
 	}
 
+	if len(proposal.Voters) == 0 {
+		proposal.Voters, err = ei.loadProposalVoters(proposalKapp, proposalID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	proposal.Voters = capProposalVoters(proposal.Voters)
+
 	// Get Actual Network Parameters
 	acnt, err := ei.kappsDB.LoadAccount(kapps.ProposalKAppAddress)
 	if err != nil {
@@ -723,6 +734,87 @@ func (ei *elasticProcessor) getProposal(proposalKapp state.KAppAccountHandler, p
 	}
 
 	return ei.convertProposal(proposalID, proposal, oldParams), nil
+}
+
+func (ei *elasticProcessor) loadProposalVoters(
+	proposalKapp state.KAppAccountHandler,
+	proposalID uint64,
+) (map[string]*kapps.ProposalData_VoteDetail, error) {
+	dataTrie := proposalKapp.DataTrie()
+	if check.IfNil(dataTrie) {
+		return nil, nil
+	}
+
+	leavesChannels, err := dataTrie.GetAllLeavesOnChannel(proposalKapp.GetRootHash(), context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	prefix := kdautils.ToProposalVotersPrefix(proposalID)
+	voterKeys := make([][]byte, 0)
+	err = leavesChannels.ForEach(func(leaf nodeData.KeyValueHolder) error {
+		if !bytes.HasPrefix(leaf.Key(), prefix) {
+			return nil
+		}
+		key := make([]byte, len(leaf.Key()))
+		copy(key, leaf.Key())
+		voterKeys = append(voterKeys, key)
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	voters := make(map[string]*kapps.ProposalData_VoteDetail, len(voterKeys))
+	for _, key := range voterKeys {
+		value, errRead := proposalKapp.DataTrieTracker().RetrieveValue(key)
+		if errors.Is(errRead, common.ErrNilTrie) || errors.Is(errRead, common.ErrNegativeValue) {
+			continue
+		}
+		if errRead != nil {
+			return nil, errRead
+		}
+		if len(value) == 0 {
+			continue
+		}
+
+		detail := &kapps.ProposalData_VoteDetail{}
+		err = ei.marshalizer.Unmarshal(detail, value)
+		if err != nil {
+			return nil, err
+		}
+
+		voters[string(key[len(prefix):])] = detail
+	}
+
+	return voters, nil
+}
+
+func capProposalVoters(voters map[string]*kapps.ProposalData_VoteDetail) map[string]*kapps.ProposalData_VoteDetail {
+	if len(voters) <= maxIndexedProposalVoters {
+		return voters
+	}
+
+	addresses := make([]string, 0, len(voters))
+	for address := range voters {
+		addresses = append(addresses, address)
+	}
+	sort.Slice(addresses, func(i, j int) bool {
+		left, right := voters[addresses[i]].Amount, voters[addresses[j]].Amount
+		if left != right {
+			return left > right
+		}
+
+		return addresses[i] < addresses[j]
+	})
+
+	capped := make(map[string]*kapps.ProposalData_VoteDetail, maxIndexedProposalVoters)
+	for _, address := range addresses[:maxIndexedProposalVoters] {
+		capped[address] = voters[address]
+	}
+
+	return capped
 }
 
 func (ei *elasticProcessor) getITO(itoKapp state.KAppAccountHandler, assetID string) (*data.ITOInfo, error) {

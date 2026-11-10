@@ -322,6 +322,9 @@ var ErrValidatorMaxDelegatorsReached = errors.New("validator has reached maximum
 // ErrProposalMaxVotersReached signals that the proposal has reached the maximum number of voters
 var ErrProposalMaxVotersReached = errors.New("proposal has reached maximum number of voters")
 
+// ErrProposalVoteBelowMinimum signals that a vote amount is below the minimum to vote on a proposal
+var ErrProposalVoteBelowMinimum = errors.New("vote amount is below the minimum to vote on a proposal")
+
 // ErrNilAddress defines the error when trying to work with a nil address
 var ErrNilAddress = errors.New("nil address")
 

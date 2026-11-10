@@ -181,6 +181,16 @@ func ToAccountProposalVotesKey(hexAddress string) []byte {
 	return []byte(kapps.ProposalVotesPrefix + kapps.Sp + hexAddress)
 }
 
+// ToProposalVoterKey parse a key for one voter's record on a proposal
+func ToProposalVoterKey(proposalID uint64, hexAddress string) []byte {
+	return append(ToProposalVotersPrefix(proposalID), hexAddress...)
+}
+
+// ToProposalVotersPrefix parse the key prefix shared by all voter records of a proposal
+func ToProposalVotersPrefix(proposalID uint64) []byte {
+	return []byte(kapps.ProposalVoterPrefix + kapps.Sp + strconv.FormatUint(proposalID, 10) + kapps.Sp)
+}
+
 // ActiveProposalIDs is the set of proposal ids in any of the controller's buckets: the proposals
 // still active, by construction — creation adds the id with its record and settlement flips the
 // record and drops the bucket together. A vote index entry for an id outside this set is stale.

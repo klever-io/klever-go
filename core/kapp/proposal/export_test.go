@@ -56,5 +56,5 @@ func (p *proposalKapp) IsVoterLimitExceeded(proposal *kapps.ProposalData, encode
 
 // ProcessExistingVote exports the private processExistingVote method for testing
 func (p *proposalKapp) ProcessExistingVote(proposal *kapps.ProposalData, encodedAddr string, newType kapps.ProposalData_VoteDetail_EnumVoteType) int64 {
-	return p.processExistingVote(proposal, encodedAddr, newType)
+	return p.processExistingVote(proposal, proposal.Voters[encodedAddr], newType)
 }

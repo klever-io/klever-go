@@ -18,17 +18,23 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
+	"github.com/klever-io/klever-go/crypto/hashing/sha256"
 	nodeData "github.com/klever-io/klever-go/data"
 	dataBlock "github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/indexer"
 	"github.com/klever-io/klever-go/data/state"
+	"github.com/klever-io/klever-go/data/state/factory"
 	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/data/trie"
 	"github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/indexer/logsevents"
 	imock "github.com/klever-io/klever-go/indexer/mock"
 	"github.com/klever-io/klever-go/indexer/templates"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/kvm/mock/stub"
+	"github.com/klever-io/klever-go/storage/memorydb"
+	"github.com/klever-io/klever-go/storage/storageUnit"
+	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -2292,4 +2298,408 @@ func TestElasticProcessor_resolveAlteredAccountsDoesNotRetryFailedKAppLoad(t *te
 	require.Len(t, accountsInfo, 2)
 	require.Empty(t, accountsKDA)
 	require.Equal(t, int64(1), atomic.LoadInt64(&kappLoads))
+}
+
+type proposalKappWithTrie struct {
+	state.KAppAccountHandler
+	trie nodeData.Trie
+}
+
+func (p *proposalKappWithTrie) DataTrie() nodeData.Trie {
+	return p.trie
+}
+
+type proposalVotersFixture struct {
+	marshalizer marshal.Marshalizer
+	adb         *state.AccountsDB
+	storage     map[string][]byte
+}
+
+func newProposalVotersFixture(t *testing.T) *proposalVotersFixture {
+	t.Helper()
+
+	cache, err := storageUnit.NewCache(storageUnit.CacheConfig{Type: storageUnit.LRUCache, Capacity: 10, Shards: 1})
+	require.NoError(t, err)
+	persist, err := memorydb.NewlruDB(100000)
+	require.NoError(t, err)
+	unit, err := storageUnit.NewStorageUnit(cache, persist)
+	require.NoError(t, err)
+
+	marshalizer := marshal.NewProtoMarshalizer()
+	hasher := &sha256.Sha256{}
+	storageManager, err := trie.NewTrieStorageManagerWithoutPruning(unit)
+	require.NoError(t, err)
+	tr, err := trie.NewTrie(storageManager, marshalizer, hasher, 5)
+	require.NoError(t, err)
+	adb, err := state.NewAccountsDB(tr, hasher, marshalizer, factory.NewKAppAccountCreator(), core.Normal)
+	require.NoError(t, err)
+
+	return &proposalVotersFixture{marshalizer: marshalizer, adb: adb, storage: make(map[string][]byte)}
+}
+
+func (f *proposalVotersFixture) put(t *testing.T, key []byte, msg any) {
+	t.Helper()
+
+	value, ok := msg.([]byte)
+	if !ok {
+		var err error
+		value, err = f.marshalizer.Marshal(msg)
+		require.NoError(t, err)
+	}
+	f.storage[string(key)] = value
+}
+
+func (f *proposalVotersFixture) putProposal(t *testing.T, proposalID uint64, proposal *kapps.ProposalData) {
+	t.Helper()
+
+	if proposal.Proposer == nil {
+		proposal.Proposer = voterAddress(900)
+	}
+	f.put(t, kdautils.ToProposalKey(proposalID), proposal)
+}
+
+func (f *proposalVotersFixture) putVoter(t *testing.T, proposalID uint64, address []byte, detail *kapps.ProposalData_VoteDetail) {
+	t.Helper()
+
+	f.put(t, kdautils.ToProposalVoterKey(proposalID, hex.EncodeToString(address)), detail)
+}
+
+func (f *proposalVotersFixture) save(t *testing.T) state.KAppAccountHandler {
+	t.Helper()
+
+	f.put(t, kdautils.ProposalControllerKey, &kapps.ProposalController{})
+
+	acnt, err := f.adb.LoadAccount(kapps.ProposalKAppAddress)
+	require.NoError(t, err)
+	app, ok := acnt.(state.KAppAccountHandler)
+	require.True(t, ok)
+	for key, value := range f.storage {
+		require.NoError(t, app.SetStorage([]byte(key), value))
+	}
+	require.NoError(t, f.adb.SaveAccount(app))
+
+	return app
+}
+
+func (f *proposalVotersFixture) commit(t *testing.T) state.KAppAccountHandler {
+	t.Helper()
+
+	f.save(t)
+	_, err := f.adb.Commit()
+	require.NoError(t, err)
+
+	reloaded, err := f.adb.LoadAccount(kapps.ProposalKAppAddress)
+	require.NoError(t, err)
+
+	return reloaded.(state.KAppAccountHandler)
+}
+
+func (f *proposalVotersFixture) processor(app state.KAppAccountHandler) *elasticProcessor {
+	arguments := createMockElasticProcessorArgs()
+	arguments.KappsDB = &mock.AccountsStub{LoadAccountCalled: func(_ []byte) (state.AccountHandler, error) {
+		return app, nil
+	}}
+	processor := newTestElasticSearchDatabase(&imock.DatabaseWriterStub{}, arguments)
+	processor.marshalizer = f.marshalizer
+
+	return processor
+}
+
+func voterAddress(index int) []byte {
+	address := make([]byte, 32)
+	address[0] = byte(index >> 16)
+	address[1] = byte(index >> 8)
+	address[2] = byte(index)
+
+	return address
+}
+
+func TestElasticProcessor_getProposalFillsVotersFromVoterKeys(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProposalVotersFixture(t)
+	fixture.putProposal(t, 1, &kapps.ProposalData{Proposer: voterAddress(900), Votes: map[int32]int64{0: 30, 1: 20}})
+	fixture.putVoter(t, 1, voterAddress(1), &kapps.ProposalData_VoteDetail{Type: kapps.ProposalData_VoteDetail_Yes, Amount: 30, Timestamp: 111})
+	fixture.putVoter(t, 1, voterAddress(2), &kapps.ProposalData_VoteDetail{Type: kapps.ProposalData_VoteDetail_No, Amount: 20, Timestamp: 222})
+	app := fixture.commit(t)
+
+	proposal, err := fixture.processor(app).getProposal(app, 1)
+	require.NoError(t, err)
+	require.Len(t, proposal.Voters, 2)
+	require.Equal(t, map[int32]int64{0: 30, 1: 20}, proposal.Votes)
+
+	byAddress := make(map[string]*data.VotersInfo)
+	for _, voter := range proposal.Voters {
+		byAddress[voter.Address] = voter
+	}
+	yes := byAddress[string(voterAddress(1))]
+	require.NotNil(t, yes)
+	require.Equal(t, int32(kapps.ProposalData_VoteDetail_Yes), yes.Type)
+	require.Equal(t, int64(30), yes.Amount)
+	require.Equal(t, time.Duration(111*1000), yes.Timestamp)
+	no := byAddress[string(voterAddress(2))]
+	require.NotNil(t, no)
+	require.Equal(t, int32(kapps.ProposalData_VoteDetail_No), no.Type)
+	require.Equal(t, int64(20), no.Amount)
+	require.Equal(t, time.Duration(222*1000), no.Timestamp)
+}
+
+func TestElasticProcessor_getProposalKeepsInlineVotersWithoutWalkingTheTrie(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProposalVotersFixture(t)
+	fixture.putProposal(t, 1, &kapps.ProposalData{Voters: map[string]*kapps.ProposalData_VoteDetail{
+		hex.EncodeToString(voterAddress(7)): {Type: kapps.ProposalData_VoteDetail_Yes, Amount: 5, Timestamp: 9},
+	}})
+	fixture.putVoter(t, 1, voterAddress(8), &kapps.ProposalData_VoteDetail{Amount: 99})
+	app := fixture.commit(t)
+
+	walked := false
+	wrapped := &proposalKappWithTrie{KAppAccountHandler: app, trie: &mock.TrieStub{
+		GetAllLeavesOnChannelCalled: func(_ []byte) (*nodeData.TrieIteratorChannels, error) {
+			walked = true
+			return nodeData.NewCompletedTrieIteratorChannels(), nil
+		},
+	}}
+
+	proposal, err := fixture.processor(app).getProposal(wrapped, 1)
+	require.NoError(t, err)
+	require.False(t, walked)
+	require.Len(t, proposal.Voters, 1)
+	require.Equal(t, string(voterAddress(7)), proposal.Voters[0].Address)
+	require.Equal(t, int64(5), proposal.Voters[0].Amount)
+}
+
+func TestElasticProcessor_getProposalVotersExcludeOtherProposals(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProposalVotersFixture(t)
+	fixture.putProposal(t, 1, &kapps.ProposalData{})
+	fixture.putProposal(t, 12, &kapps.ProposalData{})
+	fixture.putVoter(t, 1, voterAddress(1), &kapps.ProposalData_VoteDetail{Amount: 1})
+	fixture.putVoter(t, 12, voterAddress(2), &kapps.ProposalData_VoteDetail{Amount: 2})
+	fixture.putVoter(t, 12, voterAddress(3), &kapps.ProposalData_VoteDetail{Amount: 3})
+	app := fixture.commit(t)
+	processor := fixture.processor(app)
+
+	first, err := processor.getProposal(app, 1)
+	require.NoError(t, err)
+	require.Len(t, first.Voters, 1)
+	require.Equal(t, string(voterAddress(1)), first.Voters[0].Address)
+
+	twelfth, err := processor.getProposal(app, 12)
+	require.NoError(t, err)
+	require.Len(t, twelfth.Voters, 2)
+}
+
+func TestElasticProcessor_getProposalReturnsErrorWhenVoterWalkFails(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProposalVotersFixture(t)
+	fixture.putProposal(t, 1, &kapps.ProposalData{})
+	app := fixture.commit(t)
+	expectedErr := errors.New("walk failed")
+	processor := fixture.processor(app)
+
+	t.Run("walk cannot start", func(t *testing.T) {
+		wrapped := &proposalKappWithTrie{KAppAccountHandler: app, trie: &mock.TrieStub{
+			GetAllLeavesOnChannelCalled: func(_ []byte) (*nodeData.TrieIteratorChannels, error) {
+				return nil, expectedErr
+			},
+		}}
+
+		_, err := processor.getProposal(wrapped, 1)
+		require.ErrorIs(t, err, expectedErr)
+	})
+
+	t.Run("walk is interrupted", func(t *testing.T) {
+		wrapped := &proposalKappWithTrie{KAppAccountHandler: app, trie: &mock.TrieStub{
+			GetAllLeavesOnChannelCalled: func(_ []byte) (*nodeData.TrieIteratorChannels, error) {
+				return nodeData.NewFailedTrieIteratorChannels(expectedErr), nil
+			},
+		}}
+
+		_, err := processor.getProposal(wrapped, 1)
+		require.ErrorIs(t, err, expectedErr)
+	})
+}
+
+func TestElasticProcessor_getProposalReturnsErrorOnMalformedVoterRecord(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProposalVotersFixture(t)
+	fixture.putProposal(t, 1, &kapps.ProposalData{})
+	fixture.putVoter(t, 1, voterAddress(1), &kapps.ProposalData_VoteDetail{Amount: 1})
+	fixture.put(t, kdautils.ToProposalVoterKey(1, hex.EncodeToString(voterAddress(2))), []byte{0xff, 0xff, 0xff})
+	app := fixture.commit(t)
+
+	_, err := fixture.processor(app).getProposal(app, 1)
+	require.Error(t, err)
+}
+
+type proposalVoterRead struct {
+	value []byte
+	err   error
+}
+
+type proposalTrackerWithReads struct {
+	state.DataTrieTracker
+	reads map[string]proposalVoterRead
+}
+
+func (p *proposalTrackerWithReads) RetrieveValue(key []byte) ([]byte, error) {
+	if read, ok := p.reads[string(key)]; ok {
+		return read.value, read.err
+	}
+
+	return p.DataTrieTracker.RetrieveValue(key)
+}
+
+type proposalKappWithTracker struct {
+	state.KAppAccountHandler
+	tracker state.DataTrieTracker
+}
+
+func (p *proposalKappWithTracker) DataTrieTracker() state.DataTrieTracker {
+	return p.tracker
+}
+
+func TestElasticProcessor_getProposalReturnsErrorWhenAVoterReadFails(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProposalVotersFixture(t)
+	fixture.putProposal(t, 1, &kapps.ProposalData{})
+	fixture.putVoter(t, 1, voterAddress(1), &kapps.ProposalData_VoteDetail{Amount: 1})
+	fixture.putVoter(t, 1, voterAddress(2), &kapps.ProposalData_VoteDetail{Amount: 2})
+	app := fixture.commit(t)
+
+	expectedErr := errors.New("voter read failed")
+	wrapped := &proposalKappWithTracker{KAppAccountHandler: app, tracker: &proposalTrackerWithReads{
+		DataTrieTracker: app.DataTrieTracker(),
+		reads: map[string]proposalVoterRead{
+			string(kdautils.ToProposalVoterKey(1, hex.EncodeToString(voterAddress(2)))): {err: expectedErr},
+		},
+	}}
+
+	_, err := fixture.processor(app).getProposal(wrapped, 1)
+	require.ErrorIs(t, err, expectedErr)
+}
+
+func TestElasticProcessor_getProposalSkipsAVoterRemovedAfterTheWalk(t *testing.T) {
+	t.Parallel()
+
+	removedKey := kdautils.ToProposalVoterKey(1, hex.EncodeToString(voterAddress(2)))
+
+	newApp := func(t *testing.T) (*proposalVotersFixture, state.KAppAccountHandler) {
+		fixture := newProposalVotersFixture(t)
+		fixture.putProposal(t, 1, &kapps.ProposalData{})
+		fixture.putVoter(t, 1, voterAddress(1), &kapps.ProposalData_VoteDetail{Amount: 1})
+		fixture.putVoter(t, 1, voterAddress(2), &kapps.ProposalData_VoteDetail{Amount: 2})
+
+		return fixture, fixture.commit(t)
+	}
+
+	requireOnlyTheFirstVoter := func(t *testing.T, proposal *data.Proposal, err error) {
+		require.NoError(t, err)
+		require.Len(t, proposal.Voters, 1)
+		require.Equal(t, string(voterAddress(1)), proposal.Voters[0].Address)
+	}
+
+	reads := map[string]proposalVoterRead{
+		"absent from the data trie":           {},
+		"an empty value":                      {value: []byte{}},
+		"no data trie":                        {err: common.ErrNilTrie},
+		"a value shorter than its identifier": {err: common.ErrNegativeValue},
+	}
+
+	for name, read := range reads {
+		t.Run(name, func(t *testing.T) {
+			fixture, app := newApp(t)
+			wrapped := &proposalKappWithTracker{KAppAccountHandler: app, tracker: &proposalTrackerWithReads{
+				DataTrieTracker: app.DataTrieTracker(),
+				reads:           map[string]proposalVoterRead{string(removedKey): read},
+			}}
+
+			proposal, err := fixture.processor(app).getProposal(wrapped, 1)
+			requireOnlyTheFirstVoter(t, proposal, err)
+		})
+	}
+
+	t.Run("a delete still in the dirty cache", func(t *testing.T) {
+		fixture, app := newApp(t)
+		require.NoError(t, app.SetStorage(removedKey, nil))
+
+		_, readErr := app.DataTrieTracker().RetrieveValue(removedKey)
+		require.ErrorIs(t, readErr, common.ErrNegativeValue)
+
+		proposal, err := fixture.processor(app).getProposal(app, 1)
+		requireOnlyTheFirstVoter(t, proposal, err)
+	})
+}
+
+func TestElasticProcessor_getProposalReadsVotersOnlyFromACommittedAccount(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProposalVotersFixture(t)
+	fixture.putProposal(t, 1, &kapps.ProposalData{})
+	fixture.putVoter(t, 1, voterAddress(1), &kapps.ProposalData_VoteDetail{Amount: 1})
+	uncommitted := fixture.save(t)
+
+	_, err := fixture.processor(uncommitted).getProposal(uncommitted, 1)
+	require.Error(t, err)
+
+	committed := fixture.commit(t)
+	proposal, err := fixture.processor(committed).getProposal(committed, 1)
+	require.NoError(t, err)
+	require.Len(t, proposal.Voters, 1)
+}
+
+func TestElasticProcessor_getProposalKeepsHeaviestVotersAboveTheIndexedLimit(t *testing.T) {
+	t.Parallel()
+
+	extra := 5
+	total := 10000 + extra
+
+	fixture := newProposalVotersFixture(t)
+	fixture.putProposal(t, 1, &kapps.ProposalData{})
+	for i := 0; i < total; i++ {
+		amount := int64(1000 + i)
+		if i < extra {
+			amount = 1
+		}
+		fixture.putVoter(t, 1, voterAddress(i), &kapps.ProposalData_VoteDetail{Amount: amount})
+	}
+	app := fixture.commit(t)
+
+	proposal, err := fixture.processor(app).getProposal(app, 1)
+	require.NoError(t, err)
+	require.Len(t, proposal.Voters, 10000)
+	for _, voter := range proposal.Voters {
+		require.Greater(t, voter.Amount, int64(1))
+	}
+}
+
+func TestCapProposalVotersIsStableWhenAmountsTie(t *testing.T) {
+	t.Parallel()
+
+	total := maxIndexedProposalVoters + 3
+	build := func() map[string]*kapps.ProposalData_VoteDetail {
+		voters := make(map[string]*kapps.ProposalData_VoteDetail, total)
+		for i := 0; i < total; i++ {
+			voters[hex.EncodeToString(voterAddress(i))] = &kapps.ProposalData_VoteDetail{Amount: 7}
+		}
+		return voters
+	}
+
+	first := capProposalVoters(build())
+	second := capProposalVoters(build())
+	require.Len(t, first, maxIndexedProposalVoters)
+	require.Equal(t, first, second)
+
+	for i := 0; i < maxIndexedProposalVoters; i++ {
+		require.Contains(t, first, hex.EncodeToString(voterAddress(i)))
+	}
+	for i := maxIndexedProposalVoters; i < total; i++ {
+		require.NotContains(t, first, hex.EncodeToString(voterAddress(i)))
+	}
 }

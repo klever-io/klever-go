@@ -1442,13 +1442,19 @@ func (a *accountsKapp) shrinkVoteIfUncovered(
 	proposal *kapps.ProposalData,
 	id uint64,
 ) (*kapps.ProposalData_VoteDetail, error) {
-	voter, exists := proposal.Voters[update.encodedAddr]
-	if !exists || voter == nil {
+	voter, err := a.KAppController.GetProposalKApp().GetVoter(update.proposalKapp, proposal, id, update.encodedAddr)
+	if err != nil {
+		return nil, err
+	}
+	if voter == nil {
 		return nil, nil
 	}
 
 	if voter.Amount > update.userKDA.FrozenBalance {
-		a.updateVoterAndProposal(update, voter, proposal, id)
+		voter, err = a.updateVoterAndProposal(update, voter, proposal, id)
+		if err != nil {
+			return nil, err
+		}
 
 		if err := a.updateProposalTotalStaked(update, proposal); err != nil {
 			return nil, err
@@ -1462,7 +1468,7 @@ func (a *accountsKapp) shrinkVoteIfUncovered(
 		}
 	}
 
-	return proposal.Voters[update.encodedAddr], nil
+	return voter, nil
 }
 
 // processActiveProposal walks one bucket. An id above idBound was created after the fork, so its
@@ -1507,16 +1513,24 @@ func (a *accountsKapp) updateVoterAndProposal(
 	voter *kapps.ProposalData_VoteDetail,
 	proposal *kapps.ProposalData,
 	proposalID uint64,
-) {
+) (*kapps.ProposalData_VoteDetail, error) {
+	proposalKApp := a.KAppController.GetProposalKApp()
 	votesToRemove := update.unfrozenAmount
 	receiptAmount := int64(0)
+	var remaining *kapps.ProposalData_VoteDetail
 
-	if votesToRemove >= voter.Amount {
+	if votesToRemove >= voter.Amount || a.isBelowMinimumVote(voter.Amount-votesToRemove) {
 		votesToRemove = voter.Amount
-		delete(proposal.Voters, update.encodedAddr)
+		if err := proposalKApp.RemoveVoter(update.proposalKapp, proposal, proposalID, update.encodedAddr); err != nil {
+			return nil, err
+		}
 	} else {
 		voter.Amount -= votesToRemove
 		receiptAmount = voter.Amount
+		remaining = voter
+		if err := proposalKApp.SetVoter(update.proposalKapp, proposal, proposalID, update.encodedAddr, voter); err != nil {
+			return nil, err
+		}
 	}
 
 	proposal.Votes[int32(voter.Type)] -= votesToRemove
@@ -1530,6 +1544,14 @@ func (a *accountsKapp) updateVoterAndProposal(
 		[]byte(strconv.FormatInt(receiptAmount, 10)),
 	)
 	a.KAppController.GetCurrentKAppContext().Receipts().Add(receipt)
+
+	return remaining, nil
+}
+
+// isBelowMinimumVote reports whether an amount is below the minimum. Without it an account could vote the minimum, unfreeze down to dust and keep its voter key.
+func (a *accountsKapp) isBelowMinimumVote(amount int64) bool {
+	return a.forkController.FixAuditChangesV7() &&
+		amount < a.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MinKFIVoteAmount)
 }
 
 func (a *accountsKapp) updateProposalTotalStaked(update proposalVoteUpdate, proposal *kapps.ProposalData) error {

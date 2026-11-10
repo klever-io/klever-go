@@ -41,6 +41,7 @@ import (
 	"github.com/klever-io/klever-go/eventNotifier/notifier"
 	"github.com/klever-io/klever-go/kapps"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
+	"github.com/klever-io/klever-go/sharding"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/memorydb"
 	"github.com/klever-io/klever-go/storage/storageUnit"
@@ -238,6 +239,7 @@ func initKLVAndKFIintoKapps(kdaKapp, stakingKapp state.KAppAccountHandler) {
 	klvKey := kdautils.ToKDAKey(kdautils.KLVIdentifier, nil)
 	kfiKey := kdautils.ToKDAKey(kdautils.KFIIdentifier, nil)
 	aprKey := kdautils.ToKDAKey([]byte("APR"), nil)
+	seedTime := time.Unix(1700000000, 0)
 
 	staking := kapps.StakingData{
 		InterestType: kapps.StakingData_FPRI,
@@ -273,7 +275,7 @@ func initKLVAndKFIintoKapps(kdaKapp, stakingKapp state.KAppAccountHandler) {
 		TotalStaked:  0,
 		APR: []*kapps.APRData{
 			{
-				Timestamp: time.Now().AddDate(0, 0, -10).Unix(),
+				Timestamp: seedTime.AddDate(0, 0, -10).Unix(),
 				Epoch:     0,
 				Value:     1000,
 			},
@@ -299,7 +301,7 @@ func initKLVAndKFIintoKapps(kdaKapp, stakingKapp state.KAppAccountHandler) {
 		InitialSupply:     10000000000000000,
 		CirculatingSupply: 100000000000000,
 		MaxSupply:         90000000000000000,
-		IssueDate:         time.Now().Unix(),
+		IssueDate:         seedTime.Unix(),
 		Royalties:         &kapps.RoyaltiesData{},
 		Properties: &kapps.PropertiesData{
 			CanFreeze: true,
@@ -322,7 +324,7 @@ func initKLVAndKFIintoKapps(kdaKapp, stakingKapp state.KAppAccountHandler) {
 		InitialSupply:     10000000000000000,
 		CirculatingSupply: 100000000000000,
 		MaxSupply:         90000000000000000,
-		IssueDate:         time.Now().Unix(),
+		IssueDate:         seedTime.Unix(),
 		Royalties:         &kapps.RoyaltiesData{},
 		Properties: &kapps.PropertiesData{
 			CanFreeze: true,
@@ -345,7 +347,7 @@ func initKLVAndKFIintoKapps(kdaKapp, stakingKapp state.KAppAccountHandler) {
 		InitialSupply:     10000000000000000,
 		CirculatingSupply: 100000000000000,
 		MaxSupply:         90000000000000000,
-		IssueDate:         time.Now().Unix(),
+		IssueDate:         seedTime.Unix(),
 		Properties: &kapps.PropertiesData{
 			CanFreeze: true,
 			CanMint:   true,
@@ -1063,6 +1065,9 @@ func TestMetaProcessor_ApplyEpochStartSideEffects(t *testing.T) {
 			assert.Equal(t, uint32(7), gotEpoch)
 			assert.Equal(t, validators, gotValidators)
 
+			assert.Zero(t, indexerCalls, "the indexer waits for the commit")
+			mp.IndexSettledProposals()
+
 			if tt.expectIndexed {
 				assert.Equal(t, 1, indexerCalls)
 				assert.Equal(t, tt.proposalsToIndex, gotProposals)
@@ -1143,6 +1148,306 @@ func TestMetaProcessor_RejectedEpochStartWithSettledProposalsShouldNotNotifyInde
 	require.Error(t, err)
 	require.Contains(t, err.Error(), process.ErrRootStateDoesNotMatch.Error())
 	assert.Zero(t, indexerCalls, "a rejected epoch start block must not notify the indexer")
+}
+
+type epochStartCommitNode struct {
+	arguments    blproc.ArgMetaProcessor
+	mp           *blproc.MetaProcessorForTests
+	isEpochStart *atomic.Bool
+	committed    *atomic.Bool
+	blockIndexed *atomic.Bool
+	notified     [][]string
+	notifiedLate []bool
+}
+
+func newEpochStartCommitNode(t *testing.T, seedProposal bool) *epochStartCommitNode {
+	t.Helper()
+
+	hash := []byte("hash1")
+	genesis := &block.Block{Header: &block.BlockHeader{Nonce: 0, Slot: 0}}
+
+	node := &epochStartCommitNode{
+		isEpochStart: &atomic.Bool{},
+		committed:    &atomic.Bool{},
+		blockIndexed: &atomic.Bool{},
+	}
+	node.isEpochStart.Store(true)
+
+	newAccounts := func() *mock.AccountsStub {
+		return &mock.AccountsStub{
+			JournalLenCalled:       func() int { return 0 },
+			RootHashCalled:         func() ([]byte, error) { return []byte("roothash"), nil },
+			RevertToSnapshotCalled: func(_ int) error { return nil },
+			RecreateTrieCalled:     func(_ []byte) error { return nil },
+			CommitCalled: func() ([]byte, error) {
+				node.committed.Store(true)
+				return []byte("roothash"), nil
+			},
+		}
+	}
+
+	hdrUnit := &mock.StorerStub{
+		PutCalled: func(_, _ []byte) error { return nil },
+		GetCalled: func(_ []byte) ([]byte, error) { return nil, errors.New("not stored") },
+	}
+	store := initStore()
+	store.AddStorer(retriever.BlockUnit, hdrUnit)
+
+	dataPool := initDataPool([]byte("tx_hash"))
+	dataPool.HeadersCalled = func() retriever.HeadersPool {
+		return &mock.HeadersCacherStub{
+			RegisterHandlerCalled: func(_ func(header data.HeaderHandler, key []byte)) {},
+			GetHeaderByHashCalled: func(_ []byte) (data.HeaderHandler, error) { return &block.Block{}, nil },
+			LenCalled:             func() int { return 0 },
+			MaxSizeCalled:         func() int { return 1000 },
+			NoncesCalled:          func() []uint64 { return nil },
+		}
+	}
+
+	arguments := createMockMetaArguments()
+	arguments.AccountsDB[state.UserAccountsState] = newAccounts()
+	arguments.AccountsDB[state.PeerAccountsState] = newAccounts()
+	arguments.DataPool = dataPool
+	arguments.Store = store
+	arguments.Hasher = &mock.HasherStub{ComputeCalled: func(_ string) []byte { return hash }}
+	arguments.ForkDetector = &mock.ForkDetectorMock{
+		AddHeaderCalled: func(_ data.HeaderHandler, _ []byte, _ process.BlockHeaderState, _ []data.HeaderHandler, _ [][]byte) error {
+			return nil
+		},
+		GetHighestFinalBlockNonceCalled: func() uint64 { return 0 },
+	}
+	arguments.BlockChain = &mock.BlockChainMock{
+		GetCurrentBlockHeaderCalled:     func() data.HeaderHandler { return genesis },
+		GetCurrentBlockHeaderHashCalled: func() []byte { return hash },
+		GetGenesisHeaderCalled:          func() data.HeaderHandler { return genesis },
+	}
+	arguments.EpochStartTrigger = &mock.EpochStartTriggerStub{
+		IsEpochStartCalled: func() bool { return node.isEpochStart.Load() },
+		EpochCalled:        func() uint32 { return 1 },
+	}
+	arguments.NodesCoordinator = &mock.NodesCoordinatorMock{
+		SetEpochValidatorsInfoCalled: func(_ uint32, _ []*state.ValidatorInfo) error { return nil },
+		ComputeValidatorsGroupCalled: func(_ []byte, _ uint64, _ uint32) ([]sharding.Validator, error) { return nil, nil },
+	}
+	arguments.EventsProcessor = &mock.EventsProcessorStub{
+		SaveBlockCalled: func(_ *indexer.ArgsSaveBlockData) { node.blockIndexed.Store(true) },
+		UpdateProposalsAndParametersCalled: func(proposalIDs []string) {
+			node.notified = append(node.notified, proposalIDs)
+			node.notifiedLate = append(node.notifiedLate, node.committed.Load() && node.blockIndexed.Load())
+		},
+	}
+
+	mpp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
+
+	mp := blproc.NewMetaProcessorForTests(mpp)
+	controller, _ := kapps.NewProposalController(arguments.ForkController)
+	_ = mp.SetProposalController(controller)
+	_ = arguments.KAppController.SetProposalController(controller)
+	_ = arguments.KAppController.GetValidatorsKApp().SetKAppController(arguments.KAppController)
+
+	if seedProposal {
+		SetProposal(t, mp, func(_ *kapps.ProposalController, kApp state.KAppAccountHandler, mp *blproc.MetaProcessorForTests) ([]byte, error) {
+			err := mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{Parameters: map[int32][]byte{1: []byte("1234")}})
+			if err != nil {
+				return nil, err
+			}
+
+			return mp.GetMarshalizer().Marshal(&kapps.ProposalController{
+				ActiveProposals: map[uint32]*kapps.ActiveProposals{
+					1: {ProposalIDs: []uint64{1}},
+				},
+			})
+		})
+	}
+	_, err = mp.GetKAppAdapter().Commit()
+	require.NoError(t, err)
+
+	node.arguments = arguments
+	node.mp = mp
+
+	return node
+}
+
+func createBlockOnANewNode(t *testing.T, seedProposal bool, epochStart bool) *block.Block {
+	t.Helper()
+
+	proposer := newEpochStartCommitNode(t, seedProposal)
+	proposer.isEpochStart.Store(epochStart)
+
+	return createBlockOnNode(t, proposer)
+}
+
+func createBlockOnNode(t *testing.T, node *epochStartCommitNode) *block.Block {
+	t.Helper()
+
+	created, err := node.mp.CreateBlock(&block.Block{Header: &block.BlockHeader{}}, func() bool { return true })
+	require.NoError(t, err)
+
+	hdr, ok := created.(*block.Block)
+	require.True(t, ok)
+	hdr.Header.Nonce = 1
+	hdr.Header.Slot = 1
+	hdr.Header.ParentHash = []byte("hash1")
+	hdr.PubKeysBitmap = make([]byte, 21)
+
+	return hdr
+}
+
+func TestMetaProcessor_SettledProposalsReachTheIndexerOnlyOnCommit(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a validator processing the epoch start block", func(t *testing.T) {
+		t.Parallel()
+
+		hdr := createBlockOnANewNode(t, true, true)
+		require.True(t, hdr.GetIsEpochStart())
+
+		validator := newEpochStartCommitNode(t, true)
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		require.Empty(t, validator.notified, "processing must not reach the indexer")
+
+		require.NoError(t, validator.mp.CommitBlock(hdr))
+		require.Equal(t, [][]string{{"1"}}, validator.notified)
+		require.Equal(t, []bool{true}, validator.notifiedLate, "the notification follows the state commit and the indexed block")
+
+		require.NoError(t, validator.mp.CommitBlock(hdr))
+		require.Len(t, validator.notified, 1, "the ids are dispatched once")
+	})
+
+	t.Run("a proposer creating the epoch start block", func(t *testing.T) {
+		t.Parallel()
+
+		proposer := newEpochStartCommitNode(t, true)
+		hdr := createBlockOnNode(t, proposer)
+		require.True(t, hdr.GetIsEpochStart())
+		require.Empty(t, proposer.notified, "creating must not reach the indexer")
+
+		require.NoError(t, proposer.mp.CommitBlock(hdr))
+		require.Equal(t, [][]string{{"1"}}, proposer.notified)
+		require.Equal(t, []bool{true}, proposer.notifiedLate, "the notification follows the state commit and the indexed block")
+	})
+
+	t.Run("a failed commit keeps the indexer out", func(t *testing.T) {
+		t.Parallel()
+
+		hdr := createBlockOnANewNode(t, true, true)
+
+		validator := newEpochStartCommitNode(t, true)
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+
+		commitErr := errors.New("set current block failure")
+		blockChain, ok := validator.arguments.BlockChain.(*mock.BlockChainMock)
+		require.True(t, ok)
+		blockChain.SetCurrentBlockHeaderAndHashCalled = func(_ data.HeaderHandler, _ []byte) error { return commitErr }
+
+		require.ErrorIs(t, validator.mp.CommitBlock(hdr), commitErr)
+		require.Empty(t, validator.notified)
+	})
+
+	t.Run("an attempt rejected before it touches the state keeps the processed block's ids", func(t *testing.T) {
+		t.Parallel()
+
+		hdr := createBlockOnANewNode(t, true, true)
+
+		validator := newEpochStartCommitNode(t, true)
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+
+		require.ErrorIs(t, validator.mp.ProcessBlock(hdr, nil), process.ErrNilHaveTimeHandler)
+
+		invalid := &block.Block{Header: &block.BlockHeader{Nonce: 7, Slot: 7, ParentHash: []byte("hash1")}, PubKeysBitmap: make([]byte, 21)}
+		require.ErrorIs(t, validator.mp.ProcessBlock(invalid, haveTime), process.ErrWrongNonceInBlock)
+
+		require.NoError(t, validator.mp.CommitBlock(hdr))
+		require.Equal(t, [][]string{{"1"}}, validator.notified)
+	})
+}
+
+func TestMetaProcessor_ProcessedBlockThatNeverCommitsLeavesNoSettledProposals(t *testing.T) {
+	t.Parallel()
+
+	newAbandonedEpochStartNode := func(t *testing.T) *epochStartCommitNode {
+		hdr := createBlockOnANewNode(t, true, true)
+		require.True(t, hdr.GetIsEpochStart())
+
+		validator := newEpochStartCommitNode(t, true)
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		validator.mp.RevertStateToSnapshot(hdr)
+		validator.isEpochStart.Store(false)
+
+		return validator
+	}
+
+	t.Run("the next block is processed", func(t *testing.T) {
+		t.Parallel()
+
+		next := createBlockOnANewNode(t, true, false)
+		require.False(t, next.GetIsEpochStart())
+
+		validator := newAbandonedEpochStartNode(t)
+		require.NoError(t, validator.mp.ProcessBlock(next, haveTime))
+		require.NoError(t, validator.mp.CommitBlock(next))
+		require.Empty(t, validator.notified)
+	})
+
+	t.Run("the next block is created", func(t *testing.T) {
+		t.Parallel()
+
+		validator := newAbandonedEpochStartNode(t)
+		next := createBlockOnNode(t, validator)
+		require.False(t, next.GetIsEpochStart())
+
+		require.NoError(t, validator.mp.CommitBlock(next))
+		require.Empty(t, validator.notified)
+	})
+
+	t.Run("the state reverts to an earlier block", func(t *testing.T) {
+		t.Parallel()
+
+		hdr := createBlockOnANewNode(t, true, true)
+
+		validator := newEpochStartCommitNode(t, true)
+		committedRoot, err := validator.mp.GetKAppAdapter().RootHash()
+		require.NoError(t, err)
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+
+		earlier := &block.Block{Header: &block.BlockHeader{TrieRoot: []byte("roothash"), KAppsTrieRoot: committedRoot}}
+		require.NoError(t, validator.mp.RevertStateToBlock(earlier))
+
+		require.NoError(t, validator.mp.CommitBlock(hdr))
+		require.Empty(t, validator.notified)
+	})
+}
+
+func TestMetaProcessor_CommitWithNothingSettledDoesNotNotifyTheIndexer(t *testing.T) {
+	t.Parallel()
+
+	t.Run("an epoch start block settling no proposal", func(t *testing.T) {
+		t.Parallel()
+
+		hdr := createBlockOnANewNode(t, false, true)
+		require.True(t, hdr.GetIsEpochStart())
+
+		validator := newEpochStartCommitNode(t, false)
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		require.NoError(t, validator.mp.CommitBlock(hdr))
+		require.True(t, validator.blockIndexed.Load())
+		require.Empty(t, validator.notified)
+	})
+
+	t.Run("a block that is not an epoch start", func(t *testing.T) {
+		t.Parallel()
+
+		hdr := createBlockOnANewNode(t, false, false)
+		require.False(t, hdr.GetIsEpochStart())
+
+		validator := newEpochStartCommitNode(t, false)
+		validator.isEpochStart.Store(false)
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		require.NoError(t, validator.mp.CommitBlock(hdr))
+		require.True(t, validator.blockIndexed.Load())
+		require.Empty(t, validator.notified)
+	})
 }
 
 // finalizeProposalUpdates writes the settled parameters straight into the
@@ -2511,6 +2816,312 @@ func storedProposal(t *testing.T, mp *blproc.MetaProcessorForTests, id uint64) *
 	require.NoError(t, err)
 
 	return proposal
+}
+
+func TestMetaProcessor_EpochStartBackfillsMinKFIVoteAmountAfterTheFork(t *testing.T) {
+	t.Parallel()
+
+	key := int32(kapps.EnumParameter_MinKFIVoteAmount)
+	transfer := int32(kapps.EnumParameter_KAppFeeTransfer)
+	emptyEpochStart := &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1, Epoch: 1}}
+
+	newProcessorFrom := func(t *testing.T, arguments blproc.ArgMetaProcessor, edit func(map[int32]*kapps.Parameter)) *blproc.MetaProcessorForTests {
+		mpp, err := blproc.NewMetaProcessor(arguments)
+		require.NoError(t, err)
+		mp := blproc.NewMetaProcessorForTests(mpp)
+
+		beforeFork := mock.NewForkControllerStub()
+		beforeFork.FixAuditChangesV7Value = false
+		stored := kapps.InitialProposalParameters(beforeFork)
+		edit(stored)
+		SetProposal(t, mp, func(pc *kapps.ProposalController, _ state.KAppAccountHandler, mp *blproc.MetaProcessorForTests) ([]byte, error) {
+			pc.ActiveParameters = stored
+			return mp.GetMarshalizer().Marshal(pc)
+		})
+
+		live, err := kapps.NewProposalController(beforeFork)
+		require.NoError(t, err)
+		require.NoError(t, mpp.SetProposalController(live))
+
+		return mp
+	}
+
+	newProcessor := func(t *testing.T, forks *mock.ForkControllerStub, edit func(map[int32]*kapps.Parameter)) *blproc.MetaProcessorForTests {
+		arguments := createMockMetaArguments()
+		arguments.ForkController = forks
+
+		return newProcessorFrom(t, arguments, edit)
+	}
+
+	storedParameters := func(t *testing.T, mp *blproc.MetaProcessorForTests) map[int32]*kapps.Parameter {
+		acnt, err := mp.GetKAppAdapter().LoadAccount(kapps.ProposalKAppAddress)
+		require.NoError(t, err)
+		kApp, ok := acnt.(state.KAppAccountHandler)
+		require.True(t, ok)
+		controllerBytes, err := kApp.DataTrieTracker().RetrieveValue(kdautils.ProposalControllerKey)
+		require.NoError(t, err)
+		stored := &kapps.ProposalController{}
+		require.NoError(t, mp.GetMarshalizer().Unmarshal(stored, controllerBytes))
+
+		return stored.ActiveParameters
+	}
+
+	t.Run("an epoch start with nothing to settle gives the live set the default", func(t *testing.T) {
+		t.Parallel()
+
+		mp := newProcessor(t, mock.NewForkControllerStub(), func(map[int32]*kapps.Parameter) {})
+		require.NotContains(t, mp.GetActiveParameters(), key)
+
+		_, err := mp.ProcessProposalsEndOfEpoch(emptyEpochStart)
+		require.NoError(t, err)
+
+		require.Contains(t, mp.GetActiveParameters(), key)
+		assert.Equal(t, []byte("10000000"), mp.GetActiveParameters()[key].Value)
+		assert.Equal(t, kapps.EnumType_Int64, mp.GetActiveParameters()[key].Type)
+	})
+
+	t.Run("a settling epoch start stores the default", func(t *testing.T) {
+		t.Parallel()
+
+		mp := newProcessor(t, mock.NewForkControllerStub(), func(map[int32]*kapps.Parameter) {})
+		require.NotContains(t, storedParameters(t, mp), key)
+
+		settleApprovedProposal(t, mp, map[int32][]byte{transfer: []byte("1234")})
+
+		stored := storedParameters(t, mp)
+		require.Contains(t, stored, key)
+		assert.Equal(t, []byte("10000000"), stored[key].Value)
+		assert.Equal(t, []byte("1234"), stored[transfer].Value)
+		assert.Equal(t, []byte("10000000"), mp.GetActiveParameters()[key].Value)
+	})
+
+	t.Run("a stored value is kept when another parameter is backfilled", func(t *testing.T) {
+		t.Parallel()
+
+		mp := newProcessor(t, mock.NewForkControllerStub(), func(stored map[int32]*kapps.Parameter) {
+			stored[key] = &kapps.Parameter{Type: kapps.EnumType_Int64, Value: []byte("25000000")}
+			delete(stored, transfer)
+		})
+
+		settleApprovedProposal(t, mp, map[int32][]byte{int32(kapps.EnumParameter_KAppFeeFreeze): []byte("1234")})
+
+		stored := storedParameters(t, mp)
+		assert.Equal(t, []byte("25000000"), stored[key].Value)
+		assert.Contains(t, stored, transfer)
+		assert.Equal(t, []byte("25000000"), mp.GetActiveParameters()[key].Value)
+	})
+
+	t.Run("a stored value is kept when nothing needs backfilling", func(t *testing.T) {
+		t.Parallel()
+
+		mp := newProcessor(t, mock.NewForkControllerStub(), func(stored map[int32]*kapps.Parameter) {
+			stored[key] = &kapps.Parameter{Type: kapps.EnumType_Int64, Value: []byte("25000000")}
+		})
+
+		settleApprovedProposal(t, mp, map[int32][]byte{transfer: []byte("1234")})
+
+		assert.Equal(t, []byte("25000000"), storedParameters(t, mp)[key].Value)
+	})
+
+	t.Run("nothing is added before the fork", func(t *testing.T) {
+		t.Parallel()
+
+		forks := mock.NewForkControllerStub()
+		forks.FixAuditChangesV7Value = false
+		mp := newProcessor(t, forks, func(map[int32]*kapps.Parameter) {})
+
+		settleApprovedProposal(t, mp, map[int32][]byte{transfer: []byte("1234")})
+
+		assert.NotContains(t, storedParameters(t, mp), key)
+		assert.NotContains(t, mp.GetActiveParameters(), key)
+	})
+
+	t.Run("an epoch start with nothing to settle stores the default", func(t *testing.T) {
+		t.Parallel()
+
+		forks := mock.NewForkControllerStub()
+		mp := newProcessor(t, forks, func(stored map[int32]*kapps.Parameter) {
+			stored[transfer] = &kapps.Parameter{Type: kapps.EnumType_Int64, Value: []byte("1234")}
+		})
+		adapter := mp.GetKAppAdapter()
+		journalBefore := adapter.JournalLen()
+		rootBefore, err := adapter.RootHash()
+		require.NoError(t, err)
+		require.NotContains(t, storedParameters(t, mp), key)
+
+		proposalsToIndex, err := mp.ProcessProposalsEndOfEpoch(emptyEpochStart)
+		require.NoError(t, err)
+		assert.Nil(t, proposalsToIndex)
+		assert.Greater(t, adapter.JournalLen(), journalBefore)
+
+		rootAfter, err := adapter.RootHash()
+		require.NoError(t, err)
+		assert.NotEqual(t, rootBefore, rootAfter)
+
+		stored := storedParameters(t, mp)
+		require.Contains(t, stored, key)
+		assert.Equal(t, []byte("10000000"), stored[key].Value)
+		assert.Equal(t, kapps.EnumType_Int64, stored[key].Type)
+		assert.Equal(t, []byte("1234"), stored[transfer].Value)
+
+		acnt, err := adapter.LoadAccount(kapps.ProposalKAppAddress)
+		require.NoError(t, err)
+		kApp, ok := acnt.(state.KAppAccountHandler)
+		require.True(t, ok)
+		restarted, err := kApp.StartProposalsKApp(forks)
+		require.NoError(t, err)
+		assert.Equal(t, []byte("10000000"), restarted.GetActiveParameters()[key].Value)
+		assert.Empty(t, kApp.DataTrieTracker().DirtyData())
+	})
+
+	t.Run("a reverted epoch start takes the stored default back", func(t *testing.T) {
+		t.Parallel()
+
+		mp := newProcessor(t, mock.NewForkControllerStub(), func(map[int32]*kapps.Parameter) {})
+		adapter := mp.GetKAppAdapter()
+		snapshot := adapter.JournalLen()
+
+		_, err := mp.ProcessProposalsEndOfEpoch(emptyEpochStart)
+		require.NoError(t, err)
+		require.Contains(t, storedParameters(t, mp), key)
+
+		require.NoError(t, adapter.RevertToSnapshot(snapshot))
+		assert.NotContains(t, storedParameters(t, mp), key)
+	})
+
+	t.Run("a failed save fails the epoch start", func(t *testing.T) {
+		t.Parallel()
+
+		arguments := createMockMetaArguments()
+		arguments.ForkController = mock.NewForkControllerStub()
+		kApps := arguments.AccountsDB[state.KAppAccountsState]
+		expectedErr := errors.New("save failed")
+		saveErr := error(nil)
+		arguments.AccountsDB[state.KAppAccountsState] = &mock.AccountsStub{
+			LoadAccountCalled: kApps.LoadAccount,
+			SaveAccountCalled: func(account state.AccountHandler) error {
+				if saveErr != nil {
+					return saveErr
+				}
+				return kApps.SaveAccount(account)
+			},
+		}
+		mp := newProcessorFrom(t, arguments, func(map[int32]*kapps.Parameter) {})
+		saveErr = expectedErr
+
+		proposalsToIndex, err := mp.ProcessProposalsEndOfEpoch(emptyEpochStart)
+		assert.Equal(t, expectedErr, err)
+		assert.Nil(t, proposalsToIndex)
+	})
+
+	t.Run("nothing is stored before the fork with nothing to merge", func(t *testing.T) {
+		t.Parallel()
+
+		forks := mock.NewForkControllerStub()
+		forks.FixAuditChangesV7Value = false
+		mp := newProcessor(t, forks, func(map[int32]*kapps.Parameter) {})
+		adapter := mp.GetKAppAdapter()
+		journalBefore := adapter.JournalLen()
+		storedBefore := storedParameters(t, mp)
+
+		proposalsToIndex, err := mp.ProcessProposalsEndOfEpoch(emptyEpochStart)
+		require.NoError(t, err)
+		assert.Nil(t, proposalsToIndex)
+
+		assert.Equal(t, journalBefore, adapter.JournalLen())
+		assert.Equal(t, storedBefore, storedParameters(t, mp))
+	})
+
+	t.Run("nothing is stored before the fork when an older parameter is merged", func(t *testing.T) {
+		t.Parallel()
+
+		deposit := int32(kapps.EnumParameter_KAppFeeDeposit)
+		forks := mock.NewForkControllerStub()
+		forks.FixAuditChangesV7Value = false
+		mp := newProcessor(t, forks, func(stored map[int32]*kapps.Parameter) {
+			delete(stored, deposit)
+		})
+		adapter := mp.GetKAppAdapter()
+		journalBefore := adapter.JournalLen()
+		rootBefore, err := adapter.RootHash()
+		require.NoError(t, err)
+		storedBefore := storedParameters(t, mp)
+		require.NotContains(t, storedBefore, deposit)
+
+		proposalsToIndex, err := mp.ProcessProposalsEndOfEpoch(emptyEpochStart)
+		require.NoError(t, err)
+		assert.Nil(t, proposalsToIndex)
+
+		assert.Equal(t, journalBefore, adapter.JournalLen())
+		rootAfter, err := adapter.RootHash()
+		require.NoError(t, err)
+		assert.Equal(t, rootBefore, rootAfter)
+		assert.Equal(t, storedBefore, storedParameters(t, mp))
+		assert.Contains(t, mp.GetActiveParameters(), deposit)
+		assert.NotContains(t, mp.GetActiveParameters(), key)
+	})
+
+	t.Run("nothing is stored after the fork when the stored set holds the default", func(t *testing.T) {
+		t.Parallel()
+
+		mp := newProcessor(t, mock.NewForkControllerStub(), func(stored map[int32]*kapps.Parameter) {
+			stored[key] = &kapps.Parameter{Type: kapps.EnumType_Int64, Value: []byte("25000000")}
+		})
+		adapter := mp.GetKAppAdapter()
+		journalBefore := adapter.JournalLen()
+		rootBefore, err := adapter.RootHash()
+		require.NoError(t, err)
+
+		proposalsToIndex, err := mp.ProcessProposalsEndOfEpoch(emptyEpochStart)
+		require.NoError(t, err)
+		assert.Nil(t, proposalsToIndex)
+
+		assert.Equal(t, journalBefore, adapter.JournalLen())
+		rootAfter, err := adapter.RootHash()
+		require.NoError(t, err)
+		assert.Equal(t, rootBefore, rootAfter)
+		assert.Equal(t, []byte("25000000"), storedParameters(t, mp)[key].Value)
+	})
+
+	t.Run("an epoch start settling a proposal saves the account once", func(t *testing.T) {
+		t.Parallel()
+
+		arguments := createMockMetaArguments()
+		arguments.ForkController = mock.NewForkControllerStub()
+		kApps := arguments.AccountsDB[state.KAppAccountsState]
+		saves := 0
+		arguments.AccountsDB[state.KAppAccountsState] = &mock.AccountsStub{
+			LoadAccountCalled: kApps.LoadAccount,
+			SaveAccountCalled: func(account state.AccountHandler) error {
+				saves++
+				return kApps.SaveAccount(account)
+			},
+		}
+		mp := newProcessorFrom(t, arguments, func(map[int32]*kapps.Parameter) {})
+		SetProposal(t, mp, func(pc *kapps.ProposalController, kApp state.KAppAccountHandler, mp *blproc.MetaProcessorForTests) ([]byte, error) {
+			err := mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{
+				Parameters: map[int32][]byte{transfer: []byte("1234")},
+				Votes:      map[int32]int64{int32(kapps.ProposalData_VoteDetail_Yes): 10},
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			pc.ActiveProposals = map[uint32]*kapps.ActiveProposals{1: {ProposalIDs: []uint64{1}}}
+			return mp.GetMarshalizer().Marshal(pc)
+		})
+		saves = 0
+
+		proposalsToIndex, err := mp.ProcessProposalsEndOfEpoch(emptyEpochStart)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"1"}, proposalsToIndex)
+		assert.Equal(t, 1, saves)
+
+		stored := storedParameters(t, mp)
+		assert.Equal(t, []byte("10000000"), stored[key].Value)
+		assert.Equal(t, []byte("1234"), stored[transfer].Value)
+		assert.Equal(t, kapps.ProposalData_ApprovedProposal, storedProposal(t, mp, 1).ProposalStatus)
+	})
 }
 
 // From FixAuditChangesV6 an approved proposal holding an invalid parameter is denied whole

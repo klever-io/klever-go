@@ -485,6 +485,43 @@ func TestParseParamAndValidate_EveryParameterIsBoundedFromFixAuditChangesV6(t *t
 	}
 }
 
+func TestInitialProposalParameters_MinKFIVoteAmountExistsOnlyAfterTheFork(t *testing.T) {
+	key := int32(kapps.EnumParameter_MinKFIVoteAmount)
+
+	afterFork := mock.NewForkControllerStub()
+	param, ok := kapps.InitialProposalParameters(afterFork)[key]
+	assert.True(t, ok)
+	assert.Equal(t, kapps.EnumType_Int64, param.GetType())
+	assert.Equal(t, []byte("10000000"), param.GetValue())
+
+	beforeFork := mock.NewForkControllerStub()
+	beforeFork.FixAuditChangesV7Value = false
+	assert.NotContains(t, kapps.InitialProposalParameters(beforeFork), key)
+	assert.Len(t, kapps.InitialProposalParameters(afterFork), len(kapps.InitialProposalParameters(beforeFork))+1)
+}
+
+func TestParseParamAndValidate_MinKFIVoteAmountBounds(t *testing.T) {
+	controller := NewProposalControllerForTests()
+	mockForks := mock.NewForkControllerStub()
+
+	cases := []struct {
+		value string
+		err   error
+	}{
+		{"0", common.ErrInvalidParameter},
+		{"-1", common.ErrInvalidParameter},
+		{"1", nil},
+		{"10000000", nil},
+		{"1000000000", nil},
+		{"1000000001", common.ErrInvalidParameter},
+	}
+
+	for _, tc := range cases {
+		_, err := controller.ParseParamAndValidate(kapps.EnumParameter_MinKFIVoteAmount, []byte(tc.value), mockForks)
+		assert.Equal(t, tc.err, err, "value %s", tc.value)
+	}
+}
+
 // TestParseParamAndValidate_NegativeFees is the KLC-2691 reproducer: negative fees passed
 // validation. They are rejected from FixAuditChangesV6 and still accepted before it, so
 // replaying a pre-fork block reaches the same decision the chain did.
@@ -521,6 +558,8 @@ func TestParseParamAndValidate_EveryBoundAtItsEdges(t *testing.T) {
 		maxGasPerBlock = int64(core.MaxGasLimitPerTx) * core.MaxKappIterator
 		maxKLVSupply   = 10_000_000_000_000_000
 		maxKFISupply   = 21_000_000_000_000
+
+		maxMinKFIVoteAmount = 1_000_000_000
 	)
 
 	kappFee := [2]int64{0, 1_000_000_000_000} // 1M KLV
@@ -566,6 +605,7 @@ func TestParseParamAndValidate_EveryBoundAtItsEdges(t *testing.T) {
 		kapps.EnumParameter_MinKLVBucketAmount:      klvStake,
 
 		kapps.EnumParameter_MinKFIStakedToEnableProposals: {1, maxKFISupply},
+		kapps.EnumParameter_MinKFIVoteAmount:              {1, maxMinKFIVoteAmount},
 
 		kapps.EnumParameter_MaxEpochsUnclaimed: iteration,
 		kapps.EnumParameter_MaxNFTMintBatch:    iteration,

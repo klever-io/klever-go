@@ -35,6 +35,10 @@ func (m *MetaProcessorForTests) ApplyEpochStartSideEffects(header *block.Block, 
 	})
 }
 
+func (m *MetaProcessorForTests) IndexSettledProposals() {
+	m.indexSettledProposals()
+}
+
 func (m *MetaProcessorForTests) GetKAppAdapter() state.AccountsAdapter {
 	return m.accountsDB[state.KAppAccountsState]
 }

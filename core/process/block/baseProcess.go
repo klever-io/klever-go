@@ -820,27 +820,28 @@ func (mp *metaProcessor) UpdateKLVCirculationSupply(amountMint int64, amountBurn
 	return mp.accountsDB[state.KAppAccountsState].SaveAccount(kdaKapp)
 }
 
-func (mp *metaProcessor) getProposalController() (state.KAppAccountHandler, *kapps.ProposalController, error) {
+func (mp *metaProcessor) getProposalController() (state.KAppAccountHandler, *kapps.ProposalController, bool, error) {
 	proposalKApp, currentProposal, err := mp.loadProposalController()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 
-	if mergeInitialParameters(currentProposal, mp.forkController) {
+	merged := mergeInitialParameters(currentProposal, mp.forkController)
+	if merged {
 		proposalData, err := mp.marshalizer.Marshal(currentProposal)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 
 		err = proposalKApp.DataTrieTracker().SaveKeyValue(kdautils.ProposalControllerKey, proposalData)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 
 		mp.proposalController.Get().UpdateParameters(currentProposal.ActiveParameters)
 	}
 
-	return proposalKApp, currentProposal, nil
+	return proposalKApp, currentProposal, merged, nil
 }
 
 // loadProposalController reads the proposal controller from the KApp trie, without writing.

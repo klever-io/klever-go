@@ -338,6 +338,42 @@ func TestToAccountProposalVotesKey(t *testing.T) {
 	}
 }
 
+func TestToProposalVoterKey(t *testing.T) {
+	tests := []struct {
+		name       string
+		proposalID uint64
+		hexAddress string
+		expected   string
+	}{
+		{"Empty address", 1, "", "PROPVOTER/1/"},
+		{"Basic address", 1, "abcdef", "PROPVOTER/1/abcdef"},
+		{"Large ID", 999999, "abcdef", "PROPVOTER/999999/abcdef"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ToProposalVoterKey(tt.proposalID, tt.hexAddress)
+			require.Equal(t, []byte(tt.expected), result)
+		})
+	}
+}
+
+func TestToProposalVotersPrefix(t *testing.T) {
+	require.Equal(t, []byte("PROPVOTER/1/"), ToProposalVotersPrefix(1))
+	require.Equal(t, []byte("PROPVOTER/12/"), ToProposalVotersPrefix(12))
+
+	require.True(t, bytes.HasPrefix(ToProposalVoterKey(1, "abcdef"), ToProposalVotersPrefix(1)))
+	require.False(t, bytes.HasPrefix(ToProposalVoterKey(12, "abcdef"), ToProposalVotersPrefix(1)))
+}
+
+func TestProposalVoterKeysDoNotOverlapTheOtherProposalKeys(t *testing.T) {
+	prefix := ToProposalVotersPrefix(1)
+
+	require.False(t, bytes.HasPrefix(ToProposalKey(1), prefix))
+	require.False(t, bytes.HasPrefix(ToAccountProposalVotesKey("1/abcdef"), prefix))
+	require.False(t, bytes.HasPrefix(ProposalPreForkVotesKey, prefix))
+}
+
 func TestActiveProposalIDs(t *testing.T) {
 	require.Empty(t, ActiveProposalIDs(nil), "a nil controller has no active proposal")
 	require.Empty(t, ActiveProposalIDs(&kapps.ProposalController{}))

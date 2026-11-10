@@ -53,6 +53,9 @@ var ProposalPrefix = "PROP"
 // ProposalVotesPrefix is the key prefix of the per-account proposal vote index
 var ProposalVotesPrefix = "PROPVOTES"
 
+// ProposalVoterPrefix is the key prefix of the per-voter records of proposals created at or after the FixAuditChangesV7 activation epoch
+var ProposalVoterPrefix = "PROPVOTER"
+
 // ProposalPreForkVotesKey holds the last proposal id handed out before the
 // FixAuditChangesV5 activation, the highest id a KFI unfreeze must still scan for
 // votes cast before the per-account vote index existed.

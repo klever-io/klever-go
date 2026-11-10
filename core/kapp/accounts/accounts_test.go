@@ -2085,6 +2085,8 @@ func TestUnfreezeKFIAndUpdatingProposals(t *testing.T) {
 
 type proposalVotesConfig struct {
 	fixAuditChangesV5    bool
+	fixAuditChangesV7    bool
+	minKFIVoteAmount     int64
 	enableSmartContracts bool
 	controller           *kapps.ProposalController
 	// indexIDs builds the stored index with each entry's amount taken from the proposal's own
@@ -2102,10 +2104,15 @@ type proposalVotesConfig struct {
 	pruneErr   error
 	saveErr    error
 	stakingErr error
+
+	getVoterErr    error
+	setVoterErr    error
+	removeVoterErr error
 }
 
 type proposalVotesHarness struct {
 	accountsKapp *accountsKapp
+	context      kapp.KappContext
 	loaded       []uint64
 	// stakingLoads counts KFI staking reads; controllerRewrites counts proposal saves that
 	// carried a controller, which the unfreeze path never needs to write.
@@ -2170,6 +2177,16 @@ func newProposalVotesHarness(t *testing.T, cfg proposalVotesConfig) *proposalVot
 	}
 
 	h := &proposalVotesHarness{}
+	h.context = kapp.NewKappContext(kapp.ArgsNewKAppContext{
+		OriginalSender: txSender,
+		ContractID:     0,
+		ContractType:   transaction.TXContract_UnfreezeContractType,
+		Block: &block.Block{
+			Header: &block.BlockHeader{
+				Timestamp: 1000,
+			},
+		},
+	})
 
 	accsKapp, err := NewAccountKApp(&ArgsNewAccountKApp{
 		Hasher:      &commonMock.HasherMock{},
@@ -2182,6 +2199,9 @@ func newProposalVotesHarness(t *testing.T, cfg proposalVotesConfig) *proposalVot
 			FixAuditChangesV5Called: func() bool {
 				return cfg.fixAuditChangesV5
 			},
+			FixAuditChangesV7Called: func() bool {
+				return cfg.fixAuditChangesV7
+			},
 		},
 	})
 	require.NoError(t, err)
@@ -2190,17 +2210,19 @@ func newProposalVotesHarness(t *testing.T, cfg proposalVotesConfig) *proposalVot
 	require.NoError(t, err)
 
 	err = accsKapp.SetKAppController(&kvmStub.KAppControllerStub{
-		GetCurrentKAppContextCalled: func() kapp.KappContext {
-			return kapp.NewKappContext(kapp.ArgsNewKAppContext{
-				OriginalSender: txSender,
-				ContractID:     0,
-				ContractType:   transaction.TXContract_UnfreezeContractType,
-				Block: &block.Block{
-					Header: &block.BlockHeader{
-						Timestamp: 1000,
-					},
+		GetProposalControllerCalled: func() kapps.ActiveProposalController {
+			return &commonMock.ProposalControllerStub{
+				GetParameterIntCalled: func(param kapps.EnumParameter) int64 {
+					if param == kapps.EnumParameter_MinKFIVoteAmount {
+						return cfg.minKFIVoteAmount
+					}
+
+					return 0
 				},
-			})
+			}
+		},
+		GetCurrentKAppContextCalled: func() kapp.KappContext {
+			return h.context
 		},
 		GetKDAKAppCalled: func() kapp.KDAKapp {
 			return &kvmStub.KDAKappStub{
@@ -2263,6 +2285,31 @@ func newProposalVotesHarness(t *testing.T, cfg proposalVotesConfig) *proposalVot
 					}
 
 					return math.MaxUint64, nil
+				},
+				GetVoterCalled: func(proposal *kapps.ProposalData, _ uint64, encodedAddr string) (*kapps.ProposalData_VoteDetail, error) {
+					if cfg.getVoterErr != nil {
+						return nil, cfg.getVoterErr
+					}
+
+					return proposal.Voters[encodedAddr], nil
+				},
+				SetVoterCalled: func(proposal *kapps.ProposalData, _ uint64, encodedAddr string, detail *kapps.ProposalData_VoteDetail) error {
+					if cfg.setVoterErr != nil {
+						return cfg.setVoterErr
+					}
+
+					proposal.Voters[encodedAddr] = detail
+
+					return nil
+				},
+				RemoveVoterCalled: func(proposal *kapps.ProposalData, _ uint64, encodedAddr string) error {
+					if cfg.removeVoterErr != nil {
+						return cfg.removeVoterErr
+					}
+
+					delete(proposal.Voters, encodedAddr)
+
+					return nil
 				},
 				SetAccountProposalVotesCalled: func(encodedAddr string, entries []kapp.ProposalVoteIndexEntry) error {
 					if cfg.pruneErr != nil {
@@ -2347,6 +2394,179 @@ func voterAmountOf(proposal *kapps.ProposalData) int64 {
 
 func noVotesOf(proposal *kapps.ProposalData) int64 {
 	return proposal.Votes[int32(kapps.ProposalData_VoteDetail_No)]
+}
+
+func TestUnfreezePropagatesVoterStoreErrors(t *testing.T) {
+	storeErr := errors.New("voter store failure")
+
+	cases := []struct {
+		name           string
+		cfg            proposalVotesConfig
+		unfrozenAmount int64
+	}{
+		{"reading the voter", proposalVotesConfig{getVoterErr: storeErr}, 40},
+		{"updating a reduced voter", proposalVotesConfig{setVoterErr: storeErr}, 40},
+		{"removing an exhausted voter", proposalVotesConfig{removeVoterErr: storeErr}, 100},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			proposals := map[uint64]*kapps.ProposalData{
+				1: newVotedProposal(100, 500),
+			}
+
+			cfg := tc.cfg
+			cfg.fixAuditChangesV5 = true
+			cfg.indexIDs = []uint64{1}
+			cfg.proposals = proposals
+
+			h := newProposalVotesHarness(t, cfg)
+
+			resCode, err := h.unfreezeVotes(10, tc.unfrozenAmount)
+
+			require.ErrorIs(t, err, storeErr)
+			require.Equal(t, transaction.Transaction_AccountError, resCode)
+			require.Empty(t, h.saved)
+			require.Zero(t, h.indexWrites)
+		})
+	}
+}
+
+func TestUnfreezeRemovesAVoteLeftBelowTheMinimum(t *testing.T) {
+	proposals := map[uint64]*kapps.ProposalData{
+		1: newVotedProposal(100, 500),
+	}
+
+	h := newProposalVotesHarness(t, proposalVotesConfig{
+		fixAuditChangesV5: true,
+		fixAuditChangesV7: true,
+		minKFIVoteAmount:  61,
+		indexIDs:          []uint64{1},
+		proposals:         proposals,
+	})
+
+	resCode, err := h.unfreezeVotes(10, 40)
+
+	require.NoError(t, err)
+	require.Equal(t, transaction.Transaction_Ok, resCode)
+
+	require.NotContains(t, proposals[1].Voters, hex.EncodeToString(txSender))
+	require.Equal(t, int64(400), noVotesOf(proposals[1]), "the whole vote leaves the tally")
+	require.Equal(t, []uint64{1}, h.saved)
+	require.Equal(t, []uint64{1}, h.pruned)
+	require.Empty(t, h.written)
+}
+
+func TestUnfreezeReceiptCarriesTheAmountLeftOnTheVote(t *testing.T) {
+	cases := []struct {
+		name     string
+		minimum  int64
+		expected string
+	}{
+		{"a vote removed for falling below the minimum", 61, "0"},
+		{"a vote reduced to the minimum", 60, "60"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newProposalVotesHarness(t, proposalVotesConfig{
+				fixAuditChangesV5: true,
+				fixAuditChangesV7: true,
+				minKFIVoteAmount:  tc.minimum,
+				indexIDs:          []uint64{1},
+				proposals:         map[uint64]*kapps.ProposalData{1: newVotedProposal(100, 500)},
+			})
+
+			resCode, err := h.unfreezeVotes(10, 40)
+
+			require.NoError(t, err)
+			require.Equal(t, transaction.Transaction_Ok, resCode)
+
+			receipts := h.context.Receipts().Get()
+			require.Len(t, receipts, 1)
+			require.Equal(t, [][]byte{
+				{byte(txProcess.ProposalVote), 0},
+				[]byte("1"),
+				txSender,
+				[]byte(strconv.FormatInt(int64(kapps.ProposalData_VoteDetail_No), 10)),
+				[]byte(tc.expected),
+			}, receipts[0].Data)
+		})
+	}
+}
+
+func TestUnfreezeRemovesAPreForkVoteLeftBelowTheMinimum(t *testing.T) {
+	proposals := map[uint64]*kapps.ProposalData{
+		1: newVotedProposal(100, 500),
+	}
+
+	bound := uint64(1)
+	h := newProposalVotesHarness(t, proposalVotesConfig{
+		fixAuditChangesV5: true,
+		fixAuditChangesV7: true,
+		minKFIVoteAmount:  61,
+		idBound:           &bound,
+		proposals:         proposals,
+	})
+
+	resCode, err := h.unfreezeVotes(10, 40)
+
+	require.NoError(t, err)
+	require.Equal(t, transaction.Transaction_Ok, resCode)
+
+	require.NotContains(t, proposals[1].Voters, hex.EncodeToString(txSender))
+	require.Equal(t, int64(400), noVotesOf(proposals[1]))
+	require.Equal(t, []uint64{1}, h.saved)
+}
+
+func TestUnfreezeKeepsAReducedVoteAtOrAboveTheMinimum(t *testing.T) {
+	for _, minimum := range []int64{60, 59, 1} {
+		t.Run(strconv.FormatInt(minimum, 10), func(t *testing.T) {
+			proposals := map[uint64]*kapps.ProposalData{
+				1: newVotedProposal(100, 500),
+			}
+
+			h := newProposalVotesHarness(t, proposalVotesConfig{
+				fixAuditChangesV5: true,
+				fixAuditChangesV7: true,
+				minKFIVoteAmount:  minimum,
+				indexIDs:          []uint64{1},
+				proposals:         proposals,
+			})
+
+			resCode, err := h.unfreezeVotes(10, 40)
+
+			require.NoError(t, err)
+			require.Equal(t, transaction.Transaction_Ok, resCode)
+
+			require.Equal(t, int64(60), voterAmountOf(proposals[1]))
+			require.Equal(t, int64(460), noVotesOf(proposals[1]))
+			require.Equal(t, []kapp.ProposalVoteIndexEntry{{ProposalID: 1, Amount: 60}}, h.written)
+		})
+	}
+}
+
+func TestUnfreezeKeepsASmallVoteBeforeTheFork(t *testing.T) {
+	proposals := map[uint64]*kapps.ProposalData{
+		1: newVotedProposal(100, 500),
+	}
+
+	h := newProposalVotesHarness(t, proposalVotesConfig{
+		fixAuditChangesV5: true,
+		fixAuditChangesV7: false,
+		minKFIVoteAmount:  61,
+		indexIDs:          []uint64{1},
+		proposals:         proposals,
+	})
+
+	resCode, err := h.unfreezeVotes(10, 40)
+
+	require.NoError(t, err)
+	require.Equal(t, transaction.Transaction_Ok, resCode)
+
+	require.Equal(t, int64(60), voterAmountOf(proposals[1]))
+	require.Equal(t, int64(460), noVotesOf(proposals[1]))
+	require.Equal(t, []kapp.ProposalVoteIndexEntry{{ProposalID: 1, Amount: 60}}, h.written)
 }
 
 func TestUnfreezeReducesVotesOnlyForIndexedProposals(t *testing.T) {
@@ -2552,6 +2772,55 @@ func TestUnfreezeKeepsVoteWhenFrozenBalanceStillCoversIt(t *testing.T) {
 	require.Empty(t, h.saved)
 	require.Empty(t, h.pruned)
 	require.Equal(t, 0, h.indexWrites, "nothing changed, so the index is not rewritten")
+	require.Equal(t, int64(50), voterAmountOf(proposals[1]))
+	require.Equal(t, int64(500), noVotesOf(proposals[1]))
+}
+
+func TestUnfreezeKeepsACoveredPreForkVoteBelowARaisedMinimum(t *testing.T) {
+	proposals := map[uint64]*kapps.ProposalData{
+		1: newVotedProposal(50, 500),
+	}
+
+	bound := uint64(1)
+	h := newProposalVotesHarness(t, proposalVotesConfig{
+		fixAuditChangesV5: true,
+		fixAuditChangesV7: true,
+		minKFIVoteAmount:  100,
+		idBound:           &bound,
+		proposals:         proposals,
+	})
+
+	resCode, err := h.unfreezeVotes(80, 20)
+
+	require.NoError(t, err)
+	require.Equal(t, transaction.Transaction_Ok, resCode)
+
+	require.Empty(t, h.saved)
+	require.Equal(t, int64(50), voterAmountOf(proposals[1]))
+	require.Equal(t, int64(500), noVotesOf(proposals[1]))
+}
+
+func TestUnfreezeKeepsACoveredVoteBelowARaisedMinimum(t *testing.T) {
+	proposals := map[uint64]*kapps.ProposalData{
+		1: newVotedProposal(50, 500),
+	}
+
+	h := newProposalVotesHarness(t, proposalVotesConfig{
+		fixAuditChangesV5: true,
+		fixAuditChangesV7: true,
+		minKFIVoteAmount:  100,
+		indexIDs:          []uint64{1},
+		proposals:         proposals,
+	})
+
+	resCode, err := h.unfreezeVotes(80, 20)
+
+	require.NoError(t, err)
+	require.Equal(t, transaction.Transaction_Ok, resCode)
+
+	require.Empty(t, h.saved)
+	require.Empty(t, h.pruned)
+	require.Equal(t, 0, h.indexWrites)
 	require.Equal(t, int64(50), voterAmountOf(proposals[1]))
 	require.Equal(t, int64(500), noVotesOf(proposals[1]))
 }

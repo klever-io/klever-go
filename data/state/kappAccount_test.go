@@ -1221,3 +1221,31 @@ func TestKAppAccount_StartProposalsKApp_MergePathTriggered(t *testing.T) {
 	mergedParams := controller.GetActiveParameters()
 	assert.Equal(t, paramsAfter, len(mergedParams), "Merged parameters should match the full parameter count")
 }
+
+func TestKAppAccount_StartProposalsKApp_WritesNothingWhenStoredHoldsEveryInitialParameter(t *testing.T) {
+	t.Parallel()
+
+	address := []byte("kapp-address")
+	forks := mock.NewForkControllerStub()
+
+	storedController := kapps.NewInitialProposalController(forks)
+	storedData, err := marshal.NewProtoMarshalizer().Marshal(storedController)
+	require.NoError(t, err)
+
+	acc, err := state.NewKAppAccount(address)
+	require.NoError(t, err)
+	acc.SetDataTrie(&mock.TrieStub{
+		GetCalled: func(key []byte) ([]byte, error) {
+			return append(append(append([]byte{}, storedData...), key...), address...), nil
+		},
+		UpdateCalled: func(_, _ []byte) error {
+			t.Error("the data trie must not be written")
+			return nil
+		},
+	})
+
+	controller, err := acc.StartProposalsKApp(forks)
+	require.NoError(t, err)
+	assert.Equal(t, len(storedController.ActiveParameters), len(controller.GetActiveParameters()))
+	assert.Empty(t, acc.DataTrieTracker().DirtyData())
+}

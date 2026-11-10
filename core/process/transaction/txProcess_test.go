@@ -112,19 +112,22 @@ func createArgsForTxProcessor() pTX.ArgsNewTxProcessor {
 }
 
 func createArgsForTxProcessorWithAccounts(accsMock, peersMock, kappsMock state.AccountsAdapter, accCacher state.AccountsCacher) pTX.ArgsNewTxProcessor {
-
-	marshalizerMock := &commonMock.ProtoMarshalizerMock{}
-	pubkeyConvMock := createMockPubkeyConverter()
-	ratingsDataMock := &commonMock.RatingsInfoMock{}
-
-	epochNotifier := &commonMock.EpochNotifierStub{}
-	forkController, _ := fork.NewForkController(config.EnableEpochs{
+	return createArgsForTxProcessorWithEnableEpochs(accCacher, config.EnableEpochs{
 		ClaimKFI:              0,
 		ProcessorFlowITOPrice: 0,
 		FixStakingBuckets:     0,
 		KdaFpr:                0,
 		SmartContracts:        0,
-	}, epochNotifier)
+	})
+}
+
+func createArgsForTxProcessorWithEnableEpochs(accCacher state.AccountsCacher, enableEpochs config.EnableEpochs) pTX.ArgsNewTxProcessor {
+	marshalizerMock := &commonMock.ProtoMarshalizerMock{}
+	pubkeyConvMock := createMockPubkeyConverter()
+	ratingsDataMock := &commonMock.RatingsInfoMock{}
+
+	epochNotifier := &commonMock.EpochNotifierStub{}
+	forkController, _ := fork.NewForkController(enableEpochs, epochNotifier)
 
 	argsKapp := kappcontroller.ArgsNewKApp{
 		Hasher:         &commonMock.HasherMock{},
@@ -4858,10 +4861,23 @@ func TestTxProcessor_ProcessVoteWrongValsShouldErr(t *testing.T) {
 	err = execTx.ProcessTransaction(createBlockHeader(), hash, tx)
 	assert.Equal(t, common.ErrInvalidValue, err)
 
+	contract = transaction.VoteContract{
+		ProposalID: 1,
+		Amount:     9_999_999,
+	}
+
+	tx, _ = createTransactionMock(&contract, transaction.TXContract_VoteContractType, testOwnerAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(tx)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(createBlockHeader(), hash, tx)
+	assert.Equal(t, common.ErrProposalVoteBelowMinimum, err)
+
 	//Vote with invalid proposalID
 	contract = transaction.VoteContract{
 		ProposalID: 99999,
-		Amount:     1,
+		Amount:     10_000_000,
 	}
 
 	tx, _ = createTransactionMock(&contract, transaction.TXContract_VoteContractType, testOwnerAddress, 0)
@@ -4894,7 +4910,7 @@ func TestTxProcessor_ProcessVoteOkValsShouldWork(t *testing.T) {
 	userKDA := kapps.UserKDA{
 		Balance:       12345,
 		LastClaim:     &kapps.LastClaim{},
-		FrozenBalance: 12345,
+		FrozenBalance: 20_000_000,
 		Buckets:       make(map[string]*kapps.UserBucket),
 	}
 
@@ -4920,8 +4936,7 @@ func TestTxProcessor_ProcessVoteOkValsShouldWork(t *testing.T) {
 	_ = kappDB.SaveAccount(proposalKapp)
 	_ = peerDB.SaveAccount(peerAcc)
 
-	args := createArgsForTxProcessor()
-	args.AccountsCacher = accCacher
+	args := createArgsForTxProcessorWithEnableEpochs(accCacher, config.EnableEpochs{FixAuditChangesV7: 1})
 	execTx := NewTXProcessor(t, args)
 
 	block := createBlockHeader()
@@ -4943,7 +4958,7 @@ func TestTxProcessor_ProcessVoteOkValsShouldWork(t *testing.T) {
 	voteContract := transaction.VoteContract{
 		Type:       transaction.VoteContract_EnumVoteType(kapps.ProposalData_VoteDetail_Yes),
 		ProposalID: 1,
-		Amount:     1234,
+		Amount:     10_000_000,
 	}
 
 	voteTX, _ := createTransactionMock(&voteContract, transaction.TXContract_VoteContractType, testOwnerAddress, 0)
@@ -4984,8 +4999,232 @@ func TestTxProcessor_ProcessVoteOkValsShouldWork(t *testing.T) {
 	assert.Equal(t, proposalContract.Description, proposalData.Description)
 	assert.Equal(t, uint32(0), proposalData.EpochStart)
 	assert.Equal(t, proposalContract.EpochsDuration, proposalData.EpochEnd)
-	assert.Equal(t, int64(1234), proposalData.Votes[int32(kapps.ProposalData_VoteDetail_Yes)])
-	assert.Equal(t, int64(1234), proposalData.Voters[hex.EncodeToString(testOwnerAddress)].Amount)
+	assert.Equal(t, int64(10_000_000), proposalData.Votes[int32(kapps.ProposalData_VoteDetail_Yes)])
+	assert.Equal(t, int64(10_000_000), proposalData.Voters[hex.EncodeToString(testOwnerAddress)].Amount)
+	assert.Nil(t, voterRecordInTrie(t, accCacher, 1, testOwnerAddress))
+}
+
+func voterRecordInTrie(t *testing.T, accCacher state.AccountsCacher, proposalID uint64, voter []byte) *kapps.ProposalData_VoteDetail {
+	t.Helper()
+
+	raw, err := loadKAppAccount(accCacher, kapps.ProposalKAppAddress).DataTrieTracker().
+		RetrieveValue(kdautils.ToProposalVoterKey(proposalID, hex.EncodeToString(voter)))
+	require.Nil(t, err)
+	if len(raw) == 0 {
+		return nil
+	}
+
+	detail := &kapps.ProposalData_VoteDetail{}
+	require.Nil(t, marshalizer.Unmarshal(detail, raw))
+
+	return detail
+}
+
+func storedProposalInTrie(t *testing.T, accCacher state.AccountsCacher, proposalID uint64) *kapps.ProposalData {
+	t.Helper()
+
+	raw, err := loadKAppAccount(accCacher, kapps.ProposalKAppAddress).DataTrieTracker().RetrieveValue(kdautils.ToProposalKey(proposalID))
+	require.Nil(t, err)
+
+	proposal := &kapps.ProposalData{}
+	require.Nil(t, marshalizer.Unmarshal(proposal, raw))
+
+	return proposal
+}
+
+func voteIndexInTrie(t *testing.T, args pTX.ArgsNewTxProcessor, voter []byte) []kapp.ProposalVoteIndexEntry {
+	t.Helper()
+
+	entries, err := args.KAppController.GetProposalKApp().GetAccountProposalVotes(
+		loadKAppAccount(args.AccountsCacher, kapps.ProposalKAppAddress),
+		hex.EncodeToString(voter),
+	)
+	require.Nil(t, err)
+
+	return entries
+}
+
+func processContractOk(t *testing.T, execTx process.TransactionProcessor, block *block.Block, contract proto.Message, contractType transaction.TXContract_ContractType, sender []byte) {
+	t.Helper()
+
+	tx, err := createTransactionMock(contract, contractType, sender, 0)
+	require.Nil(t, err)
+
+	_, hash, err := execTx.PreProcessTransaction(tx)
+	require.Nil(t, err)
+
+	require.Nil(t, execTx.ProcessTransaction(block, hash, tx))
+}
+
+func freezeKFI(t *testing.T, execTx process.TransactionProcessor, args pTX.ArgsNewTxProcessor, block *block.Block, sender []byte, amount int64) []byte {
+	t.Helper()
+
+	contract := transaction.FreezeContract{AssetID: kdautils.KFIIdentifier, Amount: amount}
+	processContractOk(t, execTx, block, &contract, transaction.TXContract_FreezeContractType, sender)
+
+	return kdautils.ToBucketID(args.Hasher, block.GetRandSeed(), sender, kdautils.KFIIdentifier, 0, 0, amount)
+}
+
+func createVoterTestAccount(args pTX.ArgsNewTxProcessor, voter []byte) {
+	AddBalanceAccount(args.AccountsCacher, 1_000_000_000, kdautils.KFIIdentifier, voter)
+	AddBalanceAccount(args.AccountsCacher, 1_000_000_000, nil, voter)
+	_ = args.AccountsCacher.SaveAll()
+}
+
+func TestTxProcessor_VoteAndUnfreezeKeepTheVoterRecordUnderItsOwnKey(t *testing.T) {
+	t.Parallel()
+
+	voter := []byte("klv1d05ju9jaj6u99zph0ant9jh7gksf")
+
+	execTx, args := NexTXProcessorV2(t)
+	createVoterTestAccount(args, voter)
+
+	block := createBlockHeader()
+
+	smallBucket := freezeKFI(t, execTx, args, block, voter, 5_000_000)
+	largeBucket := freezeKFI(t, execTx, args, block, voter, 18_000_000)
+	freezeKFI(t, execTx, args, block, voter, 7_000_000)
+
+	proposalContract := transaction.ProposalContract{
+		Parameters:     map[int32][]byte{0: []byte("19000")},
+		Description:    []byte("Proposal to change feePerDataByte of transactions"),
+		EpochsDuration: 5,
+	}
+	processContractOk(t, execTx, block, &proposalContract, transaction.TXContract_ProposalContractType, voter)
+
+	yes := int32(kapps.ProposalData_VoteDetail_Yes)
+	no := int32(kapps.ProposalData_VoteDetail_No)
+
+	voteContract := transaction.VoteContract{
+		Type:       transaction.VoteContract_EnumVoteType(kapps.ProposalData_VoteDetail_Yes),
+		ProposalID: 1,
+		Amount:     30_000_000,
+	}
+	processContractOk(t, execTx, block, &voteContract, transaction.TXContract_VoteContractType, voter)
+
+	record := voterRecordInTrie(t, args.AccountsCacher, 1, voter)
+	require.NotNil(t, record)
+	assert.Equal(t, int64(30_000_000), record.Amount)
+	assert.Equal(t, kapps.ProposalData_VoteDetail_Yes, record.Type)
+	assert.Equal(t, block.GetTimestamp(), record.Timestamp)
+	proposal := storedProposalInTrie(t, args.AccountsCacher, 1)
+	assert.Empty(t, proposal.Voters)
+	assert.Equal(t, int64(30_000_000), proposal.Votes[yes])
+	assert.Equal(t, []kapp.ProposalVoteIndexEntry{{ProposalID: 1, Amount: 30_000_000}}, voteIndexInTrie(t, args, voter))
+
+	unfreezeContract := transaction.UnfreezeContract{AssetID: kdautils.KFIIdentifier, BucketID: smallBucket}
+	processContractOk(t, execTx, block, &unfreezeContract, transaction.TXContract_UnfreezeContractType, voter)
+
+	record = voterRecordInTrie(t, args.AccountsCacher, 1, voter)
+	require.NotNil(t, record)
+	assert.Equal(t, int64(25_000_000), record.Amount)
+	assert.Equal(t, kapps.ProposalData_VoteDetail_Yes, record.Type)
+	assert.Equal(t, block.GetTimestamp(), record.Timestamp)
+	proposal = storedProposalInTrie(t, args.AccountsCacher, 1)
+	assert.Empty(t, proposal.Voters)
+	assert.Equal(t, int64(25_000_000), proposal.Votes[yes])
+	assert.Equal(t, []kapp.ProposalVoteIndexEntry{{ProposalID: 1, Amount: 25_000_000}}, voteIndexInTrie(t, args, voter))
+
+	unfreezeContract = transaction.UnfreezeContract{AssetID: kdautils.KFIIdentifier, BucketID: largeBucket}
+	processContractOk(t, execTx, block, &unfreezeContract, transaction.TXContract_UnfreezeContractType, voter)
+
+	assert.Nil(t, voterRecordInTrie(t, args.AccountsCacher, 1, voter))
+	proposal = storedProposalInTrie(t, args.AccountsCacher, 1)
+	assert.Empty(t, proposal.Voters)
+	assert.Equal(t, int64(0), proposal.Votes[yes])
+	assert.Empty(t, voteIndexInTrie(t, args, voter))
+
+	freezeKFI(t, execTx, args, block, voter, 13_000_000)
+
+	voteContract = transaction.VoteContract{
+		Type:       transaction.VoteContract_EnumVoteType(kapps.ProposalData_VoteDetail_No),
+		ProposalID: 1,
+		Amount:     12_000_000,
+	}
+	processContractOk(t, execTx, block, &voteContract, transaction.TXContract_VoteContractType, voter)
+
+	record = voterRecordInTrie(t, args.AccountsCacher, 1, voter)
+	require.NotNil(t, record)
+	assert.Equal(t, int64(12_000_000), record.Amount)
+	assert.Equal(t, kapps.ProposalData_VoteDetail_No, record.Type)
+	proposal = storedProposalInTrie(t, args.AccountsCacher, 1)
+	assert.Empty(t, proposal.Voters)
+	assert.Equal(t, int64(0), proposal.Votes[yes])
+	assert.Equal(t, int64(12_000_000), proposal.Votes[no])
+	assert.Equal(t, []kapp.ProposalVoteIndexEntry{{ProposalID: 1, Amount: 12_000_000}}, voteIndexInTrie(t, args, voter))
+}
+
+func TestTxProcessor_VoteStaysInlineOnAProposalCreatedBeforeTheFork(t *testing.T) {
+	t.Parallel()
+
+	voter := []byte("klv1d05ju9jaj6u99zph0ant9jh7gksf")
+
+	_, kappDB, peerDB, accCacher := createFullArgumentsForKAppsProcessing(createMemUnit())
+
+	peerAcc := loadPeerAccount(accCacher, []byte("PEER"))
+	kdaKapp := loadKAppAccount(accCacher, kapps.KDAKAppAddress)
+	stakingKapp := loadKAppAccount(accCacher, kapps.StakingKAppAddress)
+	initKLVAndKFIintoKapps(kdaKapp, stakingKapp)
+	_ = kappDB.SaveAccount(kdaKapp)
+	_ = kappDB.SaveAccount(stakingKapp)
+	_ = peerDB.SaveAccount(peerAcc)
+
+	args := createArgsForTxProcessorWithEnableEpochs(accCacher, config.EnableEpochs{FixAuditChangesV7: 1})
+	execTx := NewTXProcessor(t, args)
+	createVoterTestAccount(args, voter)
+
+	block := createBlockHeader()
+
+	bucket := freezeKFI(t, execTx, args, block, voter, 5_000_000)
+	freezeKFI(t, execTx, args, block, voter, 25_000_000)
+
+	proposalContract := transaction.ProposalContract{
+		Parameters:     map[int32][]byte{0: []byte("19000")},
+		Description:    []byte("Proposal to change feePerDataByte of transactions"),
+		EpochsDuration: 5,
+	}
+	processContractOk(t, execTx, block, &proposalContract, transaction.TXContract_ProposalContractType, voter)
+
+	forkSubscriber, ok := args.ForkController.(core.EpochSubscriberHandler)
+	require.True(t, ok)
+	forkSubscriber.EpochConfirmed(1)
+	require.True(t, args.ForkController.FixAuditChangesV7())
+	block.Header.Epoch = 1
+
+	belowMinimum := transaction.VoteContract{
+		Type:       transaction.VoteContract_EnumVoteType(kapps.ProposalData_VoteDetail_Yes),
+		ProposalID: 1,
+		Amount:     9_999_999,
+	}
+	tx, err := createTransactionMock(&belowMinimum, transaction.TXContract_VoteContractType, voter, 0)
+	require.Nil(t, err)
+	_, hash, err := execTx.PreProcessTransaction(tx)
+	require.Nil(t, err)
+	require.Equal(t, common.ErrProposalVoteBelowMinimum, execTx.ProcessTransaction(block, hash, tx))
+
+	voteContract := transaction.VoteContract{
+		Type:       transaction.VoteContract_EnumVoteType(kapps.ProposalData_VoteDetail_Yes),
+		ProposalID: 1,
+		Amount:     30_000_000,
+	}
+	processContractOk(t, execTx, block, &voteContract, transaction.TXContract_VoteContractType, voter)
+
+	encodedVoter := hex.EncodeToString(voter)
+	yes := int32(kapps.ProposalData_VoteDetail_Yes)
+
+	proposal := storedProposalInTrie(t, args.AccountsCacher, 1)
+	assert.Equal(t, int64(30_000_000), proposal.Voters[encodedVoter].Amount)
+	assert.Equal(t, int64(30_000_000), proposal.Votes[yes])
+	assert.Nil(t, voterRecordInTrie(t, args.AccountsCacher, 1, voter))
+
+	unfreezeContract := transaction.UnfreezeContract{AssetID: kdautils.KFIIdentifier, BucketID: bucket}
+	processContractOk(t, execTx, block, &unfreezeContract, transaction.TXContract_UnfreezeContractType, voter)
+
+	proposal = storedProposalInTrie(t, args.AccountsCacher, 1)
+	assert.Equal(t, int64(25_000_000), proposal.Voters[encodedVoter].Amount)
+	assert.Equal(t, int64(25_000_000), proposal.Votes[yes])
+	assert.Nil(t, voterRecordInTrie(t, args.AccountsCacher, 1, voter))
+	assert.Equal(t, []kapp.ProposalVoteIndexEntry{{ProposalID: 1, Amount: 25_000_000}}, voteIndexInTrie(t, args, voter))
 }
 
 func TestTxProcessor_ProcessConfigSetAndBuyITOWrongValsShouldErr(t *testing.T) {

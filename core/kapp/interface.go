@@ -185,6 +185,9 @@ type ProposalKapp interface {
 	GetAccountProposalVotes(proposalKapp state.KAppAccountHandler, encodedAddr string) ([]ProposalVoteIndexEntry, error)
 	SetAccountProposalVotes(proposalKapp state.KAppAccountHandler, encodedAddr string, entries []ProposalVoteIndexEntry) error
 	PreForkVoteIDBound(proposalKapp state.KAppAccountHandler, controller *kapps.ProposalController) (uint64, error)
+	GetVoter(proposalKapp state.KAppAccountHandler, proposal *kapps.ProposalData, proposalID uint64, encodedAddr string) (*kapps.ProposalData_VoteDetail, error)
+	SetVoter(proposalKapp state.KAppAccountHandler, proposal *kapps.ProposalData, proposalID uint64, encodedAddr string, detail *kapps.ProposalData_VoteDetail) error
+	RemoveVoter(proposalKapp state.KAppAccountHandler, proposal *kapps.ProposalData, proposalID uint64, encodedAddr string) error
 	IsInterfaceNil() bool
 }
 

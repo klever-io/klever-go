@@ -348,6 +348,12 @@ func InitialProposalParameters(forks core.ForkController) map[int32]*Parameter {
 			Value: []byte("1"), // 1 -> 1 gas unit = 1 klv minimum unit
 		}
 	}
+	if forks.FixAuditChangesV7() {
+		activeParameters[int32(EnumParameter_MinKFIVoteAmount)] = &Parameter{
+			Type:  EnumType_Int64,
+			Value: []byte("10000000"),
+		}
+	}
 
 	return activeParameters
 }
@@ -419,6 +425,8 @@ const (
 
 	maxKLVSupply = 10_000_000_000_000_000 // 10B KLV at precision 6
 	maxKFISupply = 21_000_000_000_000     // 21M KFI at precision 6
+
+	maxMinKFIVoteAmount = 1_000_000_000
 )
 
 type paramLimits struct {
@@ -483,6 +491,8 @@ var paramBounds = map[EnumParameter]paramLimits{
 	// until enough KFI is frozen. An unreachable value needs half the stake to pass, and a
 	// fork can reset it.
 	EnumParameter_MinKFIStakedToEnableProposals: {1, maxKFISupply},
+
+	EnumParameter_MinKFIVoteAmount: {1, maxMinKFIVoteAmount},
 
 	// the FPR slices keep one entry per epoch up to this, re-marshalled on every block and
 	// walked on every claim

@@ -15,6 +15,9 @@ type ProposalKappStub struct {
 	GetAccountProposalVotesCalled func(encodedAddr string) ([]kapp.ProposalVoteIndexEntry, error)
 	SetAccountProposalVotesCalled func(encodedAddr string, entries []kapp.ProposalVoteIndexEntry) error
 	PreForkVoteIDBoundCalled      func() (uint64, error)
+	GetVoterCalled                func(proposal *kapps.ProposalData, proposalID uint64, encodedAddr string) (*kapps.ProposalData_VoteDetail, error)
+	SetVoterCalled                func(proposal *kapps.ProposalData, proposalID uint64, encodedAddr string, detail *kapps.ProposalData_VoteDetail) error
+	RemoveVoterCalled             func(proposal *kapps.ProposalData, proposalID uint64, encodedAddr string) error
 	SetKAppControllerCalled       func(controller kapp.KAppController) error
 	SetAccountsCacherCalled       func(cacher state.AccountsCacher) error
 	GetAccountsCacherCalled       func() state.AccountsCacher
@@ -135,4 +138,51 @@ func (p *ProposalKappStub) PreForkVoteIDBound(_ state.KAppAccountHandler, _ *kap
 	}
 
 	return math.MaxUint64, nil
+}
+
+func (p *ProposalKappStub) GetVoter(
+	_ state.KAppAccountHandler,
+	proposal *kapps.ProposalData,
+	proposalID uint64,
+	encodedAddr string,
+) (*kapps.ProposalData_VoteDetail, error) {
+	if p.GetVoterCalled != nil {
+		return p.GetVoterCalled(proposal, proposalID, encodedAddr)
+	}
+
+	return proposal.Voters[encodedAddr], nil
+}
+
+func (p *ProposalKappStub) SetVoter(
+	_ state.KAppAccountHandler,
+	proposal *kapps.ProposalData,
+	proposalID uint64,
+	encodedAddr string,
+	detail *kapps.ProposalData_VoteDetail,
+) error {
+	if p.SetVoterCalled != nil {
+		return p.SetVoterCalled(proposal, proposalID, encodedAddr, detail)
+	}
+
+	if proposal.Voters == nil {
+		proposal.Voters = make(map[string]*kapps.ProposalData_VoteDetail)
+	}
+	proposal.Voters[encodedAddr] = detail
+
+	return nil
+}
+
+func (p *ProposalKappStub) RemoveVoter(
+	_ state.KAppAccountHandler,
+	proposal *kapps.ProposalData,
+	proposalID uint64,
+	encodedAddr string,
+) error {
+	if p.RemoveVoterCalled != nil {
+		return p.RemoveVoterCalled(proposal, proposalID, encodedAddr)
+	}
+
+	delete(proposal.Voters, encodedAddr)
+
+	return nil
 }

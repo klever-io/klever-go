@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/bugsnag/bugsnag-go/v2"
@@ -34,6 +35,9 @@ type metaProcessor struct {
 	economicsData process.EconomicsDataHandler
 	chRcvAllHdrs  chan bool
 	indexRating   bool
+
+	mutSettledProposals sync.Mutex
+	settledProposals    []string
 }
 
 // NewMetaProcessor creates a new metaProcessor object
@@ -133,6 +137,8 @@ func (mp *metaProcessor) ProcessBlock(
 	if !ok {
 		return common.ErrWrongTypeAssertion
 	}
+
+	mp.holdSettledProposals(nil)
 
 	// Snapshot the epoch-sensitive in-memory state before mutating it. The epoch
 	// notifier / fork flags, the request-handler epoch, the blockchain hook header
@@ -384,11 +390,34 @@ func (mp *metaProcessor) applyEpochStartSideEffects(
 		return err
 	}
 
-	if len(sideEffects.proposalsToIndex) > 0 && !check.IfNil(mp.eventsProcessor) {
-		mp.eventsProcessor.UpdateProposalsAndParameters(sideEffects.proposalsToIndex)
-	}
+	mp.holdSettledProposals(sideEffects.proposalsToIndex)
 
 	return nil
+}
+
+func (mp *metaProcessor) holdSettledProposals(proposalIDs []string) {
+	mp.mutSettledProposals.Lock()
+	mp.settledProposals = proposalIDs
+	mp.mutSettledProposals.Unlock()
+}
+
+func (mp *metaProcessor) takeSettledProposals() []string {
+	mp.mutSettledProposals.Lock()
+	defer mp.mutSettledProposals.Unlock()
+
+	proposalIDs := mp.settledProposals
+	mp.settledProposals = nil
+
+	return proposalIDs
+}
+
+func (mp *metaProcessor) indexSettledProposals() {
+	proposalIDs := mp.takeSettledProposals()
+	if len(proposalIDs) == 0 || check.IfNil(mp.eventsProcessor) {
+		return
+	}
+
+	mp.eventsProcessor.UpdateProposalsAndParameters(proposalIDs)
 }
 
 func (mp *metaProcessor) baseProcessEpochStartBlock(
@@ -636,6 +665,8 @@ func (mp *metaProcessor) CreateBlock(
 		return nil, common.ErrWrongTypeAssertion
 	}
 
+	mp.holdSettledProposals(nil)
+
 	mp.epochStartTrigger.Update(initialHdr.GetSlot(), initialHdr.GetNonce())
 	blk.Header.Epoch = mp.epochStartTrigger.Epoch()
 	blk.Header.SoftwareVersion = []byte(mp.headerIntegrityVerifier.GetVersion(blk.Header.Epoch))
@@ -840,6 +871,7 @@ func (mp *metaProcessor) CommitBlock(
 	mp.tpsBenchmark.Update(lastMetaBlock)
 
 	mp.indexBlock(header, headerHash, header, lastMetaBlock)
+	mp.indexSettledProposals()
 	highestFinalBlockNonce := mp.forkDetector.GetHighestFinalBlockNonce()
 	saveMetricsForCommitBlock(mp.appStatusHandler, header, headerHash, mp.nodesCoordinator, highestFinalBlockNonce)
 
@@ -964,6 +996,8 @@ func (mp *metaProcessor) commitEpochStart(header *block.Block) {
 
 // RevertStateToBlock recreates the state tries to the root hashes indicated by the provided header
 func (mp *metaProcessor) RevertStateToBlock(header data.HeaderHandler) error {
+	mp.holdSettledProposals(nil)
+
 	err := mp.accountsDB[state.UserAccountsState].RecreateTrie(header.GetTrieRoot())
 	if err != nil {
 		log.Debug("recreate trie with error for header",
@@ -1459,13 +1493,17 @@ func trimExpiredFPR(staking *kapps.StakingData, maxEpochUnclaimed int64) int64 {
 func (mp *metaProcessor) processProposalsEndOfEpoch(headerHandler data.HeaderHandler) ([]string, error) {
 	log.Debug("Started Proposals Processing")
 
-	proposalKApp, controller, err := mp.getProposalController()
+	proposalKApp, controller, merged, err := mp.getProposalController()
 	if err != nil {
 		return nil, err
 	}
 
 	// check if there are active proposals for the current epoch
 	if controller.ActiveProposals[headerHandler.GetEpoch()] == nil {
+		if merged && mp.forkController.FixAuditChangesV7() {
+			return nil, mp.accountsDB[state.KAppAccountsState].SaveAccount(proposalKApp)
+		}
+
 		return nil, nil
 	}
 
