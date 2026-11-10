@@ -234,6 +234,10 @@ func loadKAppAccount(kappsDB state.AccountsAdapter, address []byte) state.KAppAc
 	return kappAcc
 }
 
+// fixtureNow is one instant for every fixture: nodes built from separate fixtures must start
+// from the same KApp root, which a second boundary between two time.Now() calls would split
+var fixtureNow = time.Now()
+
 func initKLVAndKFIintoKapps(kdaKapp, stakingKapp state.KAppAccountHandler) {
 	klvKey := kdautils.ToKDAKey(kdautils.KLVIdentifier, nil)
 	kfiKey := kdautils.ToKDAKey(kdautils.KFIIdentifier, nil)
@@ -273,7 +277,7 @@ func initKLVAndKFIintoKapps(kdaKapp, stakingKapp state.KAppAccountHandler) {
 		TotalStaked:  0,
 		APR: []*kapps.APRData{
 			{
-				Timestamp: time.Now().AddDate(0, 0, -10).Unix(),
+				Timestamp: fixtureNow.AddDate(0, 0, -10).Unix(),
 				Epoch:     0,
 				Value:     1000,
 			},
@@ -299,7 +303,7 @@ func initKLVAndKFIintoKapps(kdaKapp, stakingKapp state.KAppAccountHandler) {
 		InitialSupply:     10000000000000000,
 		CirculatingSupply: 100000000000000,
 		MaxSupply:         90000000000000000,
-		IssueDate:         time.Now().Unix(),
+		IssueDate:         fixtureNow.Unix(),
 		Royalties:         &kapps.RoyaltiesData{},
 		Properties: &kapps.PropertiesData{
 			CanFreeze: true,
@@ -322,7 +326,7 @@ func initKLVAndKFIintoKapps(kdaKapp, stakingKapp state.KAppAccountHandler) {
 		InitialSupply:     10000000000000000,
 		CirculatingSupply: 100000000000000,
 		MaxSupply:         90000000000000000,
-		IssueDate:         time.Now().Unix(),
+		IssueDate:         fixtureNow.Unix(),
 		Royalties:         &kapps.RoyaltiesData{},
 		Properties: &kapps.PropertiesData{
 			CanFreeze: true,
@@ -345,7 +349,7 @@ func initKLVAndKFIintoKapps(kdaKapp, stakingKapp state.KAppAccountHandler) {
 		InitialSupply:     10000000000000000,
 		CirculatingSupply: 100000000000000,
 		MaxSupply:         90000000000000000,
-		IssueDate:         time.Now().Unix(),
+		IssueDate:         fixtureNow.Unix(),
 		Properties: &kapps.PropertiesData{
 			CanFreeze: true,
 			CanMint:   true,
