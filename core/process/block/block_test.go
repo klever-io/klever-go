@@ -4361,7 +4361,7 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 	}
 
 	// a node whose rollback target carries the roots of its own tries
-	newRollbackNode := func(t *testing.T) *epochStartRevertNode {
+	newRollbackNode := func(t *testing.T, slotsPerEpoch uint64) *epochStartRevertNode {
 		rollbackHead := &block.Block{Header: &block.BlockHeader{Nonce: headNonce, Slot: epochStartSlot - 1}}
 		node := newEpochStartRevertNode(t, rollbackHead, headHash, slotsPerEpoch)
 		userAccounts, ok := node.accountsDB[state.UserAccountsState].(*mock.AccountsStub)
@@ -4425,7 +4425,7 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		t.Parallel()
 
 		_, hdr := proposeEpochStart(t)
-		validator := newRollbackNode(t)
+		validator := newRollbackNode(t, slotsPerEpoch)
 		kApps := validator.accountsDB[state.KAppAccountsState]
 
 		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
@@ -4460,11 +4460,53 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		assert.Equal(t, epochStartSlot, validator.trigger.EpochStartSlot())
 	})
 
+	// any block's commitAll can save a trie before another fails
+	t.Run("a failed commit of a block inside the epoch restores the tries", func(t *testing.T) {
+		t.Parallel()
+
+		const longEpoch = uint64(100)
+		leader := newEpochStartRevertNode(t, head, headHash, longEpoch)
+		created, err := leader.mp.CreateBlock(&block.Block{Header: &block.BlockHeader{
+			Nonce:      headNonce + 1,
+			Slot:       epochStartSlot,
+			ParentHash: headHash,
+		}}, func() bool { return true })
+		require.NoError(t, err)
+		hdr, ok := created.(*block.Block)
+		require.True(t, ok)
+		require.False(t, hdr.GetIsEpochStart())
+
+		validator := newRollbackNode(t, longEpoch)
+		kApps := validator.accountsDB[state.KAppAccountsState]
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+
+		// the KApp trie saved ahead of the head, then the User trie fails
+		saved := loadKAppAccount(kApps, kapps.ProposalKAppAddress)
+		require.NoError(t, saved.DataTrieTracker().SaveKeyValue([]byte("saved"), []byte("by the failed commit")))
+		require.NoError(t, kApps.SaveAccount(saved))
+		_, err = kApps.Commit()
+		require.NoError(t, err)
+		userAccounts, ok := validator.accountsDB[state.UserAccountsState].(*mock.AccountsStub)
+		require.True(t, ok)
+		commit := userAccounts.CommitCalled
+		userAccounts.CommitCalled = func() ([]byte, error) { return nil, assert.AnError }
+
+		require.Error(t, validator.mp.CommitBlock(hdr))
+		kAppsRoot, err := kApps.RootHash()
+		require.NoError(t, err)
+		assert.Equal(t, validator.head.GetKAppsTrieRoot(), kAppsRoot, "the KApp trie must be back at the head")
+
+		// the retried block passes its root check and commits
+		userAccounts.CommitCalled = commit
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		require.NoError(t, validator.mp.CommitBlock(hdr))
+	})
+
 	t.Run("sync rollback before the revert", func(t *testing.T) {
 		t.Parallel()
 
 		_, hdr := proposeEpochStart(t)
-		validator := newRollbackNode(t)
+		validator := newRollbackNode(t, slotsPerEpoch)
 
 		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
 		requireAdvanced(t, validator)
@@ -4480,7 +4522,7 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		t.Parallel()
 
 		_, hdr := proposeEpochStart(t)
-		validator := newRollbackNode(t)
+		validator := newRollbackNode(t, slotsPerEpoch)
 
 		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
 		require.NoError(t, validator.mp.CommitBlock(hdr))
@@ -4497,7 +4539,7 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		t.Parallel()
 
 		_, hdr := proposeEpochStart(t)
-		validator := newRollbackNode(t)
+		validator := newRollbackNode(t, slotsPerEpoch)
 
 		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
 		require.NoError(t, validator.mp.CommitBlock(hdr))
@@ -4520,7 +4562,7 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		t.Parallel()
 
 		_, hdr := proposeEpochStart(t)
-		validator := newRollbackNode(t)
+		validator := newRollbackNode(t, slotsPerEpoch)
 
 		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
 
@@ -4538,7 +4580,7 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 	t.Run("storage bootstrap leaves the notifier at 0", func(t *testing.T) {
 		t.Parallel()
 
-		node := newRollbackNode(t)
+		node := newRollbackNode(t, slotsPerEpoch)
 		blproc.ClearProposalController(node.mp)
 		stored := &block.Block{Header: &block.BlockHeader{
 			Epoch:         1,
@@ -4558,7 +4600,7 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 	t.Run("a rollback before the first block realigns a published controller", func(t *testing.T) {
 		t.Parallel()
 
-		node := newRollbackNode(t)
+		node := newRollbackNode(t, slotsPerEpoch)
 		stored := &block.Block{Header: &block.BlockHeader{
 			Epoch:         1,
 			Nonce:         headNonce,
