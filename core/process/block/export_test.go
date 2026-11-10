@@ -65,7 +65,7 @@ func (m *MetaProcessorForTests) ProcessEconomicsEndOfEpoch(validatorInfos []*sta
 
 // ClearProposalController unpublishes the controller, as storage bootstrap is.
 func ClearProposalController(proc process.BlockProcessor) {
-	proc.(*metaProcessor).proposalController.Clear()
+	proc.(*metaProcessor).proposalController = kapps.ProposalControllerHolder{}
 }
 
 // UpdateState exposes the updateState method for testing
