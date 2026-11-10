@@ -275,6 +275,10 @@ type AccountsCacher interface {
 	GetExistingKapp(address []byte) (KAppAccountHandler, error)
 	GetExistingPeer(address []byte) (PeerAccountHandler, error)
 	LoadUser(address []byte) (UserAccountHandler, error)
+	// CreatedUsers counts the user accounts LoadUser has created since the last ResetAll or SaveAll:
+	// accounts it loaded on a cache miss that the accounts state did not hold. Each is saved by
+	// SaveAll like any loaded account, so it is an account the transaction creates.
+	CreatedUsers() uint64
 	LoadKApp(address []byte) (KAppAccountHandler, error)
 	LoadKAppUncached(address []byte) (KAppAccountHandler, error)
 	LoadPeer(address []byte) (PeerAccountHandler, error)

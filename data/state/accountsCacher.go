@@ -1,6 +1,7 @@
 package state
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/klever-io/klever-go/common"
@@ -18,6 +19,7 @@ type accountsCache struct {
 	kappList    []string
 	peerMap     map[string]PeerAccountHandler
 	peerList    []string
+	created     uint64
 	mut         sync.RWMutex
 }
 
@@ -136,9 +138,12 @@ func (acc *accountsCache) LoadUser(address []byte) (UserAccountHandler, error) {
 
 	userAcc, ok := acc.userMap[string(address)]
 	if !ok {
-		acnt, err := acc.accounts.LoadAccount(address)
+		acnt, created, err := LoadCountingCreated(acc.accounts, address)
 		if err != nil {
 			return nil, err
+		}
+		if created {
+			acc.created++
 		}
 
 		userAcc, ok = acnt.(UserAccountHandler)
@@ -155,6 +160,36 @@ func (acc *accountsCache) LoadUser(address []byte) (UserAccountHandler, error) {
 	}
 
 	return userAcc, nil
+}
+
+// CreatedUsers returns the user accounts LoadUser has created since the last ResetAll or SaveAll.
+func (acc *accountsCache) CreatedUsers() uint64 {
+	acc.mut.RLock()
+	defer acc.mut.RUnlock()
+
+	return acc.created
+}
+
+// LoadCountingCreated loads the user account at address as LoadAccount does and tells whether it
+// created it. An account accounts does not hold is created here, as the user account factory does,
+// so it costs one trie read. Whenever GetExistingAccount answers neither an account nor
+// ErrAccNotFound, it falls back to LoadAccount and creates nothing, so an adapter that implements
+// only LoadAccount loads as before.
+func LoadCountingCreated(accounts AccountsAdapter, address []byte) (AccountHandler, bool, error) {
+	acnt, err := accounts.GetExistingAccount(address)
+	if err == nil && !check.IfNil(acnt) {
+		return acnt, false, nil
+	}
+	if errors.Is(err, common.ErrAccNotFound) {
+		userAcc, errNew := NewUserAccount(address)
+		if errNew != nil {
+			return nil, false, errNew
+		}
+		return userAcc, true, nil
+	}
+
+	acnt, err = accounts.LoadAccount(address)
+	return acnt, false, err
 }
 
 func (acc *accountsCache) LoadKApp(address []byte) (KAppAccountHandler, error) {
@@ -245,6 +280,7 @@ func (acc *accountsCache) resetAllNoLock(enableCache bool) {
 	acc.kappList = make([]string, 0)
 	acc.peerMap = make(map[string]PeerAccountHandler)
 	acc.peerList = make([]string, 0)
+	acc.created = 0
 
 	acc.cacheEnable = enableCache
 }

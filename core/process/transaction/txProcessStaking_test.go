@@ -1357,7 +1357,11 @@ func runStakingBuiltin[T vmcommon.BuiltinFunction](
 func runContractStakingClaim(t *testing.T, c *Controller, blk *block.Block) error {
 	t.Helper()
 
-	return runStakingBuiltin(t, c, blk, builtInFunctions.NewKleverClaimFunc, builtinArg(int64(transaction.ClaimContract_StakingClaim)), APRIdentifier)
+	// a staking claim pays no royalty receivers, so the transfer cost does not matter here
+	newClaim := func(gasCost uint64, m vmcommon.Marshalizer, a state.AccountsCacher, f core.ForkController, k kapp.KAppController) (vmcommon.BuiltinFunction, error) {
+		return builtInFunctions.NewKleverClaimFunc(gasCost, 0, m, a, f, k)
+	}
+	return runStakingBuiltin(t, c, blk, newClaim, builtinArg(int64(transaction.ClaimContract_StakingClaim)), APRIdentifier)
 }
 
 func TestStakingTxProcessor_APRClaim_ContractClaimSaturatedGain_PreFix(t *testing.T) {

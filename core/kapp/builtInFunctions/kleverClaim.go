@@ -18,6 +18,7 @@ type kleverClaim struct {
 	accountsCacher state.AccountsCacher
 	kappController kapp.KAppController
 	funcGasCost    uint64
+	transferCost   uint64
 	marshaller     vmcommon.Marshalizer
 	keyPrefix      []byte
 	mutExecution   sync.RWMutex
@@ -27,6 +28,7 @@ type kleverClaim struct {
 // NewkleverClaimFunc returns the create asset built-in function component
 func NewKleverClaimFunc(
 	funcGasCost uint64,
+	transferCost uint64,
 	marshaller vmcommon.Marshalizer,
 	accountsCacher state.AccountsCacher,
 	forkController core.ForkController,
@@ -41,6 +43,7 @@ func NewKleverClaimFunc(
 
 	e := &kleverClaim{
 		funcGasCost:    funcGasCost,
+		transferCost:   transferCost,
 		marshaller:     marshaller,
 		keyPrefix:      []byte(""),
 		accountsCacher: accountsCacher,
@@ -59,6 +62,7 @@ func (e *kleverClaim) SetNewGasConfig(gasCost *vmcommon.GasCost) {
 
 	e.mutExecution.Lock()
 	e.funcGasCost = gasCost.BuiltInCost.Claim
+	e.transferCost = gasCost.ContractTransfer()
 	e.mutExecution.Unlock()
 }
 
@@ -82,6 +86,10 @@ func (e *kleverClaim) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInput
 		return nil, err
 	}
 	vmOutput := &vmcommon.VMOutput{GasRemaining: gasRemaining, ReturnCode: vmcommon.Ok}
+
+	// every claim pays for the accounts it creates, such as the royalty receivers a market claim pays
+	// when it settles an expired auction
+	chargeCreatedAccounts := countCreatedAccounts(e.accountsCacher, e.transferCost, e.forkController)
 
 	//Using Kapps
 	var resultCode transaction.Transaction_TXResultCode
@@ -107,7 +115,7 @@ func (e *kleverClaim) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInput
 		return nil, err
 	}
 
-	return vmOutput, nil
+	return chargeCreatedAccounts(vmOutput)
 }
 
 // getClaimContract convert the arguments to an ClaimContract

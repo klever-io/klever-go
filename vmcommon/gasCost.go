@@ -42,6 +42,15 @@ type BuiltInCost struct {
 type GasCost struct {
 	BaseOperationCost BaseOperationCost
 	BuiltInCost       BuiltInCost
+	// TransferValue is the VM's BaseOpsAPICost.TransferValue, which a contract pays for each
+	// transfer on top of BuiltInCost.Transfer
+	TransferValue uint64
+}
+
+// ContractTransfer is what a contract pays for one transfer: the VM's TransferValue and the
+// Transfer builtin's cost
+func (g *GasCost) ContractTransfer() uint64 {
+	return g.TransferValue + g.BuiltInCost.Transfer
 }
 
 // SafeSubUint64 performs subtraction on uint64 and returns an error if it overflows

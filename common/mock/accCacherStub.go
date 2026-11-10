@@ -7,6 +7,7 @@ type AccountsCacherStub struct {
 	GetExistingKappCalled  func(address []byte) (state.KAppAccountHandler, error)
 	GetExistingPeerCalled  func(address []byte) (state.PeerAccountHandler, error)
 	LoadUserCalled         func(address []byte) (state.UserAccountHandler, error)
+	CreatedUsersCalled     func() uint64
 	LoadKAppCalled         func(address []byte) (state.KAppAccountHandler, error)
 	LoadKAppUncachedCalled func(address []byte) (state.KAppAccountHandler, error)
 	LoadPeerCalled         func(address []byte) (state.PeerAccountHandler, error)
@@ -50,6 +51,13 @@ func (stub *AccountsCacherStub) LoadUser(address []byte) (state.UserAccountHandl
 		return stub.LoadUserCalled(address)
 	}
 	return nil, nil
+}
+
+func (stub *AccountsCacherStub) CreatedUsers() uint64 {
+	if stub.CreatedUsersCalled != nil {
+		return stub.CreatedUsersCalled()
+	}
+	return 0
 }
 
 func (stub *AccountsCacherStub) LoadKApp(address []byte) (state.KAppAccountHandler, error) {

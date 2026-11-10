@@ -149,6 +149,9 @@ const BaseOperationCostString = "BaseOperationCost"
 // BuiltInCostString represents the field name for built in operation costs
 const BuiltInCostString = "BuiltInCost"
 
+// BaseOpsAPICostString represents the field name for the VM's API costs
+const BaseOpsAPICostString = "BaseOpsAPICost"
+
 // SCDeployIdentifier is the identifier for a smart contract deploy
 const SCDeployIdentifier = "SCDeploy"
 

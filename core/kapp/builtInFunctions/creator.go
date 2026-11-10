@@ -131,6 +131,7 @@ func (b *builtInFuncCreator) CreateBuiltInFunctionContainer() error {
 	newFunc, err = NewKleverBuyFunc(
 		b.gasConfig.BuiltInCost.Buy,
 		b.gasConfig.BaseOperationCost.StorePerByte,
+		b.gasConfig.ContractTransfer(),
 		b.marshaller,
 		b.accountsCacher,
 		b.forkController,
@@ -159,6 +160,7 @@ func (b *builtInFuncCreator) CreateBuiltInFunctionContainer() error {
 
 	newFunc, err = NewKleverClaimFunc(
 		b.gasConfig.BuiltInCost.Claim,
+		b.gasConfig.ContractTransfer(),
 		b.marshaller,
 		b.accountsCacher,
 		b.forkController,
@@ -485,9 +487,11 @@ func createGasConfig(gasMap map[string]map[string]uint64) (*vmcommon.GasCost, er
 		return nil, err
 	}
 
+	// not checked for zero: the VM checks its own section, and builtin-only gas maps leave it out
 	gasCost := vmcommon.GasCost{
 		BaseOperationCost: *baseOps,
 		BuiltInCost:       *builtInOps,
+		TransferValue:     gasMap[core.BaseOpsAPICostString]["TransferValue"],
 	}
 
 	return &gasCost, nil

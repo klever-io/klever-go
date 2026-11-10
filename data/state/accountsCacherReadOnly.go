@@ -53,6 +53,10 @@ func (roAcc *readOnlyAccountsCacher) LoadUser(address []byte) (UserAccountHandle
 	return roAcc.originalAccCacher.LoadUser(address)
 }
 
+func (roAcc *readOnlyAccountsCacher) CreatedUsers() uint64 {
+	return roAcc.originalAccCacher.CreatedUsers()
+}
+
 func (roAcc *readOnlyAccountsCacher) LoadKApp(address []byte) (KAppAccountHandler, error) {
 	return roAcc.originalAccCacher.LoadKApp(address)
 }

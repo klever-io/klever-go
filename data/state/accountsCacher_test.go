@@ -378,6 +378,8 @@ func TestAccountsCacher_ResetAllShouldWork(t *testing.T) {
 	_, _ = acc.LoadPeer(peerAddress)
 
 	acc.ResetAll(true)
+	// LoadUser also asks the adapter whether the account exists; count only the reads after the reset
+	getUserExistingAccountCalled = 0
 
 	_, _ = acc.GetExistingUser(userAddress)
 	_, _ = acc.GetExistingKapp(kappAddress)
@@ -965,4 +967,55 @@ func TestAccountsCacher_LoadPeer_LoadAccountError(t *testing.T) {
 	address := make([]byte, 32)
 	_, err := acc.LoadPeer(address)
 	assert.Equal(t, expectedErr, err)
+}
+
+// LoadUser counts the accounts it creates: cache misses the accounts state does not hold. An existing
+// account, a cache hit and an adapter that answers only LoadAccount count nothing, and ResetAll and
+// SaveAll start the count again (KLC-2938).
+func TestAccountsCacher_CreatedUsers(t *testing.T) {
+	t.Parallel()
+
+	newAccount := func(address []byte) (state.AccountHandler, error) { return state.NewUserAccount(address) }
+	loads := 0
+	accounts := &mock.AccountsStub{
+		GetExistingAccountCalled: func(address []byte) (state.AccountHandler, error) {
+			if string(address) != "existing" {
+				return nil, common.ErrAccNotFound
+			}
+			return newAccount(address)
+		},
+		LoadAccountCalled: func(address []byte) (state.AccountHandler, error) {
+			loads++
+			return newAccount(address)
+		},
+		SaveAccountCalled: func(state.AccountHandler) error { return nil },
+	}
+	acc, err := state.NewAccountsCacher(state.ArgsAcccountCacher{Accounts: accounts, Kapps: &mock.AccountsStub{}, Peers: &mock.AccountsStub{}})
+	require.NoError(t, err)
+	acc.ResetAll(true)
+
+	loadThenCount := func(address string) uint64 {
+		_, errLoad := acc.LoadUser([]byte(address))
+		require.NoError(t, errLoad)
+		return acc.CreatedUsers()
+	}
+	require.Zero(t, loadThenCount("existing"))
+	require.EqualValues(t, 1, loadThenCount("new-1"))
+	require.EqualValues(t, 1, loadThenCount("new-1"), "a cache hit creates nothing")
+	require.EqualValues(t, 2, loadThenCount("new-2"))
+	require.NoError(t, acc.SaveAll())
+	require.Zero(t, acc.CreatedUsers())
+	require.EqualValues(t, 1, loadThenCount("new-3"))
+	acc.ResetAll(true)
+	require.Zero(t, acc.CreatedUsers())
+	require.Zero(t, loads, "a missing account is created without a second read")
+
+	loadOnly, err := state.NewAccountsCacher(state.ArgsAcccountCacher{
+		Accounts: &mock.AccountsStub{LoadAccountCalled: newAccount}, Kapps: &mock.AccountsStub{}, Peers: &mock.AccountsStub{},
+	})
+	require.NoError(t, err)
+	loadOnly.ResetAll(true)
+	_, err = loadOnly.LoadUser([]byte("new"))
+	require.NoError(t, err)
+	require.Zero(t, loadOnly.CreatedUsers())
 }

@@ -1,12 +1,14 @@
 package builtInFunctions_test
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core/fork"
@@ -150,7 +152,7 @@ func runKleverBuy(t *testing.T, currency *kapps.KDAData) kleverBuyResult {
 	}
 	require.NoError(t, itoKapp.SetKAppController(kappController))
 
-	buyFunc, err := builtInFunctions.NewKleverBuyFunc(buyGasCost, 0, marshalizer, accountsCacher, forkController, kappController)
+	buyFunc, err := builtInFunctions.NewKleverBuyFunc(buyGasCost, 0, 0, marshalizer, accountsCacher, forkController, kappController)
 	require.NoError(t, err)
 
 	result.vmOutput, result.err = buyFunc.ProcessBuiltinFunction(buyInput(transaction.BuyContract_ITOBuy))
@@ -200,10 +202,14 @@ type itoKappBuyStub struct {
 	sender []byte
 	status transaction.Transaction_TXResultCode
 	err    error
+	onBuy  func()
 }
 
 func (s *itoKappBuyStub) Buy(sender []byte, _ *transaction.BuyContract) (transaction.Transaction_TXResultCode, error) {
 	s.sender = sender
+	if s.onBuy != nil {
+		s.onBuy()
+	}
 	return s.status, s.err
 }
 
@@ -215,6 +221,7 @@ func TestKleverBuy_RefusalFailsTheCall(t *testing.T) {
 
 		buyFunc, err := builtInFunctions.NewKleverBuyFunc(
 			buyGasCost,
+			0,
 			0,
 			&mock.ProtoMarshalizerMock{},
 			&mock.AccountsCacherStub{},
@@ -255,12 +262,23 @@ func TestKleverBuy_RefusalFailsTheCall(t *testing.T) {
 	})
 }
 
-// marketKappBuyStub accepts every Buy.
+// marketKappBuyStub accepts every Buy and Claim, and runs onCall for each.
 type marketKappBuyStub struct {
 	kapp.MarketKapp
+	onCall func()
 }
 
 func (s *marketKappBuyStub) Buy(_ []byte, _ *transaction.BuyContract) (transaction.Transaction_TXResultCode, error) {
+	if s.onCall != nil {
+		s.onCall()
+	}
+	return transaction.Transaction_Ok, nil
+}
+
+func (s *marketKappBuyStub) Claim(_ []byte, _ *transaction.ClaimContract) (transaction.Transaction_TXResultCode, error) {
+	if s.onCall != nil {
+		s.onCall()
+	}
 	return transaction.Transaction_Ok, nil
 }
 
@@ -276,6 +294,7 @@ func TestKleverBuy_FlatCostWithoutNFTRecords(t *testing.T) {
 		buyFunc, err := builtInFunctions.NewKleverBuyFunc(
 			buyGasCost,
 			10,
+			0,
 			&mock.ProtoMarshalizerMock{},
 			&mock.AccountsCacherStub{},
 			mock.NewForkControllerStub(),
@@ -319,4 +338,127 @@ func TestKleverBuy_FlatCostWithoutNFTRecords(t *testing.T) {
 		require.NoError(t, err)
 		require.Zero(t, vmOutput.GasRemaining)
 	})
+}
+
+const (
+	createdAccountCost = uint64(1_000)
+	// the VM's part of createdAccountCost when it comes from the gas config
+	transferValue = uint64(400)
+	gasSlack      = uint64(7)
+	// accounts the cacher created before the builtin runs; only the ones it creates during it count
+	createdEarlier = uint64(5)
+)
+
+// createdAccountsCacher returns a cacher stub whose created-account counter starts at createdEarlier,
+// and a create function that adds n to it, as a kapp's LoadUserAccount does for each missing payee.
+func createdAccountsCacher(n uint64) (*mock.AccountsCacherStub, func()) {
+	created := createdEarlier
+	cacher := &mock.AccountsCacherStub{CreatedUsersCalled: func() uint64 { return created }}
+	return cacher, func() { created += n }
+}
+
+// buyKAppController answers ITO and market calls with ito and market, and finds no asset, so an ITO
+// buy pays no stored records.
+func buyKAppController(ito *itoKappBuyStub, market *marketKappBuyStub) *stub.KAppControllerStub {
+	return &stub.KAppControllerStub{
+		GetITOKAppCalled:    func() kapp.ITOKapp { return ito },
+		GetMarketKAppCalled: func() kapp.MarketKapp { return market },
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &stub.KDAKappStub{
+				GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, nil, common.ErrNotFoundInKApp
+				},
+			}
+		},
+	}
+}
+
+// From FixAuditChangesV7 a contract's buy pays a transfer for each account the accounts cacher
+// creates while the kapp runs, such as a royalty receiver's (KLC-2938). Before the fork it pays the
+// flat cost only. One gas short of the charge fails the call after the kapp has run; the transaction
+// then discards what the kapp wrote.
+func TestKleverBuy_ChargesATransferPerCreatedAccountFromV7(t *testing.T) {
+	t.Parallel()
+
+	for _, buyType := range []transaction.BuyContract_EnumBuyType{transaction.BuyContract_ITOBuy, transaction.BuyContract_MarketBuy} {
+		for _, created := range []uint64{0, 21} {
+			for _, fixV7 := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/created=%d/FixAuditChangesV7=%t", buyType, created, fixV7), func(t *testing.T) {
+					t.Parallel()
+
+					cost := buyGasCost
+					if fixV7 {
+						cost += created * createdAccountCost
+					}
+					run := func(gasProvided uint64) (*vmcommon.VMOutput, error) {
+						cacher, create := createdAccountsCacher(created)
+						kappController := buyKAppController(
+							&itoKappBuyStub{status: transaction.Transaction_Ok, onBuy: create}, &marketKappBuyStub{onCall: create})
+						buyFunc, err := builtInFunctions.NewKleverBuyFunc(buyGasCost, 10, createdAccountCost, &mock.ProtoMarshalizerMock{},
+							cacher, mock.NewForkControllerStub().SetFork("FixAuditChangesV7", fixV7), kappController)
+						require.NoError(t, err)
+
+						input := buyInput(buyType)
+						input.GasProvided = gasProvided
+						return buyFunc.ProcessBuiltinFunction(input)
+					}
+
+					// a little more than the cost, so a charge that differs shows in what is left
+					vmOutput, err := run(cost + gasSlack)
+					require.NoError(t, err)
+					require.Equal(t, gasSlack, vmOutput.GasRemaining)
+
+					if !fixV7 || created == 0 {
+						return
+					}
+					vmOutput, err = run(cost - 1)
+					require.ErrorIs(t, err, common.ErrNotEnoughGas)
+					require.Nil(t, vmOutput)
+				})
+			}
+		}
+	}
+}
+
+// A ResetAll or SaveAll while the kapp runs restarts the cacher's count below where it was. The buy
+// then pays for the accounts counted since the reset instead of a wrapped delta.
+func TestKleverBuy_CreatedAccountsAfterACountReset(t *testing.T) {
+	t.Parallel()
+
+	created := createdEarlier
+	cacher := &mock.AccountsCacherStub{CreatedUsersCalled: func() uint64 { return created }}
+	resetThenCreateTwo := func() { created = 2 }
+	buyFunc, err := builtInFunctions.NewKleverBuyFunc(buyGasCost, 10, createdAccountCost, &mock.ProtoMarshalizerMock{}, cacher,
+		mock.NewForkControllerStub().SetFork("FixAuditChangesV7", true),
+		buyKAppController(&itoKappBuyStub{status: transaction.Transaction_Ok, onBuy: resetThenCreateTwo}, &marketKappBuyStub{}))
+	require.NoError(t, err)
+
+	input := buyInput(transaction.BuyContract_ITOBuy)
+	input.GasProvided = buyGasCost + 2*createdAccountCost + gasSlack
+	vmOutput, err := buyFunc.ProcessBuiltinFunction(input)
+	require.NoError(t, err)
+	require.Equal(t, gasSlack, vmOutput.GasRemaining)
+}
+
+// The contract transfer a buy pays per created account, the VM's TransferValue and the Transfer
+// builtin, follows the gas schedule, as the flat cost does.
+func TestKleverBuy_CreatedAccountCostFollowsTheGasConfig(t *testing.T) {
+	t.Parallel()
+
+	cacher, create := createdAccountsCacher(4)
+	buyFunc, err := builtInFunctions.NewKleverBuyFunc(buyGasCost, 10, 0, &mock.ProtoMarshalizerMock{}, cacher,
+		mock.NewForkControllerStub().SetFork("FixAuditChangesV7", true),
+		buyKAppController(&itoKappBuyStub{status: transaction.Transaction_Ok, onBuy: create}, &marketKappBuyStub{}))
+	require.NoError(t, err)
+	buyFunc.SetNewGasConfig(&vmcommon.GasCost{
+		BuiltInCost:       vmcommon.BuiltInCost{Buy: buyGasCost, Transfer: createdAccountCost - transferValue},
+		BaseOperationCost: vmcommon.BaseOperationCost{StorePerByte: 10},
+		TransferValue:     transferValue,
+	})
+
+	input := buyInput(transaction.BuyContract_ITOBuy)
+	input.GasProvided = buyGasCost + 4*createdAccountCost + gasSlack
+	vmOutput, err := buyFunc.ProcessBuiltinFunction(input)
+	require.NoError(t, err)
+	require.Equal(t, gasSlack, vmOutput.GasRemaining)
 }

@@ -582,12 +582,18 @@ func encodePacks(currency []byte, amount int64, price int64) []byte {
 }
 
 // From FixAuditChangesV7 a contract's ITO buy of an NFT pack pays StorePerByte for each holder
-// record the mint stores, as a direct NFT mint does; before V7 it pays only the flat cost.
+// record the mint stores, as a direct NFT mint does, and a transfer for each account it creates
+// (KLC-2938); before V7 it pays only the flat cost.
 func TestKleverBuy_ITOBuyGasPerStoredRecord(t *testing.T) {
 	t.Parallel()
 
 	const packAmount, packPrice = int64(3), int64(1)
 	recordsCost := storeRatePerByte * uint64(packAmount) * nftRecordSize
+	// the buy pays the ITO receiver, which has no account yet; every other payee is the buyer. Like
+	// every builtin cost here, a transfer costs storeFuncGasCost.
+	itoReceiver := makeAddress("fresh-ito-receiver")
+	const createdAccounts = 1
+	createdCost := createdAccounts * storeFuncGasCost
 
 	newNFTITO := func(t *testing.T, fixAuditChangesV7 bool) (kapp.KAppController, vmcommon.BuiltinFunction) {
 		kc, container := newStoreRateController(t, fixAuditChangesV7)
@@ -613,7 +619,7 @@ func TestKleverBuy_ITOBuyGasPerStoredRecord(t *testing.T) {
 		require.NoError(t, kc.GetAccountsKApp().GetAccountsCacher().UpdateUser(buyer))
 
 		_, err = processBuiltin(getBuiltin(t, container, core.BuiltInFunctionConfigITO), storeGasProvided,
-			defaultAssetID, defaultSender,
+			defaultAssetID, itoReceiver,
 			big.NewInt(int64(transaction.ConfigITOContract_ActiveITO)).Bytes(),
 			nil, nil, nil, nil, nil, nil, nil,
 			encodeWhitelist(),
@@ -635,15 +641,14 @@ func TestKleverBuy_ITOBuyGasPerStoredRecord(t *testing.T) {
 	}
 
 	for _, fixAuditChangesV7 := range []bool{false, true} {
-		expectedCost := storeFuncGasCost
-		if fixAuditChangesV7 {
-			expectedCost += recordsCost
-		}
-
 		t.Run(fmt.Sprintf("V7=%t an ITO buy of an NFT pack", fixAuditChangesV7), func(t *testing.T) {
 			t.Parallel()
 
 			kc, buyFunc := newNFTITO(t, fixAuditChangesV7)
+			expectedCost := storeFuncGasCost
+			if fixAuditChangesV7 {
+				expectedCost += recordsCost + createdCost
+			}
 			vmOutput, err := buy(buyFunc, storeGasProvided)
 			require.NoError(t, err)
 			require.Equal(t, storeGasProvided-expectedCost, vmOutput.GasRemaining)
@@ -659,8 +664,25 @@ func TestKleverBuy_ITOBuyGasPerStoredRecord(t *testing.T) {
 		require.Equal(t, common.ErrNotEnoughGas, err)
 		require.Nil(t, vmOutput)
 		require.Zero(t, mintedValue(t, kc))
+	})
 
-		vmOutput, err = buy(buyFunc, storeFuncGasCost+recordsCost)
+	// the accounts a buy creates are charged after the ITO kapp has run, so the call fails then and the
+	// transaction discards what the kapp wrote, as txProcess does with ResetAll
+	t.Run("from V7 gas below the created-account cost fails the buy", func(t *testing.T) {
+		t.Parallel()
+
+		kc, buyFunc := newNFTITO(t, true)
+		cacher := kc.GetAccountsKApp().GetAccountsCacher()
+		// the asset and its ITO come from earlier transactions
+		require.NoError(t, cacher.SaveAll())
+		cost := storeFuncGasCost + recordsCost + createdCost
+		vmOutput, err := buy(buyFunc, cost-1)
+		require.Equal(t, common.ErrNotEnoughGas, err)
+		require.Nil(t, vmOutput)
+		cacher.ResetAll(true)
+		require.Zero(t, mintedValue(t, kc))
+
+		vmOutput, err = buy(buyFunc, cost)
 		require.NoError(t, err)
 		require.Zero(t, vmOutput.GasRemaining)
 		require.Equal(t, packAmount, mintedValue(t, kc))

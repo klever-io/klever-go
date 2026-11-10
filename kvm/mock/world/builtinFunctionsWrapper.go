@@ -2,9 +2,7 @@ package worldmock
 
 import (
 	"github.com/klever-io/klever-go/common/mock"
-	nconfig "github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
-	"github.com/klever-io/klever-go/core/fork"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/kapp/builtInFunctions"
 	kappcontroller "github.com/klever-io/klever-go/core/kapp/kappController"
@@ -46,12 +44,6 @@ func NewBuiltinFunctionsWrapper(
 	})
 
 	kappController.SetCurrentKAppContext(ctx)
-	forkController, err := fork.NewForkController(nconfig.EnableEpochs{
-		SmartContracts: 0,
-	}, &mock.EpochNotifierStub{})
-	if err != nil {
-		return nil, err
-	}
 
 	proposalController, err := kapps.NewProposalController(forkController)
 	if err != nil {

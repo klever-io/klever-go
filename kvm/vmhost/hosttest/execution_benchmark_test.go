@@ -10,6 +10,7 @@ import (
 	logger "github.com/klever-io/klever-go-logger"
 	commonMock "github.com/klever-io/klever-go/common/mock"
 	blockchainConfig "github.com/klever-io/klever-go/config"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/fork"
 	"github.com/klever-io/klever-go/data/vm"
 	"github.com/klever-io/klever-go/kapps"
@@ -235,8 +236,6 @@ func prepare(tb testing.TB, ownerAddress []byte) (*worldmock.MockWorld, *worldmo
 	gasMap, err := gasSchedules.LoadGasScheduleConfig(gasSchedules.GetV1())
 	require.Nil(tb, err)
 
-	mockWorld := worldmock.NewMockWorld()
-
 	epochNotifier := &commonMock.EpochNotifierStub{}
 
 	forkController, _ := fork.NewForkController(blockchainConfig.EnableEpochs{
@@ -251,6 +250,15 @@ func prepare(tb testing.TB, ownerAddress []byte) (*worldmock.MockWorld, *worldmo
 		FixAuditChanges:         0,
 		EpochRewardsV2:          0,
 	}, epochNotifier)
+
+	return prepareWithForks(tb, ownerAddress, gasMap, forkController)
+}
+
+// prepareWithForks is prepare with gasMap and the fork controller the host, the kapps and the builtins
+// all run with.
+func prepareWithForks(tb testing.TB, ownerAddress []byte, gasMap map[string]map[string]uint64, forkController core.ForkController) (*worldmock.MockWorld, *worldmock.Account, vmhost.VMHost, error) {
+	var err error
+	mockWorld := worldmock.NewMockWorld()
 
 	protectedKeys := [][]byte{
 		[]byte(kapps.ProtectedKleverKeyPrefix),

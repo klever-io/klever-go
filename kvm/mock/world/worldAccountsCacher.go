@@ -25,6 +25,7 @@ type WorldAccountsCacher struct {
 	kappList        []string
 	peerMap         map[string]state.PeerAccountHandler
 	peerList        []string
+	created         uint64
 	mut             sync.RWMutex
 }
 
@@ -141,9 +142,12 @@ func (acc *WorldAccountsCacher) LoadUser(address []byte) (state.UserAccountHandl
 
 	userAcc, ok := acc.userMap[string(address)]
 	if !ok {
-		acnt, err := acc.accounts.LoadAccount(address)
+		acnt, created, err := state.LoadCountingCreated(acc.accounts, address)
 		if err != nil {
 			return nil, err
+		}
+		if created {
+			acc.created++
 		}
 
 		userAcc, ok = acnt.(state.UserAccountHandler)
@@ -244,8 +248,17 @@ func (acc *WorldAccountsCacher) ResetAll(enableCache bool) {
 	acc.kappList = make([]string, 0)
 	acc.peerMap = make(map[string]state.PeerAccountHandler)
 	acc.peerList = make([]string, 0)
+	acc.created = 0
 
 	acc.cacheEnable = enableCache
+}
+
+// CreatedUsers returns the user accounts LoadUser has created since the last ResetAll or SaveAll.
+func (acc *WorldAccountsCacher) CreatedUsers() uint64 {
+	acc.mut.RLock()
+	defer acc.mut.RUnlock()
+
+	return acc.created
 }
 
 // SaveAll save all cached accounts (User/KApps/Peers)

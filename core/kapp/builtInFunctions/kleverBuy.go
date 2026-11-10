@@ -20,6 +20,7 @@ type kleverBuy struct {
 	kappController kapp.KAppController
 	funcGasCost    uint64
 	storePerByte   uint64
+	transferCost   uint64
 	marshaller     vmcommon.Marshalizer
 	keyPrefix      []byte
 	mutExecution   sync.RWMutex
@@ -30,6 +31,7 @@ type kleverBuy struct {
 func NewKleverBuyFunc(
 	funcGasCost uint64,
 	storePerByte uint64,
+	transferCost uint64,
 	marshaller vmcommon.Marshalizer,
 	accountsCacher state.AccountsCacher,
 	forkController core.ForkController,
@@ -45,6 +47,7 @@ func NewKleverBuyFunc(
 	e := &kleverBuy{
 		funcGasCost:    funcGasCost,
 		storePerByte:   storePerByte,
+		transferCost:   transferCost,
 		marshaller:     marshaller,
 		keyPrefix:      []byte(""),
 		accountsCacher: accountsCacher,
@@ -64,6 +67,7 @@ func (e *kleverBuy) SetNewGasConfig(gasCost *vmcommon.GasCost) {
 	e.mutExecution.Lock()
 	e.funcGasCost = gasCost.BuiltInCost.Buy
 	e.storePerByte = gasCost.BaseOperationCost.StorePerByte
+	e.transferCost = gasCost.ContractTransfer()
 	e.mutExecution.Unlock()
 }
 
@@ -82,20 +86,13 @@ func (e *kleverBuy) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInput) 
 		return nil, err
 	}
 
-	gasCost := e.funcGasCost
-	// an ITO buy mints the bought tokens, so the records a contract's buy adds pay per stored byte, as
-	// a mint of the same asset does (see mintStoredSize); the charge does not repeat the ITO kapp's
-	// checks, so a buy it refuses, such as one of an SFT, is priced like a mint of that asset
-	if e.forkController.FixAuditChangesV7() && contract.GetBuyType() == transaction.BuyContract_ITOBuy {
-		gasCost = math.AddUint64(gasCost,
-			math.MulUint64(e.storePerByte, mintStoredSize(e.kappController, contract.GetID(), contract.GetAmount())))
-	}
-
-	gasRemaining, err := computeBuiltinGasRemaining(vmInput.GasProvided, gasCost, e.forkController)
+	gasRemaining, err := computeBuiltinGasRemaining(vmInput.GasProvided, e.buyGasCost(contract), e.forkController)
 	if err != nil {
 		return nil, err
 	}
 	vmOutput := &vmcommon.VMOutput{GasRemaining: gasRemaining, ReturnCode: vmcommon.Ok}
+
+	chargeCreatedAccounts := countCreatedAccounts(e.accountsCacher, e.transferCost, e.forkController)
 
 	//Using Kapps
 	var resultCode transaction.Transaction_TXResultCode
@@ -119,7 +116,21 @@ func (e *kleverBuy) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInput) 
 		return nil, err
 	}
 
-	return vmOutput, nil
+	return chargeCreatedAccounts(vmOutput)
+}
+
+// buyGasCost is the flat cost, charged before the kapp runs. From FixAuditChangesV7 an ITO buy, which
+// mints the bought tokens, also pays per stored byte for the records it adds, as a mint of the same
+// asset does (see mintStoredSize). The charge does not repeat the ITO kapp's checks, so a buy it
+// refuses, such as one of an SFT, is priced like a mint of that asset. The accounts a buy creates are
+// charged after the kapp runs (see countCreatedAccounts).
+func (e *kleverBuy) buyGasCost(contract *transaction.BuyContract) uint64 {
+	if !e.forkController.FixAuditChangesV7() || contract.GetBuyType() != transaction.BuyContract_ITOBuy {
+		return e.funcGasCost
+	}
+
+	return math.AddUint64(e.funcGasCost,
+		math.MulUint64(e.storePerByte, mintStoredSize(e.kappController, contract.GetID(), contract.GetAmount())))
 }
 
 // getBuyContract convert the arguments to an BuyContract
