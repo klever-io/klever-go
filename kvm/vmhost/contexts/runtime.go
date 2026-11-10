@@ -216,15 +216,14 @@ func (context *runtimeContext) compilationOptions(gasLimit uint64) executor.Comp
 	gasSchedule := context.host.Metering().GasSchedule()
 
 	return executor.CompilationOptions{
-		GasLimit:                gasLimit,
-		UnmeteredLocals:         uint64(gasSchedule.WASMOpcodeCost.LocalsUnmetered),
-		MaxMemoryGrow:           uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrow),
-		MaxMemoryGrowDelta:      uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrowDelta),
-		MaxDeclaredTableSize:    context.effectiveMaxDeclaredTableSize(gasSchedule),
-		TableInitPerElementCost: context.effectiveTableInitPerElementCost(gasSchedule),
-		OpcodeTrace:             false,
-		Metering:                true,
-		RuntimeBreakpoints:      true,
+		GasLimit:             gasLimit,
+		UnmeteredLocals:      uint64(gasSchedule.WASMOpcodeCost.LocalsUnmetered),
+		MaxMemoryGrow:        uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrow),
+		MaxMemoryGrowDelta:   uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrowDelta),
+		MaxDeclaredTableSize: context.effectiveMaxDeclaredTableSize(gasSchedule),
+		OpcodeTrace:          false,
+		Metering:             true,
+		RuntimeBreakpoints:   true,
 	}
 }
 
@@ -285,27 +284,6 @@ func (context *runtimeContext) effectiveMaxDeclaredTableSize(gasSchedule *config
 		return builtinMath.MaxUint64
 	}
 	return uint64(gasSchedule.WASMOpcodeCost.MaxDeclaredTableSize)
-}
-
-// isTableInitPerElementChargeActive reports whether table.init is priced by the
-// number of elements it copies. This activates one fork later than the declared
-// table cap above: that cap already shipped with FixAuditChangesV4, while
-// repricing an opcode changes the gas of transactions that already executed, so
-// it cannot share an epoch that is already in the past.
-func (context *runtimeContext) isTableInitPerElementChargeActive() bool {
-	forkController := context.host.ForkController()
-	return !check.IfNil(forkController) && forkController.FixAuditChangesV5()
-}
-
-// effectiveTableInitPerElementCost returns the per-element table.init price to
-// hand the executor for this instantiation. 0 means "charge the flat opcode cost
-// only", which is exactly the pre-fork behaviour, so the executor stays
-// unconditional and fork-unaware just as it does for the table cap.
-func (context *runtimeContext) effectiveTableInitPerElementCost(gasSchedule *config.GasCost) uint64 {
-	if !context.isTableInitPerElementChargeActive() {
-		return 0
-	}
-	return uint64(gasSchedule.WASMOpcodeCost.TableInitPerElement)
 }
 
 // verifyTableDeclarationIfActive runs the declared-table-size check against the

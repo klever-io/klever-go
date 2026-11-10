@@ -20,6 +20,10 @@ var ErrInstanceCleaned = errors.New("wasmer2 instance already cleaned")
 // opcode cost struct of a different size than OpcodeCost.
 var ErrOpcodeCostLayoutMismatch = errors.New("executor library opcode cost layout does not match OpcodeCost")
 
+// ErrCompilationOptionsLayoutMismatch signals that the executor library reads a
+// compilation options struct of a different size than executor.CompilationOptions.
+var ErrCompilationOptionsLayoutMismatch = errors.New("executor library compilation options layout does not match CompilationOptions")
+
 // GetLastError returns the last error message if any, otherwise returns an error.
 func GetLastError() (string, error) {
 	var errorLength = cWasmerLastErrorLength()

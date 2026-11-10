@@ -23,7 +23,12 @@ type Wasmer2Executor struct {
 
 // CreateExecutor creates a new wasmer executor.
 func CreateExecutor() (*Wasmer2Executor, error) {
-	err := checkOpcodeCostLayout(libraryOpcodeCostSize())
+	err := checkStructLayout(ErrOpcodeCostLayoutMismatch, libraryOpcodeCostSize(), unsafe.Sizeof(OpcodeCost{}))
+	if err != nil {
+		return nil, err
+	}
+	err = checkStructLayout(ErrCompilationOptionsLayoutMismatch,
+		libraryCompilationOptionsSize(), unsafe.Sizeof(executor.CompilationOptions{}))
 	if err != nil {
 		return nil, err
 	}
@@ -55,18 +60,17 @@ func CreateExecutor() (*Wasmer2Executor, error) {
 	return executor, nil
 }
 
-// libraryOpcodeCostSize reports the opcode cost struct size the executor
-// library reads. A variable so tests can stand in a mismatched library.
+// libraryOpcodeCostSize and libraryCompilationOptionsSize report the struct
+// sizes the executor library reads. Variables so tests can stand in a
+// mismatched library.
 var libraryOpcodeCostSize = cWasmerOpcodeCostSize
+var libraryCompilationOptionsSize = cWasmerCompilationOptionsSize
 
-// checkOpcodeCostLayout refuses an executor library whose opcode cost struct
-// differs in size from OpcodeCost. The executor reads the struct through a
-// pointer, so a field present on only one side would shift every later cost
-// without any error.
-func checkOpcodeCostLayout(librarySize uint32) error {
-	goSize := uint32(unsafe.Sizeof(OpcodeCost{}))
-	if librarySize != goSize {
-		return fmt.Errorf("%w: library %d bytes, Go %d bytes", ErrOpcodeCostLayoutMismatch, librarySize, goSize)
+// checkStructLayout refuses an executor library whose struct size differs
+// from the Go struct passed to it by pointer.
+func checkStructLayout(mismatch error, librarySize uint32, goSize uintptr) error {
+	if uintptr(librarySize) != goSize {
+		return fmt.Errorf("%w: library %d bytes, Go %d bytes", mismatch, librarySize, goSize)
 	}
 	return nil
 }

@@ -20,7 +20,6 @@ type WASMOpcodeCost struct {
 	DataDrop                      uint32
 	Delegate                      uint32
 	Drop                          uint32
-	ElemDrop                      uint32
 	Else                          uint32
 	End                           uint32
 	F32Abs                        uint32
@@ -517,9 +516,6 @@ type WASMOpcodeCost struct {
 	ReturnCall                    uint32
 	ReturnCallIndirect            uint32
 	Select                        uint32
-	TableCopy                     uint32
-	TableFill                     uint32
-	TableInitPerElement           uint32
 	Throw                         uint32
 	Try                           uint32
 	TypedSelect                   uint32

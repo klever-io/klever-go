@@ -550,7 +550,6 @@ func FillGasMapWASMOpcodeValues(value uint64) map[string]uint64 {
 	gasMap["DataDrop"] = value
 	gasMap["Delegate"] = value
 	gasMap["Drop"] = value
-	gasMap["ElemDrop"] = value
 	gasMap["Else"] = value
 	gasMap["End"] = value
 	gasMap["F32Abs"] = value
@@ -1047,9 +1046,6 @@ func FillGasMapWASMOpcodeValues(value uint64) map[string]uint64 {
 	gasMap["ReturnCall"] = value
 	gasMap["ReturnCallIndirect"] = value
 	gasMap["Select"] = value
-	gasMap["TableCopy"] = value
-	gasMap["TableFill"] = value
-	gasMap["TableInitPerElement"] = value
 	gasMap["Throw"] = value
 	gasMap["Try"] = value
 	gasMap["TypedSelect"] = value

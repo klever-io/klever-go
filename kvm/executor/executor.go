@@ -12,6 +12,8 @@ import (
 // wasmer2Executor.go), not through per-field marshaling, so its field order
 // must exactly match the Rust CompilationOptions struct (#[repr(C)], in
 // vm-executor/src/instance.rs) - do not reorder without updating both sides.
+// The wasmer2 executor refuses at startup a library whose struct size differs
+// (vm_exec_compilation_options_size).
 type CompilationOptions struct {
 	GasLimit           uint64
 	UnmeteredLocals    uint64
@@ -27,14 +29,6 @@ type CompilationOptions struct {
 	OpcodeTrace          bool
 	Metering             bool
 	RuntimeBreakpoints   bool
-	// TableInitPerElementCost is charged for every element a table.init copies,
-	// on top of the flat TableInit opcode cost. 0 disables the proportional
-	// charge and reproduces the pre-fork metering exactly.
-	//
-	// Declared last to match the Rust CompilationOptions: the C API casts the
-	// pointer instead of marshalling field by field, so the two field orders
-	// must stay in lockstep and new fields must only ever be appended.
-	TableInitPerElementCost uint64
 }
 
 // Executor defines the functionality needed to create any executor instance.

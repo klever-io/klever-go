@@ -10,7 +10,6 @@ CatchAll
 DataDrop
 Delegate
 Drop
-ElemDrop
 Else
 End
 F32Abs
@@ -470,13 +469,6 @@ Return
 ReturnCall
 ReturnCallIndirect
 Select
-TableCopy
-TableFill
-TableGet
-TableGrow
-TableInit
-TableSet
-TableSize
 Throw
 Try
 TypedSelect
