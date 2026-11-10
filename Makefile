@@ -169,9 +169,13 @@ runsc-trace: ## Run node with smart-contract trace logging (wipes ./db first)
 #
 # Reference: https://pkg.go.dev/net/http/pprof
 
+# The shipped api.yaml keeps debug /pprof closed, so profile runs on a copy with it open.
+# Unsecured is fine here only because the API is bound to loopback.
 profile: ## Run node with pprof enabled on 127.0.0.1:8080/debug/pprof
+	@mkdir -p bin && sed '/name: \/pprof/,/secured:/{s/open: false/open: true/;s/secured: true/secured: false/}' \
+		config/node/api.yaml > bin/api-profile.yaml
 	$(GORUN) ./cmd/node --log-level="${LOG}" --use-log-view \
-		--profile-mode --rest-api-interface=127.0.0.1:8080
+		--profile-mode --rest-api-interface=127.0.0.1:8080 --config-api=bin/api-profile.yaml
 
 pprof-goroutines: ## Dump all live goroutines from a running --profile-mode node
 	@curl -s "http://127.0.0.1:8080/debug/pprof/goroutine?debug=2"
