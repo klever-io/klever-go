@@ -1319,12 +1319,16 @@ func validateResourceManagerConfig(rmCfg config.ResourceManagerConfig) error {
 }
 
 // useNullConnMgr reports whether libp2p's default BasicConnMgr (low=160,
-// high=192) must be replaced with NullConnMgr. Klever-go never tags or protects
-// peers, so BasicConnMgr trims effectively at random and can drop consensus
-// peers. Seed nodes and nodes configured with NilListSharder (operator opted
-// out of connection trimming) therefore run without a ConnMgr; their peer count
-// is bounded only by the ResourceManager ceiling, with yamux keepalives
-// cleaning up dead connections. ListsSharder/OneListSharder keep the default.
+// high=192) must be replaced with NullConnMgr. klever-go does not tag or
+// protect consensus peers itself, so BasicConnMgr can trim validators that are
+// not in a gossipsub mesh or a protected DHT bucket. Seed nodes and nodes
+// configured with NilListSharder (operator opted out of connection trimming)
+// therefore run without a ConnMgr: their peer count is bounded only by the
+// ResourceManager limits, which refuse new connections rather than close
+// existing ones, and dead connections are closed by yamux keepalives (TCP) or
+// the QUIC idle timeout. With NullConnMgr the Protect/TagPeer calls made by
+// gossipsub and kad-dht are no-ops, which is harmless while nothing trims.
+// ListsSharder/OneListSharder keep the default.
 func useNullConnMgr(args ArgsNetworkMessenger) bool {
 	return args.IsSeedNode || args.P2pConfig.Sharding.Type == p2p.NilListSharder
 }
