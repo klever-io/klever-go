@@ -2,6 +2,8 @@ package websocket
 
 import (
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/cmd/operator/utils"
 	indexer "github.com/klever-io/klever-go/indexer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -188,9 +191,65 @@ func TestMirrorFailureLogKeepsAttributionApart(t *testing.T) {
 	startServerEnvWith(t, hub)
 	hub.asyncPost(&Send{Type: indexer.BLOCKS, Data: []byte(`{}`)})
 
-	require.Eventually(t, func() bool { _, ok := loggedURL(); return ok }, 2*time.Second, 10*time.Millisecond, "the failed post must be logged")
-	status, _ := loggedStatus()
-	url, _ := loggedURL()
+	var status, url string
+	require.Eventually(t, func() bool {
+		s, okStatus := loggedStatus()
+		u, okURL := loggedURL()
+		status, url = s, u
+		return okStatus && okURL
+	}, 2*time.Second, 10*time.Millisecond, "the failed post must be logged with both status and url")
 	assert.Equal(t, "502 Bad Gateway", status)
 	assert.Equal(t, ts.URL, url)
+}
+
+// TestMirrorFailureFields drives the field builder directly: a plain error is one bounded,
+// scrubbed lastError; a typed status error, even wrapped, is taken apart into status, body
+// and url, with readError only when the body was not read whole.
+func TestMirrorFailureFields(t *testing.T) {
+	longLine := strings.Repeat("k", 300)
+	statusErr := &utils.HTTPStatusError{Method: "POST", URL: "https://mirror.example/hook", StatusCode: 502, Status: "502 Bad Gateway", Body: `{"error":"x"}`}
+	readErr := &utils.HTTPStatusError{Method: "POST", URL: "https://mirror.example/hook", StatusCode: 500, Status: "500 Internal Server Error", Body: "short", ReadErr: "unexpected EOF"}
+
+	tests := []struct {
+		name string
+		err  error
+		want map[string]string
+	}{
+		{
+			name: "plain error is one bounded scrubbed lastError",
+			err:  errors.New("dial tcp: " + longLine + "\nWARN forged"),
+			want: map[string]string{"lastError": loggableText("dial tcp: "+longLine+"\nWARN forged", maxLoggableErrorLength)},
+		},
+		{
+			name: "status error is taken apart",
+			err:  statusErr,
+			want: map[string]string{"status": "502 Bad Gateway", "body": `{"error":"x"}`, "url": "https://mirror.example/hook"},
+		},
+		{
+			name: "wrapped status error is still found",
+			err:  fmt.Errorf("mirror: %w", statusErr),
+			want: map[string]string{"status": "502 Bad Gateway", "body": `{"error":"x"}`, "url": "https://mirror.example/hook"},
+		},
+		{
+			name: "read failure adds readError",
+			err:  readErr,
+			want: map[string]string{"status": "500 Internal Server Error", "body": "short", "readError": "unexpected EOF", "url": "https://mirror.example/hook"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fields := mirrorFailureFields(tt.err)
+			require.Equal(t, 0, len(fields)%2, "fields come in key/value pairs")
+			got := map[string]string{}
+			for i := 0; i < len(fields); i += 2 {
+				got[fields[i].(string)] = fields[i+1].(string)
+			}
+			assert.Equal(t, tt.want, got)
+			if lastError, ok := got["lastError"]; ok {
+				assert.NotContains(t, lastError, "\n")
+				assert.LessOrEqual(t, len(lastError), maxLoggableErrorLength+len("… (99999 bytes)"))
+			}
+		})
+	}
 }
