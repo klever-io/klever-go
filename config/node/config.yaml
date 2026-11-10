@@ -28,26 +28,33 @@ p2p:
     #              replaces libp2p's default connection manager (160/192 watermarks) with
     #              a no-op one: idle connections are never closed, so the peer count is
     #              bounded only by the ResourceManager limits below, and once they are
-    #              reached new connections are refused. With the default strategy ("")
-    #              libp2p budgets TotalRAM/8 and allows 64 + 8*GB inbound and
-    #              128 + 16*GB total connections (GB of host RAM): 96/192 on a 4 GB host,
-    #              128/256 on 8 GB, 192/384 on 16 GB. With strategy "null" only the OS
-    #              ulimit and RAM apply. Dead connections are closed by yamux keepalives
-    #              (TCP) or the QUIC idle timeout.
+    #              reached new connections are refused. The shipped "scaled" strategy
+    #              allows 320 inbound / 640 total (see resourceManager below). Under the
+    #              libp2p default ("") it would be 64 + 8*GB inbound and 128 + 16*GB total
+    #              (GB of host RAM): 128/256 on 8 GB, 192/384 on 16 GB, too few for a
+    #              ~200-validator network. With strategy "null" only the OS ulimit and RAM
+    #              apply. Dead connections are closed by yamux keepalives (TCP) or the
+    #              QUIC idle timeout.
     #              `ListsSharder` / `OneListSharder` keep libp2p's default connection manager.
     type: NilListSharder
-  # Optional libp2p ResourceManager tuning. Omitting this section is equivalent
-  # to strategy "" / "default": libp2p's auto-scaled DefaultResourceManager
+  # libp2p ResourceManager tuning. Omitting this section is equivalent to
+  # strategy "" / "default": libp2p's auto-scaled DefaultResourceManager
   # (memory budget = TotalRAM/8) is used. Available strategies:
   #   ""        leave libp2p's auto-scaled DefaultResourceManager in place.
   #   "default" same as "" — explicit libp2p auto-scale.
   #   "null"    disable libp2p resource limits (bounded only by OS ulimit and RAM).
   #   "scaled"  auto-scale limits as if the host had `scaledMemoryMiB` MiB of memory.
-  # Example: lift caps on a small host without going fully unbounded:
-  #
-  # resourceManager:
-  #   strategy: scaled
-  #   scaledMemoryMiB: 16384
+  # Shipped default (KLC-2417): "scaled" with 4096 MiB, giving 64 + 4096/16 = 320
+  # inbound and 640 total connections on any host with at least 4 GiB of RAM. With
+  # NilListSharder nothing closes idle connections, so the auto-scaled 128 inbound
+  # of an 8 GB validator would fill up on a ~200-validator network and refuse peers.
+  # The value is an accounting ceiling, not memory the node reserves, and it is
+  # clamped to the host's physical memory. The optional maxConns*/connRate* knobs
+  # (see config/seednode/config.yaml) are left unset, so libp2p's per-IP limits
+  # keep their defaults (8 connections per /32).
+  resourceManager:
+    strategy: scaled
+    scaledMemoryMiB: 4096
   # Optional caps on the inbound direct-send streams this node accepts (KLC-2433).
   # Omitting this section, or leaving a knob at 0, keeps the built-in defaults:
   # 4 streams per peer and 512 across all peers. A well-behaved peer reuses a
