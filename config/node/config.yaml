@@ -26,9 +26,14 @@ p2p:
     #              the shard membership of the connected peers
     #  `NilListSharder` will disable connection trimming (sharder is off). This also
     #              replaces libp2p's default connection manager (160/192 watermarks) with
-    #              a no-op one, so the peer count is bounded only by the ResourceManager
-    #              limits below (with strategy "null", only by OS ulimit and RAM);
-    #              yamux keepalives clean up dead connections.
+    #              a no-op one: idle connections are never closed, so the peer count is
+    #              bounded only by the ResourceManager limits below, and once they are
+    #              reached new connections are refused. With the default strategy ("")
+    #              libp2p budgets TotalRAM/8 and allows 64 + 8*GB inbound and
+    #              128 + 16*GB total connections (GB of host RAM): 96/192 on a 4 GB host,
+    #              128/256 on 8 GB, 192/384 on 16 GB. With strategy "null" only the OS
+    #              ulimit and RAM apply. Dead connections are closed by yamux keepalives
+    #              (TCP) or the QUIC idle timeout.
     #              `ListsSharder` / `OneListSharder` keep libp2p's default connection manager.
     type: NilListSharder
   # Optional libp2p ResourceManager tuning. Omitting this section is equivalent
