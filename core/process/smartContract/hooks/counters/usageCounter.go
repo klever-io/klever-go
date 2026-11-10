@@ -79,6 +79,18 @@ func (counter *usageCounter) ProcessMaxBuiltInCounters(input *vmcommon.ContractC
 		return fmt.Errorf("%w: too many built-in functions calls", process.ErrMaxCallsReached)
 	}
 
+	// From FixAuditChangesV7 the transfers are read from input.KDATransfers, not re-parsed from
+	// Arguments: callBuiltinFunction appends the parsed ones before this hook, and ExecuteKDATransfer
+	// passes typed transfers with no Arguments. An executed entry was already counted by the
+	// ExecuteKDATransfer that settled it, or settled by the tx processor as call value.
+	if counter.forkController.FixAuditChangesV7() {
+		if !isTransferBuiltinFunction(input.Function) {
+			return nil
+		}
+
+		return counter.addTransfers(vmcommon.CountPendingKDATransfers(input.KDATransfers))
+	}
+
 	if counter.forkController.FixAuditChangesV3() && !isTransferBuiltinFunction(input.Function) {
 		return nil
 	}
@@ -89,7 +101,12 @@ func (counter *usageCounter) ProcessMaxBuiltInCounters(input *vmcommon.ContractC
 		return nil
 	}
 
-	counter.crtNumberOfTransfers += uint64(len(parsedTransfer.KDATransfers))
+	return counter.addTransfers(uint64(len(parsedTransfer.KDATransfers)))
+}
+
+// addTransfers adds numTransfers to the transfer counter. The caller must hold mutCounters.
+func (counter *usageCounter) addTransfers(numTransfers uint64) error {
+	counter.crtNumberOfTransfers += numTransfers
 	if counter.crtNumberOfTransfers > counter.maxNumberOfTransfersPerTx {
 		return fmt.Errorf("%w: too many KDA transfers", process.ErrMaxCallsReached)
 	}

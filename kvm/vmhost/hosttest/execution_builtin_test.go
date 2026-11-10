@@ -9,11 +9,17 @@ import (
 	blockchainConfig "github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp/builtInFunctions"
+	"github.com/klever-io/klever-go/core/process"
+	"github.com/klever-io/klever-go/core/process/smartContract/hooks/counters"
 	"github.com/klever-io/klever-go/kvm/executor"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
+	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
 	test "github.com/klever-io/klever-go/kvm/testcommon"
 	"github.com/klever-io/klever-go/kvm/vmhost"
+	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/klever-io/klever-go/vmcommon"
+	"github.com/klever-io/klever-go/vmcommon/parsers"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExecution_ExecuteOnDestContext_MockBuiltinFunctions_Claim(t *testing.T) {
@@ -193,4 +199,141 @@ func getDummyBuiltinFunctionsContainer() vmcommon.BuiltInFunctionContainer {
 	_ = builtInContainer.Add(core.BuiltInFunctionTransfer, &test.MockBuiltin{})
 
 	return builtInContainer
+}
+
+type countedTransferBuiltin struct {
+	vmcommon.BuiltinFunction
+	counter interface {
+		ProcessMaxBuiltInCounters(input *vmcommon.ContractCallInput) error
+	}
+	counterErr error
+}
+
+func (builtin *countedTransferBuiltin) ProcessBuiltinFunction(input *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+	if err := builtin.counter.ProcessMaxBuiltInCounters(input); err != nil {
+		builtin.counterErr = err
+		return nil, err
+	}
+
+	return builtin.BuiltinFunction.ProcessBuiltinFunction(input)
+}
+
+func countTransfersWithUsageCounter(t *testing.T, host vmhost.VMHost, world *worldmock.MockWorld) *countedTransferBuiltin {
+	parser, err := parsers.NewKDATransferParser(&marshal.ProtoMarshalizer{})
+	require.NoError(t, err)
+	counter, err := counters.NewUsageCounter(parser, host.ForkController())
+	require.NoError(t, err)
+	counter.SetMaximumValues(map[string]uint64{
+		"MaxBuiltInCallsPerTx":      100,
+		"MaxNumberOfTransfersPerTx": 250,
+		"MaxNumberOfTrieReadsPerTx": 1500,
+	})
+
+	transfer, err := world.BuiltinFuncs.Container.Get(core.BuiltInFunctionTransfer)
+	require.NoError(t, err)
+	counted := &countedTransferBuiltin{
+		BuiltinFunction: transfer,
+		counter:         counter,
+	}
+	require.NoError(t, world.BuiltinFuncs.Container.Replace(core.BuiltInFunctionTransfer, counted))
+
+	return counted
+}
+
+func unitTransfers(numTransfers int) []zeroValueTransferSpec {
+	specs := make([]zeroValueTransferSpec, numTransfers)
+	for i := range specs {
+		specs[i] = zeroValueTransferSpec{token: test.KDATestTokenName, value: 1}
+	}
+
+	return specs
+}
+
+func runTransfersUnderUsageCounter(
+	t *testing.T,
+	callerBody func(vmhost.VMHost),
+	epochs blockchainConfig.EnableEpochs,
+	assertResults func(*worldmock.MockWorld, *test.VMOutputVerifier),
+) error {
+	testConfig := makeTestConfig()
+	var counted *countedTransferBuiltin
+
+	_, err := test.BuildMockInstanceCallTest(t).
+		WithContracts(
+			test.CreateMockContract(test.ParentAddress).
+				WithBalance(testConfig.ParentBalance).
+				WithConfig(testConfig).
+				WithMethods(func(instance *contextmock.InstanceMock, _ interface{}) {
+					instance.AddMockMethod("transferAndCall", func() *contextmock.InstanceMock {
+						callerBody(instance.Host)
+						return instance
+					})
+				}),
+			test.CreateMockContract(test.ChildAddress).
+				WithBalance(testConfig.ChildBalance).
+				WithConfig(testConfig).
+				WithMethods(recordCallValueMock(&observedCallValue{})),
+		).
+		WithInput(test.CreateTestContractCallInputBuilder().
+			WithRecipientAddr(test.ParentAddress).
+			WithGasProvided(testConfig.GasProvided).
+			WithFunction("transferAndCall").
+			Build()).
+		WithSetup(func(host vmhost.VMHost, world *worldmock.MockWorld) {
+			createMockBuiltinFunctions(t, host, world)
+			setZeroCodeCosts(host)
+			host.Metering().GasSchedule().BuiltInCost.Transfer = 1
+			host.Metering().GasSchedule().BaseOpsAPICost.TransferValue = 0
+
+			caller, _ := world.AccountsCacher.LoadUser(test.ParentAddress)
+			require.NoError(t, caller.AddToBalance(retargetInitialBalance, test.KDATestTokenName, true))
+
+			counted = countTransfersWithUsageCounter(t, host, world)
+		}).
+		WithEnableEpochs(epochs).
+		AndAssertResults(assertResults)
+	require.NoError(t, err)
+
+	return counted.counterErr
+}
+
+func TestKDA_TypedTransfersCountTowardTransferLimit(t *testing.T) {
+	preForkV7 := blockchainConfig.EnableEpochs{FixAuditChangesV7: 1_000_000}
+	postForkV7 := blockchainConfig.EnableEpochs{FixAuditChangesV7: 0}
+
+	t.Run("atLimit", func(t *testing.T) {
+		counterErr := runTransfersUnderUsageCounter(t, viaManagedMultiTransfer(unitTransfers(250)), postForkV7,
+			func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
+				verify.Ok()
+				require.Equal(t, int64(250), kdaBalanceOf(t, world, test.ChildAddress))
+			})
+		require.NoError(t, counterErr)
+	})
+
+	t.Run("pastLimit/postFork", func(t *testing.T) {
+		counterErr := runTransfersUnderUsageCounter(t, viaManagedMultiTransfer(unitTransfers(251)), postForkV7,
+			func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
+				verify.ExecutionFailed()
+				require.Zero(t, kdaBalanceOf(t, world, test.ChildAddress))
+			})
+		require.ErrorIs(t, counterErr, process.ErrMaxCallsReached)
+	})
+
+	t.Run("pastLimit/preFork", func(t *testing.T) {
+		counterErr := runTransfersUnderUsageCounter(t, viaManagedMultiTransfer(unitTransfers(251)), preForkV7,
+			func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
+				verify.Ok()
+				require.Equal(t, int64(251), kdaBalanceOf(t, world, test.ChildAddress))
+			})
+		require.NoError(t, counterErr)
+	})
+}
+
+func TestKDA_ArgumentTransfersCountOnceTowardTransferLimit(t *testing.T) {
+	counterErr := runTransfersUnderUsageCounter(t, viaBuiltinFunction(unitTransfers(126)), blockchainConfig.EnableEpochs{FixAuditChangesV7: 0},
+		func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
+			verify.Ok()
+			require.Equal(t, int64(126), kdaBalanceOf(t, world, test.ChildAddress))
+		})
+	require.NoError(t, counterErr)
 }

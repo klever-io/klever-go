@@ -1199,6 +1199,9 @@ func (host *vmHost) callBuiltinFunction(input *vmcommon.ContractCallInput) (*vmc
 			return nil, nil, err
 		}
 
+		// From FixAuditChangesV7 the usage counter in ProcessBuiltInFunction counts the pending
+		// entries of input.KDATransfers and no longer parses Arguments, so the parsed transfers must
+		// be appended here, before the hook.
 		input.KDATransfers = append(input.KDATransfers, parsedTransfer.KDATransfers...)
 
 		// A transfer already flagged executed here was settled to input.RecipientAddr as it stands

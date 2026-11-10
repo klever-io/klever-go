@@ -109,6 +109,17 @@ func (kdaTransfer *KDATransfer) IsExecuted() bool {
 	return kdaTransfer.executed
 }
 
+func CountPendingKDATransfers(transfers []*KDATransfer) uint64 {
+	pending := uint64(0)
+	for _, transfer := range transfers {
+		if !transfer.IsExecuted() {
+			pending++
+		}
+	}
+
+	return pending
+}
+
 func (kdaTransfer *KDATransfer) Clone() KDATransfer {
 	transfer := KDATransfer{
 		KDAValue:      big.NewInt(0),

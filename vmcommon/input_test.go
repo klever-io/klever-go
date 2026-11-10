@@ -70,6 +70,17 @@ func TestKDATransfer_IsExecuted(t *testing.T) {
 	assert.True(t, transfer.IsExecuted())
 }
 
+func TestCountPendingKDATransfers(t *testing.T) {
+	assert.Equal(t, uint64(0), CountPendingKDATransfers(nil))
+
+	transfers := []*KDATransfer{{}, {}, {}}
+	assert.Equal(t, uint64(3), CountPendingKDATransfers(transfers))
+
+	transfers[0].SetExecuted()
+	transfers[2].SetExecuted()
+	assert.Equal(t, uint64(1), CountPendingKDATransfers(transfers))
+}
+
 func TestKDATransfer_Clone(t *testing.T) {
 	original := &KDATransfer{
 		KDAValue:      big.NewInt(100),
