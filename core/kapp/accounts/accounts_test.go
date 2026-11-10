@@ -8,6 +8,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -3144,6 +3145,18 @@ func setupAccCacher(accCacher *commonMock.AccountsCacherStub) *commonMock.Accoun
 	return &commonMock.AccountsCacherStub{}
 }
 
+// sharedKappContext returns a controller that always hands out the same context, so a test can read its receipts.
+func sharedKappContext() (*kvmStub.KAppControllerStub, kapp.KappContext) {
+	ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
+		OriginalSender: txSender,
+		ContractID:     transferContractID,
+		Block:          &block.Block{},
+	})
+	return &kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	}, ctx
+}
+
 func setupKappController(kappController *kvmStub.KAppControllerStub) *kvmStub.KAppControllerStub {
 	if kappController != nil {
 		// Ensure GetCurrentKAppContextCalled is set if not already provided
@@ -3386,6 +3399,7 @@ func Test_ComputeSplitRoyalties(t *testing.T) {
 		kappController *kvmStub.KAppControllerStub
 		expectedErr    error
 		expectedStatus transaction.Transaction_TXResultCode
+		expectedField  string
 	}{
 		{
 			description:    "invalid address error",
@@ -3393,6 +3407,7 @@ func Test_ComputeSplitRoyalties(t *testing.T) {
 			accCacher:      emptyAccCacher,
 			expectedErr:    hex.InvalidByteError(0x69),
 			expectedStatus: transaction.Transaction_LoadAccountError,
+			expectedField:  common.ErrFieldInvalidSplitRoyalties,
 		},
 		{
 			description: "invalid account error",
@@ -3404,6 +3419,7 @@ func Test_ComputeSplitRoyalties(t *testing.T) {
 			},
 			expectedErr:    mockError,
 			expectedStatus: transaction.Transaction_LoadAccountError,
+			expectedField:  common.ErrFieldLoadRoyaltyAccount,
 		},
 		{
 			description: "invalid royalties values error",
@@ -3417,6 +3433,7 @@ func Test_ComputeSplitRoyalties(t *testing.T) {
 			percentage:     math.MaxInt64,
 			expectedErr:    common.ErrInt64Overflow,
 			expectedStatus: transaction.Transaction_ParameterInvalid,
+			expectedField:  common.ErrFieldInvalidRoyalties,
 		},
 		{
 			description: "add to balance error",
@@ -3432,6 +3449,7 @@ func Test_ComputeSplitRoyalties(t *testing.T) {
 			},
 			expectedErr:    mockError,
 			expectedStatus: transaction.Transaction_BalanceError,
+			expectedField:  common.ErrFieldBalanceError,
 		},
 		{
 			description: "update user error",
@@ -3450,6 +3468,7 @@ func Test_ComputeSplitRoyalties(t *testing.T) {
 			},
 			expectedErr:    mockError,
 			expectedStatus: transaction.Transaction_SaveAccountError,
+			expectedField:  common.ErrFieldSaveAccountError,
 		},
 		{
 			description: "ok",
@@ -3495,12 +3514,21 @@ func Test_ComputeSplitRoyalties(t *testing.T) {
 			})
 
 			_ = accKapp.SetAccountsCacher(tt.accCacher)
-			_ = accKapp.SetKAppController(setupKappController(tt.kappController))
+			kappController, ctx := sharedKappContext()
+			if tt.kappController != nil {
+				kappController = tt.kappController
+			}
+			_ = accKapp.SetKAppController(kappController)
 
 			status, err := accKapp.computeSplitRoyalties(tt.address, kdautils.KLVIdentifier,
 				kapps.KDAData_Fungible, tt.acc, tt.value, tt.percentage, &royaltiesToPay)
 			assert.Equal(tt.expectedErr, err)
 			assert.Equal(tt.expectedStatus, status)
+			if tt.expectedField != "" {
+				requireErrorReceipt(t, ctx.Receipts().Get(), tt.expectedField, tt.expectedErr)
+			} else if tt.kappController == nil {
+				require.Empty(t, ctx.Receipts().Get())
+			}
 		})
 	}
 }
@@ -3624,6 +3652,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 		fprFork             uint32
 		expectedErr         error
 		expectedStatus      transaction.Transaction_TXResultCode
+		expectedField       string
 	}{
 		{
 			description: "without royalties",
@@ -3655,6 +3684,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			},
 			expectedErr:    common.ErrInvalidValue,
 			expectedStatus: transaction.Transaction_ParameterInvalid,
+			expectedField:  common.ErrFieldInvalidRoyalties,
 		},
 		{
 			description: "insufficient funds",
@@ -3676,6 +3706,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			},
 			expectedErr:    process.ErrInsufficientFunds,
 			expectedStatus: transaction.Transaction_OutOfFunds,
+			expectedField:  common.ErrFieldInsufficientFunds,
 		},
 		{
 			description: "sub from balance error",
@@ -3700,6 +3731,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			},
 			expectedErr:    mockError,
 			expectedStatus: transaction.Transaction_BalanceError,
+			expectedField:  common.ErrFieldBalanceError,
 		},
 		{
 			description: "update user error",
@@ -3729,6 +3761,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			},
 			expectedErr:    mockError,
 			expectedStatus: transaction.Transaction_SaveAccountError,
+			expectedField:  common.ErrFieldSaveAccountError,
 		},
 		{
 			description: "invalid split royalties",
@@ -3761,6 +3794,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			},
 			expectedErr:    hex.InvalidByteError(0x69),
 			expectedStatus: transaction.Transaction_LoadAccountError,
+			expectedField:  common.ErrFieldInvalidSplitRoyalties,
 		},
 		{
 			description: "error in load royaltyOwner account",
@@ -3793,6 +3827,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			},
 			expectedErr:    mockError,
 			expectedStatus: transaction.Transaction_LoadAccountError,
+			expectedField:  common.ErrFieldLoadRoyaltyAccount,
 		},
 		{
 			description: "error in load royaltyOwner account pre-fpk fork",
@@ -3826,6 +3861,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			fprFork:        inactiveFork,
 			expectedErr:    mockError,
 			expectedStatus: transaction.Transaction_LoadAccountError,
+			expectedField:  common.ErrFieldLoadRoyaltyAccount,
 		},
 		{
 			description: "error in add balance of royaltyOwner account",
@@ -3862,6 +3898,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			},
 			expectedErr:    mockError,
 			expectedStatus: transaction.Transaction_BalanceError,
+			expectedField:  common.ErrFieldBalanceError,
 		},
 		{
 			description: "error in update user of royaltyOwner account",
@@ -3897,6 +3934,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			},
 			expectedErr:    mockError,
 			expectedStatus: transaction.Transaction_SaveAccountError,
+			expectedField:  common.ErrFieldSaveAccountError,
 		},
 		{
 			description: "should work",
@@ -3947,7 +3985,11 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 				KdaFpr: tt.fprFork,
 			})
 			_ = accKapp.SetAccountsCacher(setupAccCacher(tt.accCacher))
-			_ = accKapp.SetKAppController(setupKappController(tt.kappController))
+			kappController, ctx := sharedKappContext()
+			if tt.kappController != nil {
+				kappController = tt.kappController
+			}
+			_ = accKapp.SetKAppController(kappController)
 
 			status, err := accKapp.processFixedRoyaltiesTransfer(
 				tt.transactionContract,
@@ -3957,6 +3999,11 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			)
 			assert.Equal(tt.expectedErr, err)
 			assert.Equal(tt.expectedStatus, status)
+			if tt.expectedField != "" {
+				requireErrorReceipt(t, ctx.Receipts().Get(), tt.expectedField, tt.expectedErr)
+			} else if tt.kappController == nil {
+				require.Empty(t, ctx.Receipts().Get())
+			}
 		})
 	}
 }
@@ -4101,6 +4148,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 		kappController      *kvmStub.KAppControllerStub
 		expectedErr         error
 		expectedStatus      transaction.Transaction_TXResultCode
+		expectedField       string
 	}{
 		{
 			description: "invalid percent royalties amount",
@@ -4124,6 +4172,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			},
 			expectedErr:    common.ErrInvalidValue,
 			expectedStatus: transaction.Transaction_ContractInvalid,
+			expectedField:  common.ErrFieldInvalidAmount,
 		},
 		{
 			description: "should ok because don't have royaltyAmount",
@@ -4177,6 +4226,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			},
 			expectedErr:    common.ErrInvalidValue,
 			expectedStatus: transaction.Transaction_ParameterInvalid,
+			expectedField:  common.ErrFieldInvalidRoyalties,
 		},
 		{
 			description: "invalid split royalties",
@@ -4207,6 +4257,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			},
 			expectedErr:    hex.InvalidByteError(0x69),
 			expectedStatus: transaction.Transaction_LoadAccountError,
+			expectedField:  common.ErrFieldInvalidSplitRoyalties,
 		},
 		{
 			description: "valid split royalties but royaltiesToPay all spended in royalties",
@@ -4290,6 +4341,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			},
 			expectedErr:    mockError,
 			expectedStatus: transaction.Transaction_LoadAccountError,
+			expectedField:  common.ErrFieldLoadRoyaltyAccount,
 		},
 		{
 			description: "royaltyReceiver sub from balance error",
@@ -4325,6 +4377,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			},
 			expectedErr:    mockError,
 			expectedStatus: transaction.Transaction_BalanceError,
+			expectedField:  common.ErrFieldBalanceError,
 		},
 		{
 			description: "royaltyReceiver add to balance error",
@@ -4364,6 +4417,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			},
 			expectedErr:    mockError,
 			expectedStatus: transaction.Transaction_BalanceError,
+			expectedField:  common.ErrFieldBalanceError,
 		},
 		{
 			description: "update user royaltyReceiver error",
@@ -4406,6 +4460,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			},
 			expectedErr:    mockError,
 			expectedStatus: transaction.Transaction_SaveAccountError,
+			expectedField:  common.ErrFieldSaveAccountError,
 		},
 		{
 			description: "should ok",
@@ -4464,7 +4519,11 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 
 			accKapp := setupAccountsKapp(t, config.EnableEpochs{})
 			_ = accKapp.SetAccountsCacher(setupAccCacher(tt.accCacher))
-			_ = accKapp.SetKAppController(setupKappController(tt.kappController))
+			kappController, ctx := sharedKappContext()
+			if tt.kappController != nil {
+				kappController = tt.kappController
+			}
+			_ = accKapp.SetKAppController(kappController)
 
 			status, err := accKapp.processPercentageRoyaltiesTransfer(
 				tt.transactionContract,
@@ -4476,6 +4535,11 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			)
 			assert.Equal(tt.expectedErr, err)
 			assert.Equal(tt.expectedStatus, status)
+			if tt.expectedField != "" {
+				requireErrorReceipt(t, ctx.Receipts().Get(), tt.expectedField, tt.expectedErr)
+			} else if tt.kappController == nil {
+				require.Empty(t, ctx.Receipts().Get())
+			}
 		})
 	}
 }
@@ -8457,6 +8521,24 @@ func Test_ProcessNonFungibleTransfer_SpentRecord(t *testing.T) {
 	})
 }
 
+// A receiver that cannot store the NFT record rejects the transfer with an AssetError receipt.
+func Test_ProcessNonFungibleTransfer_ReceiverRefusesRecord(t *testing.T) {
+	assetID := []byte("NONFUNGI-1234")
+	internalID := []byte("7")
+	errStore := errors.New("store failed")
+
+	f := newTransferFixture(t, config.EnableEpochs{}, kapps.KDAData_NonFungible, makeAddress("nonFungible-sender"), makeAddress("nonFungible-receiver"))
+	require.NoError(t, f.src.AddInternalKDA(assetID, internalID, commonMock.NFTHolderRecord(1)))
+	dst := &commonMock.UserAccountHandlerStub{
+		AddInternalKDACalled: func(_, _, _ []byte) error { return errStore },
+	}
+
+	status, err := f.accKapp.processNonFungibleTransfer(assetID, internalID, f.src, dst)
+	require.ErrorIs(t, err, errStore)
+	require.Equal(t, transaction.Transaction_AssetError, status)
+	requireErrorReceipt(t, f.ctx.Receipts().Get(), common.ErrFieldAssetError, err)
+}
+
 func Test_ProcessNonFungibleTransfer_MovesUnitToReceiver(t *testing.T) {
 	assetID := []byte("NONFUNGI-1234")
 	internalID := []byte("7")
@@ -8492,7 +8574,8 @@ func Test_ProcessNonFungibleTransfer_MovesUnitToReceiver(t *testing.T) {
 	status, err = f.accKapp.processNonFungibleTransfer(assetID, internalID, f.src, f.dst)
 	require.ErrorIs(t, err, common.ErrAssetNotFound, "the sender no longer owns the unit, so it cannot be sent twice")
 	require.Equal(t, transaction.Transaction_BalanceError, status)
-	require.Len(t, f.ctx.Receipts().Get(), 1, "a rejected second send must not add a receipt")
+	require.Len(t, f.ctx.Receipts().Get(), 2, "a rejected second send adds only its error receipt")
+	requireLastErrorReceipt(t, f.ctx.Receipts().Get(), common.ErrFieldBalanceError, err)
 
 	moved, err := f.dst.SubInternalKDA(assetID, internalID, f.accKapp.forkController)
 	require.NoError(t, err, "receiver must own the unit after the transfer")
@@ -8703,6 +8786,191 @@ func Test_Transfer_SemiFungibleReceiverOverflowEmitsBalanceErrorReceipt(t *testi
 	require.Equal(t, transaction.Transaction_BalanceError, status)
 	requireErrorReceipt(t, f.ctx.Receipts().Get(), common.ErrFieldBalanceError, err)
 	require.Equal(t, int64(math.MaxInt64), f.dst.GetBalanceWithNonce(assetID, internalID, true))
+}
+
+// requireLastErrorReceipt asserts the last receipt is an error receipt naming field and err.
+func requireLastErrorReceipt(t *testing.T, receipts []*transaction.Transaction_Receipt, field string, err error) {
+	t.Helper()
+
+	require.NotEmpty(t, receipts)
+	require.Equal(t, [][]byte{
+		{byte(kapp.ReceiptTypeError), transferContractID},
+		[]byte(field),
+		[]byte(err.Error()),
+	}, receipts[len(receipts)-1].Data)
+}
+
+// Each rejected fixed-royalty step leaves an error receipt naming the failure.
+func Test_Transfer_FixedRoyaltyRejectionsEmitErrorReceipts(t *testing.T) {
+	senderAddr := makeAddress("fixed-sender")
+	receiverAddr := makeAddress("fixed-receiver")
+	const fixedRoyalty = int64(50)
+
+	tests := []struct {
+		name       string
+		klvStart   int64
+		klvClaimed int64
+		split      bool
+		splitKey   string
+		dstKLV     int64
+		status     transaction.Transaction_TXResultCode
+		err        error
+		field      string
+	}{
+		{name: "claimed royalty differs", klvStart: 1000, klvClaimed: fixedRoyalty - 1, status: transaction.Transaction_ParameterInvalid, err: common.ErrInvalidValue, field: common.ErrFieldInvalidRoyalties},
+		{name: "sender lacks KLV", klvStart: fixedRoyalty - 1, klvClaimed: fixedRoyalty, status: transaction.Transaction_OutOfFunds, err: process.ErrInsufficientFunds, field: common.ErrFieldInsufficientFunds},
+		{name: "split receiver overflows", klvStart: 1000, klvClaimed: fixedRoyalty, split: true, dstKLV: math.MaxInt64, status: transaction.Transaction_BalanceError, err: state.ErrAddBalanceOverflow, field: common.ErrFieldBalanceError},
+		{name: "royalty receiver overflows", klvStart: 1000, klvClaimed: fixedRoyalty, dstKLV: math.MaxInt64, status: transaction.Transaction_BalanceError, err: state.ErrAddBalanceOverflow, field: common.ErrFieldBalanceError},
+		{name: "split key is not hex", klvStart: 1000, klvClaimed: fixedRoyalty, split: true, splitKey: "zz", status: transaction.Transaction_LoadAccountError, err: hex.InvalidByteError('z'), field: common.ErrFieldInvalidSplitRoyalties},
+		// err nil: the fixture's load error has no sentinel, so the message is checked.
+		{name: "split account fails to load", klvStart: 1000, klvClaimed: fixedRoyalty, split: true, splitKey: hex.EncodeToString(makeAddress("fixed-unknown-split")), status: transaction.Transaction_LoadAccountError, field: common.ErrFieldLoadRoyaltyAccount},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newTransferFixture(t, config.EnableEpochs{}, kapps.KDAData_Fungible, senderAddr, receiverAddr)
+			f.kda.Royalties = &kapps.RoyaltiesData{Address: receiverAddr, TransferFixed: fixedRoyalty}
+			if tt.split {
+				splitKey := tt.splitKey
+				if splitKey == "" {
+					splitKey = hex.EncodeToString(receiverAddr)
+				}
+				f.kda.Royalties.SplitRoyalties = map[string]*kapps.RoyaltySplitData{
+					splitKey: {PercentTransferFixed: 5000},
+				}
+			}
+			require.NoError(t, f.src.AddToBalance(tt.klvStart, kdautils.KLVIdentifier, true))
+			require.NoError(t, f.dst.AddToBalance(tt.dstKLV, kdautils.KLVIdentifier, true))
+
+			tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: []byte("FUNGI-1234"), Amount: transferValue, KLVRoyalties: tt.klvClaimed}
+
+			status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
+			require.Error(t, err)
+			if tt.err != nil {
+				require.ErrorIs(t, err, tt.err)
+			} else {
+				require.EqualError(t, err, fmt.Sprintf("unexpected account load %x", makeAddress("fixed-unknown-split")))
+			}
+			require.Equal(t, tt.status, status)
+			requireErrorReceipt(t, f.ctx.Receipts().Get(), tt.field, err)
+		})
+	}
+}
+
+func Test_Transfer_PercentageRoyaltyRejectionsEmitErrorReceipts(t *testing.T) {
+	senderAddr := makeAddress("pct-sender")
+	receiverAddr := makeAddress("pct-receiver")
+
+	// 10% on the first 1000 units, so a transfer of 400 owes 40.
+	const royalty = int64(40)
+
+	tests := []struct {
+		name      string
+		assetType kapps.KDAData_EnumAssetType
+		assetID   string
+		rates     []*kapps.RoyaltyData
+		amount    int64
+		claimed   int64
+		start     int64
+		split     bool
+		dstStart  int64
+		status    transaction.Transaction_TXResultCode
+		err       error
+		field     string
+	}{
+		{name: "fungible/non-positive amount", assetType: kapps.KDAData_Fungible, assetID: "FUNGI-1234", amount: 0, claimed: royalty, start: 1000,
+			status: transaction.Transaction_ContractInvalid, err: common.ErrInvalidValue, field: common.ErrFieldInvalidAmount},
+		{name: "fungible/royalty computation overflows", assetType: kapps.KDAData_Fungible, assetID: "FUNGI-1234", amount: math.MaxInt64, claimed: royalty, start: 1000,
+			rates:  []*kapps.RoyaltyData{{Amount: math.MaxInt64, Percentage: 20000}},
+			status: transaction.Transaction_AccountError, err: common.ErrInt64Overflow, field: common.ErrFieldInvalidRoyalties},
+		{name: "fungible/balance below value plus royalty", assetType: kapps.KDAData_Fungible, assetID: "FUNGI-1234", amount: transferValue, claimed: royalty, start: transferValue + royalty - 1,
+			status: transaction.Transaction_OutOfFunds, err: process.ErrInsufficientFunds, field: common.ErrFieldInsufficientFunds},
+		{name: "fungible/claimed royalty differs", assetType: kapps.KDAData_Fungible, assetID: "FUNGI-1234", amount: transferValue, claimed: royalty - 1, start: 1000,
+			status: transaction.Transaction_ParameterInvalid, err: common.ErrInvalidValue, field: common.ErrFieldInvalidRoyalties},
+		{name: "semi-fungible/claimed royalty differs", assetType: kapps.KDAData_SemiFungible, assetID: "SEMI-1234/1", amount: transferValue, claimed: royalty - 1, start: 1000,
+			status: transaction.Transaction_ParameterInvalid, err: common.ErrInvalidValue, field: common.ErrFieldInvalidRoyalties},
+		{name: "semi-fungible/balance below value plus royalty", assetType: kapps.KDAData_SemiFungible, assetID: "SEMI-1234/1", amount: transferValue, claimed: royalty, start: transferValue + royalty - 1,
+			status: transaction.Transaction_OutOfFunds, err: process.ErrInsufficientFunds, field: common.ErrFieldInsufficientFunds},
+		{name: "fungible/royalty receiver overflows", assetType: kapps.KDAData_Fungible, assetID: "FUNGI-1234", amount: transferValue, claimed: royalty, start: 1000, dstStart: math.MaxInt64,
+			status: transaction.Transaction_BalanceError, err: state.ErrAddBalanceOverflow, field: common.ErrFieldBalanceError},
+		{name: "fungible/split receiver overflows", assetType: kapps.KDAData_Fungible, assetID: "FUNGI-1234", amount: transferValue, claimed: royalty, start: 1000, split: true, dstStart: math.MaxInt64,
+			status: transaction.Transaction_BalanceError, err: state.ErrAddBalanceOverflow, field: common.ErrFieldBalanceError},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assetID := []byte(strings.Split(tt.assetID, "/")[0])
+			f := newTransferFixture(t, config.EnableEpochs{}, tt.assetType, senderAddr, receiverAddr)
+			rates := tt.rates
+			if rates == nil {
+				rates = []*kapps.RoyaltyData{{Amount: 1000, Percentage: 1000}}
+			}
+			f.kda.Royalties = &kapps.RoyaltiesData{Address: receiverAddr, TransferPercentage: rates}
+			if tt.split {
+				f.kda.Royalties.SplitRoyalties = map[string]*kapps.RoyaltySplitData{
+					hex.EncodeToString(receiverAddr): {PercentTransferPercentage: 5000},
+				}
+			}
+			if tt.assetType == kapps.KDAData_SemiFungible {
+				require.NoError(t, f.src.AddToBalanceWithNonce(1000, assetID, []byte("1"), true))
+			}
+			// Percentage royalties are charged against the nonce-less balance.
+			require.NoError(t, f.src.AddToBalance(tt.start, assetID, true))
+			require.NoError(t, f.dst.AddToBalance(tt.dstStart, assetID, true))
+
+			tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: []byte(tt.assetID), Amount: tt.amount, KDARoyalties: tt.claimed}
+
+			status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
+			require.ErrorIs(t, err, tt.err)
+			require.Equal(t, tt.status, status)
+			requireErrorReceipt(t, f.ctx.Receipts().Get(), tt.field, err)
+		})
+	}
+}
+
+func Test_Transfer_FungibleReceiverOverflowEmitsBalanceErrorReceipt(t *testing.T) {
+	assetID := []byte("FUNGI-1234")
+	senderAddr := makeAddress("fungible-overflow-sender")
+	receiverAddr := makeAddress("fungible-overflow-receiver")
+
+	f := newTransferFixture(t, config.EnableEpochs{}, kapps.KDAData_Fungible, senderAddr, receiverAddr)
+	require.NoError(t, f.src.AddToBalance(transferSenderStart, assetID, true))
+	require.NoError(t, f.dst.AddToBalance(math.MaxInt64, assetID, true))
+
+	tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: assetID, Amount: transferValue}
+
+	status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
+	require.ErrorIs(t, err, state.ErrAddBalanceOverflow)
+	require.Equal(t, transaction.Transaction_BalanceError, status)
+	requireErrorReceipt(t, f.ctx.Receipts().Get(), common.ErrFieldBalanceError, err)
+}
+
+func Test_Transfer_UnsupportedAssetTypeEmitsInvalidAssetTypeReceipt(t *testing.T) {
+	senderAddr := makeAddress("badtype-sender")
+	receiverAddr := makeAddress("badtype-receiver")
+
+	f := newTransferFixture(t, config.EnableEpochs{}, kapps.KDAData_EnumAssetType(99), senderAddr, receiverAddr)
+
+	tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: []byte("BADTY-1234"), Amount: transferValue}
+
+	status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
+	require.ErrorIs(t, err, common.ErrAssetTypeInvalid)
+	require.Equal(t, transaction.Transaction_AssetTypeInvalid, status)
+	requireErrorReceipt(t, f.ctx.Receipts().Get(), common.ErrFieldInvalidAssetType, err)
+}
+
+func Test_Transfer_NonFungibleNotHeldEmitsBalanceErrorReceipt(t *testing.T) {
+	senderAddr := makeAddress("nft-reject-sender")
+	receiverAddr := makeAddress("nft-reject-receiver")
+
+	f := newTransferFixture(t, config.EnableEpochs{}, kapps.KDAData_NonFungible, senderAddr, receiverAddr)
+
+	tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: []byte("NONFUNGI-1234/7"), Amount: 1}
+
+	status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
+	require.ErrorIs(t, err, common.ErrAssetNotFound)
+	require.Equal(t, transaction.Transaction_BalanceError, status)
+	requireErrorReceipt(t, f.ctx.Receipts().Get(), common.ErrFieldBalanceError, err)
 }
 
 func TestTransfer_FungibleWritableCacher_CommitsBothSides(t *testing.T) {

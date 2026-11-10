@@ -210,6 +210,7 @@ func (a *accountsKapp) Transfer(cType transaction.TXContract_ContractType, sende
 
 		return a.processFungibleTransfer(tc, assetID, acntSrc, acntDst, kda)
 	default:
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, common.ErrAssetTypeInvalid.Error())
 		return transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
 	}
 }
@@ -299,39 +300,45 @@ func (a *accountsKapp) computeRoyalties(kda *kapps.KDAData, amountToTransfer int
 }
 
 func (a *accountsKapp) computeSplitRoyalties(address string, assetID []byte, assetType kapps.KDAData_EnumAssetType, acntSrc state.UserAccountHandler, value int64, percentage int64, royaltiesToPay *int64) (transaction.Transaction_TXResultCode, error) {
+	ctx := a.KAppController.GetCurrentKAppContext()
+
 	decodedAddress, err := hex.DecodeString(address)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidSplitRoyalties, err.Error())
 		return transaction.Transaction_LoadAccountError, err
 	}
 
 	splitRoyalty, err := a.LoadUserAccount(decodedAddress)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldLoadRoyaltyAccount, err.Error())
 		return transaction.Transaction_LoadAccountError, err
 	}
 
 	splitToPay, err := tools.ComputePercentageI64(value, percentage, a.forkController.EnableSmartContracts())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, err.Error())
 		return transaction.Transaction_ParameterInvalid, err
 	}
 	if a.forkController.FixMarketBuyOverflow() && splitToPay > *royaltiesToPay {
-		splitCtx := a.KAppController.GetCurrentKAppContext()
-		splitCtx.Receipts().AddError(splitCtx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 	*royaltiesToPay -= splitToPay
 
 	err = splitRoyalty.AddToBalance(splitToPay, assetID, a.forkController.EnableSmartContracts())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBalanceError, err.Error())
 		return transaction.Transaction_BalanceError, err
 	}
 
 	if err := a.accountsCacher.UpdateUser(splitRoyalty); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldSaveAccountError, err.Error())
 		return transaction.Transaction_SaveAccountError, err
 	}
 
-	a.KAppController.GetCurrentKAppContext().Receipts().Add(txProcess.NewReceipt(
+	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.Transfer,
-		a.KAppController.GetCurrentKAppContext().ContractID(),
+		ctx.ContractID(),
 		acntSrc.AddressBytes(),
 		splitRoyalty.AddressBytes(),
 		[]byte(strconv.FormatInt(splitToPay, 10)),
@@ -375,21 +382,27 @@ func (a *accountsKapp) processFixedRoyaltiesTransfer(tc *transaction.TransferCon
 		return transaction.Transaction_Ok, nil
 	}
 
+	ctx := a.KAppController.GetCurrentKAppContext()
+
 	if a.forkController.EnableSmartContracts() && tc.KLVRoyalties != kda.Royalties.TransferFixed {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	balance := acntSrc.GetBalance(kdautils.KLVIdentifier, a.forkController.EnableSmartContracts())
 	if balance < kda.Royalties.TransferFixed {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFunds, process.ErrInsufficientFunds.Error())
 		return transaction.Transaction_OutOfFunds, process.ErrInsufficientFunds
 	}
 
 	err := acntSrc.SubFromBalance(kda.Royalties.TransferFixed, kdautils.KLVIdentifier, a.forkController.EnableSmartContracts())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBalanceError, err.Error())
 		return transaction.Transaction_BalanceError, err
 	}
 
 	if err := a.accountsCacher.UpdateUser(acntSrc); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldSaveAccountError, err.Error())
 		return transaction.Transaction_SaveAccountError, err
 	}
 
@@ -416,21 +429,24 @@ func (a *accountsKapp) processFixedRoyaltiesTransfer(tc *transaction.TransferCon
 		royaltyOwner, err = a.GetExistingUserAccount(kda.OwnerAddress)
 	}
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldLoadRoyaltyAccount, err.Error())
 		return transaction.Transaction_LoadAccountError, err
 	}
 
 	err = royaltyOwner.AddToBalance(royaltiesFixedToPay, kdautils.KLVIdentifier, a.forkController.EnableSmartContracts())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBalanceError, err.Error())
 		return transaction.Transaction_BalanceError, err
 	}
 
 	if err := a.accountsCacher.UpdateUser(royaltyOwner); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldSaveAccountError, err.Error())
 		return transaction.Transaction_SaveAccountError, err
 	}
 
-	a.KAppController.GetCurrentKAppContext().Receipts().Add(txProcess.NewReceipt(
+	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.Transfer,
-		a.KAppController.GetCurrentKAppContext().ContractID(),
+		ctx.ContractID(),
 		acntSrc.AddressBytes(),
 		royaltyOwner.AddressBytes(),
 		[]byte(strconv.FormatInt(royaltiesFixedToPay, 10)),
@@ -449,8 +465,11 @@ func (a *accountsKapp) validatePercentageRoyaltiesTransfer(tc *transaction.Trans
 		return 0, transaction.Transaction_Ok, nil
 	}
 
+	ctx := a.KAppController.GetCurrentKAppContext()
+
 	value := tc.GetAmount()
 	if value <= 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, common.ErrInvalidValue.Error())
 		return 0, transaction.Transaction_ContractInvalid, common.ErrInvalidValue
 	}
 
@@ -460,12 +479,14 @@ func (a *accountsKapp) validatePercentageRoyaltiesTransfer(tc *transaction.Trans
 	if kda.Royalties != nil && len(kda.Royalties.TransferPercentage) > 0 {
 		royaltyAmount, err = kda.GetTransferRoyaltyByAmount(value, a.forkController.KdaFpr(), a.forkController.EnableSmartContracts())
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, err.Error())
 			return 0, transaction.Transaction_AccountError, err
 		}
 	}
 
 	balance := acntSrc.GetBalance(assetID, a.forkController.EnableSmartContracts())
 	if balance < value+royaltyAmount {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFunds, process.ErrInsufficientFunds.Error())
 		return 0, transaction.Transaction_OutOfFunds, process.ErrInsufficientFunds
 	}
 
@@ -482,7 +503,10 @@ func (a *accountsKapp) processPercentageRoyaltiesTransfer(tc *transaction.Transf
 		return transaction.Transaction_Ok, nil
 	}
 
+	ctx := a.KAppController.GetCurrentKAppContext()
+
 	if royaltyAmount != tc.GetKDARoyalties() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -491,6 +515,7 @@ func (a *accountsKapp) processPercentageRoyaltiesTransfer(tc *transaction.Transf
 	if a.forkController.FixMarketBuyOverflow() {
 		err = acntSrc.SubFromBalance(royaltyAmount, assetID, a.forkController.EnableSmartContracts())
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBalanceError, err.Error())
 			return transaction.Transaction_BalanceError, err
 		}
 	}
@@ -514,28 +539,32 @@ func (a *accountsKapp) processPercentageRoyaltiesTransfer(tc *transaction.Transf
 
 	royaltyReceiver, err := a.LoadUserAccount(kda.Royalties.Address)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldLoadRoyaltyAccount, err.Error())
 		return transaction.Transaction_LoadAccountError, err
 	}
 
 	if !a.forkController.FixMarketBuyOverflow() {
 		err = acntSrc.SubFromBalance(royaltyAmount, assetID, a.forkController.EnableSmartContracts())
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBalanceError, err.Error())
 			return transaction.Transaction_BalanceError, err
 		}
 	}
 
 	err = royaltyReceiver.AddToBalance(royaltiesToPay, assetID, a.forkController.EnableSmartContracts())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBalanceError, err.Error())
 		return transaction.Transaction_BalanceError, err
 	}
 
 	if err := a.accountsCacher.UpdateUser(royaltyReceiver); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldSaveAccountError, err.Error())
 		return transaction.Transaction_SaveAccountError, err
 	}
 
-	a.KAppController.GetCurrentKAppContext().Receipts().Add(txProcess.NewReceipt(
+	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.Transfer,
-		a.KAppController.GetCurrentKAppContext().ContractID(),
+		ctx.ContractID(),
 		acntSrc.AddressBytes(),
 		royaltyReceiver.AddressBytes(),
 		[]byte(strconv.FormatInt(royaltiesToPay, 10)),
@@ -548,27 +577,33 @@ func (a *accountsKapp) processPercentageRoyaltiesTransfer(tc *transaction.Transf
 }
 
 func (a *accountsKapp) processNonFungibleTransfer(assetID, internalID []byte, acntSrc, acntDst state.UserAccountHandler) (transaction.Transaction_TXResultCode, error) {
+	ctx := a.KAppController.GetCurrentKAppContext()
+
 	data, err := acntSrc.SubInternalKDA(assetID, internalID, a.forkController)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBalanceError, err.Error())
 		return transaction.Transaction_BalanceError, err
 	}
 
 	if err := a.accountsCacher.UpdateUser(acntSrc); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldSaveAccountError, err.Error())
 		return transaction.Transaction_SaveAccountError, err
 	}
 
 	err = acntDst.AddInternalKDA(assetID, internalID, data)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetError, err.Error())
 		return transaction.Transaction_AssetError, err
 	}
 
 	if err := a.accountsCacher.UpdateUser(acntDst); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldSaveAccountError, err.Error())
 		return transaction.Transaction_SaveAccountError, err
 	}
 
-	a.KAppController.GetCurrentKAppContext().Receipts().Add(txProcess.NewReceipt(
+	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.Transfer,
-		a.KAppController.GetCurrentKAppContext().ContractID(),
+		ctx.ContractID(),
 		acntSrc.AddressBytes(),
 		acntDst.AddressBytes(),
 		[]byte("1"),
@@ -612,9 +647,9 @@ func (a *accountsKapp) processSemiFungibleTransfer(tc *transaction.TransferContr
 		return transaction.Transaction_BalanceError, err
 	}
 
-	a.KAppController.GetCurrentKAppContext().Receipts().Add(txProcess.NewReceipt(
+	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.Transfer,
-		a.KAppController.GetCurrentKAppContext().ContractID(),
+		ctx.ContractID(),
 		acntSrc.AddressBytes(),
 		acntDst.AddressBytes(),
 		[]byte(strconv.FormatInt(value, 10)),
@@ -643,25 +678,29 @@ func (a *accountsKapp) processFungibleTransfer(tc *transaction.TransferContract,
 
 	err := acntSrc.SubFromBalance(value, assetID, a.forkController.EnableSmartContracts())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBalanceError, err.Error())
 		return transaction.Transaction_BalanceError, err
 	}
 
 	if err := a.accountsCacher.UpdateUser(acntSrc); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldSaveAccountError, err.Error())
 		return transaction.Transaction_SaveAccountError, err
 	}
 
 	err = acntDst.AddToBalance(value, assetID, a.forkController.EnableSmartContracts())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBalanceError, err.Error())
 		return transaction.Transaction_BalanceError, err
 	}
 
 	if err := a.accountsCacher.UpdateUser(acntDst); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldSaveAccountError, err.Error())
 		return transaction.Transaction_SaveAccountError, err
 	}
 
-	a.KAppController.GetCurrentKAppContext().Receipts().Add(txProcess.NewReceipt(
+	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.Transfer,
-		a.KAppController.GetCurrentKAppContext().ContractID(),
+		ctx.ContractID(),
 		acntSrc.AddressBytes(),
 		acntDst.AddressBytes(),
 		[]byte(strconv.FormatInt(value, 10)),
