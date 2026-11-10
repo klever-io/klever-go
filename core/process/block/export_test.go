@@ -57,7 +57,7 @@ func (m *MetaProcessorForTests) GetActiveParameters() map[int32]*kapps.Parameter
 
 // ClearProposalController unpublishes the controller, as storage bootstrap is.
 func ClearProposalController(proc process.BlockProcessor) {
-	proc.(*metaProcessor).proposalController.Clear()
+	proc.(*metaProcessor).proposalController = kapps.ProposalControllerHolder{}
 }
 
 // UpdateState exposes the updateState method for testing

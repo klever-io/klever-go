@@ -464,10 +464,7 @@ func (mp *metaProcessor) verifyKAppRootHash(header *block.Block) error {
 }
 
 func (mp *metaProcessor) verifyValidatorStatisticsRootHash(header *block.Block) error {
-	currentBlockHeader := mp.blockChain.GetCurrentBlockHeader()
-	if check.IfNil(currentBlockHeader) {
-		currentBlockHeader = mp.blockChain.GetGenesisHeader()
-	}
+	currentBlockHeader := mp.currentOrGenesisHeader()
 
 	validatorStatsRH, err := mp.validatorStatisticsProcessor.UpdatePeerState(header, currentBlockHeader)
 	if err != nil {
@@ -558,10 +555,6 @@ func (mp *metaProcessor) restoreEpochState(
 	mp.epochNotifier.CheckEpoch(prevEpoch)
 	mp.requestHandler.SetEpoch(prevEpoch)
 
-	// before block 1 the head is nil; the hook was serving genesis
-	if check.IfNil(prevCurrentHeader) {
-		prevCurrentHeader = mp.blockChain.GetGenesisHeader()
-	}
 	if !check.IfNil(prevCurrentHeader) {
 		mp.blockChainHook.SetCurrentHeader(prevCurrentHeader)
 	}
@@ -580,7 +573,7 @@ func (mp *metaProcessor) capturePendingRevert() {
 		return
 	}
 
-	prevCurrentHeader := mp.blockChain.GetCurrentBlockHeader()
+	prevCurrentHeader := mp.currentOrGenesisHeader()
 	prevEpoch := epochToRestore(mp.epochNotifier.CurrentEpoch(), prevCurrentHeader)
 	restoreEpochTrigger := snapshotEpochTrigger(mp.epochStartTrigger)
 
@@ -674,10 +667,7 @@ func (mp *metaProcessor) CreateBlock(
 }
 
 func (mp *metaProcessor) isPreviousBlockEpochStart() (uint32, bool) {
-	blockHeader := mp.blockChain.GetCurrentBlockHeader()
-	if check.IfNil(blockHeader) {
-		blockHeader = mp.blockChain.GetGenesisHeader()
-	}
+	blockHeader := mp.currentOrGenesisHeader()
 
 	return blockHeader.GetEpoch(), blockHeader.GetIsEpochStart()
 }
@@ -740,13 +730,25 @@ func (mp *metaProcessor) revertFailedCommit(headerHandler data.HeaderHandler, se
 	}
 
 	// SetProcessed wrote past the snapshot; point the trigger back at the head
+	head := mp.currentOrGenesisHeader()
+	if check.IfNil(head) {
+		return
+	}
+	err := mp.epochStartTrigger.RevertStateToBlock(head)
+	if err != nil {
+		// the trigger keeps the failed block as its epoch start and rejects the retry
+		log.Error("revertFailedCommit: revert epoch start trigger", "nonce", head.GetNonce(), "error", err.Error())
+	}
+}
+
+// currentOrGenesisHeader is the chain head, or genesis before block 1 commits.
+func (mp *metaProcessor) currentOrGenesisHeader() data.HeaderHandler {
 	head := mp.blockChain.GetCurrentBlockHeader()
 	if check.IfNil(head) {
-		head = mp.blockChain.GetGenesisHeader()
+		return mp.blockChain.GetGenesisHeader()
 	}
-	if !check.IfNil(head) {
-		_ = mp.epochStartTrigger.RevertStateToBlock(head)
-	}
+
+	return head
 }
 
 // CommitBlock commits the block in the blockchain if everything was checked successfully
@@ -1122,10 +1124,7 @@ func (mp *metaProcessor) applyHeader(blk *block.Block) error {
 	blk.Header.StakingRewards = mp.proposalController.Get().GetParameterInt(kapps.EnumParameter_StakingRewards)
 
 	sw.Start("UpdatePeerState")
-	currentBlockHeader := mp.blockChain.GetCurrentBlockHeader()
-	if check.IfNil(currentBlockHeader) {
-		currentBlockHeader = mp.blockChain.GetGenesisHeader()
-	}
+	currentBlockHeader := mp.currentOrGenesisHeader()
 
 	blk.Header.ValidatorsTrieRoot, err = mp.validatorStatisticsProcessor.UpdatePeerState(blk, currentBlockHeader)
 	sw.Stop("UpdatePeerState")

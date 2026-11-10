@@ -3750,12 +3750,16 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 
 		_, hdr := proposeEpochStart(t)
 		validator := newEpochStartRevertNode(t, head, headHash, slotsPerEpoch)
+		kApps := validator.accountsDB[state.KAppAccountsState]
+		headRoot, err := kApps.RootHash()
+		require.NoError(t, err)
 
 		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
 		requireAdvanced(t, validator)
 
 		userAccounts, ok := validator.accountsDB[state.UserAccountsState].(*mock.AccountsStub)
 		require.True(t, ok)
+		commit := userAccounts.CommitCalled
 		userAccounts.CommitCalled = func() ([]byte, error) { return nil, assert.AnError }
 
 		// the trie may already be committed, so the stored parameters can keep MaxGasPerBlock
@@ -3774,9 +3778,20 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		assertRestoredEpoch(t)
 
 		// a later block captures whatever the failed commit left behind
-		err := validator.mp.ProcessBlock(hdr, func() time.Duration { return -1 })
+		err = validator.mp.ProcessBlock(hdr, func() time.Duration { return -1 })
 		require.ErrorIs(t, err, process.ErrTimeIsOut)
 		assertRestoredEpoch(t)
+
+		// the retried epoch start block is taken and commits; commitAll may have committed the
+		// KApp trie before the failure, so start it from the head's root, as a sync rollback does
+		userAccounts.CommitCalled = commit
+		require.NoError(t, kApps.RecreateTrie(headRoot))
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		requireAdvanced(t, validator)
+		require.NoError(t, validator.mp.CommitBlock(hdr))
+		assert.False(t, validator.trigger.IsEpochStart(), "the commit settled the epoch start")
+		assert.Equal(t, uint32(1), validator.trigger.Epoch())
+		assert.Equal(t, epochStartSlot, validator.trigger.EpochStartSlot())
 	})
 
 	t.Run("sync rollback before the revert", func(t *testing.T) {
