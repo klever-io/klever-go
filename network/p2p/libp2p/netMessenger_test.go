@@ -257,6 +257,16 @@ func TestNewNetworkMessenger_WithKadDiscovererListSharderShouldWork(t *testing.T
 func TestNewNetworkMessenger_SeedNodeUsesNullConnMgr(t *testing.T) {
 	arg := createMockNetworkArgs()
 	arg.IsSeedNode = true
+	// Use a trimming sharder so NullConnMgr can only come from IsSeedNode,
+	// not from the NilListSharder rule.
+	arg.P2pConfig.Sharding = config.ShardingConfig{
+		Type:                    p2p.ListsSharder,
+		TargetPeerCount:         10,
+		MaxIntraShardValidators: 2,
+		MaxCrossShardValidators: 2,
+		MaxIntraShardObservers:  2,
+		MaxCrossShardObservers:  2,
+	}
 
 	mes, err := libp2p.NewNetworkMessenger(arg)
 	require.NoError(t, err)
@@ -267,16 +277,38 @@ func TestNewNetworkMessenger_SeedNodeUsesNullConnMgr(t *testing.T) {
 	assert.True(t, isNull, "seed node should use NullConnMgr to avoid the libp2p default 160/192 peer cap")
 }
 
-func TestNewNetworkMessenger_RegularNodeKeepsDefaultConnMgr(t *testing.T) {
-	arg := createMockNetworkArgs() // IsSeedNode defaults to false
+func TestNewNetworkMessenger_RegularNodeConnMgrFollowsSharderType(t *testing.T) {
+	cases := []struct {
+		sharderType string
+		wantNull    bool
+	}{
+		{sharderType: p2p.NilListSharder, wantNull: true},
+		{sharderType: p2p.ListsSharder, wantNull: false},
+		{sharderType: p2p.OneListSharder, wantNull: false},
+	}
 
-	mes, err := libp2p.NewNetworkMessenger(arg)
-	require.NoError(t, err)
-	require.False(t, check.IfNil(mes))
-	defer func() { _ = mes.Close() }()
+	for _, tc := range cases {
+		t.Run(tc.sharderType, func(t *testing.T) {
+			arg := createMockNetworkArgs() // IsSeedNode defaults to false
+			arg.P2pConfig.Sharding = config.ShardingConfig{
+				Type:                    tc.sharderType,
+				TargetPeerCount:         10,
+				MaxIntraShardValidators: 2,
+				MaxCrossShardValidators: 2,
+				MaxIntraShardObservers:  2,
+				MaxCrossShardObservers:  2,
+			}
 
-	_, isNull := mes.Host().ConnManager().(connmgr.NullConnMgr)
-	assert.False(t, isNull, "regular node should keep the libp2p default BasicConnMgr")
+			mes, err := libp2p.NewNetworkMessenger(arg)
+			require.NoError(t, err)
+			require.False(t, check.IfNil(mes))
+			defer func() { _ = mes.Close() }()
+
+			_, isNull := mes.Host().ConnManager().(connmgr.NullConnMgr)
+			assert.Equal(t, tc.wantNull, isNull,
+				"NilListSharder must disable libp2p trimming; Lists/OneList sharders keep the default BasicConnMgr")
+		})
+	}
 }
 
 func TestNewNetworkMessenger_EmptyStrategyUsesLibp2pAutoScaleRM(t *testing.T) {
