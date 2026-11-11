@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -133,7 +132,15 @@ func checkStatus(method, url string, r *http.Response) error {
 		return nil
 	}
 
-	statusErr := &HTTPStatusError{Method: method, URL: url, StatusCode: r.StatusCode, Status: statusText(r.StatusCode)}
+	// The status comes from the code alone: r.Status carries the server's own reason
+	// phrase, unbounded and chosen by the server. TrimSpace covers a code net/http has no
+	// phrase for.
+	statusErr := &HTTPStatusError{
+		Method:     method,
+		URL:        url,
+		StatusCode: r.StatusCode,
+		Status:     strings.TrimSpace(fmt.Sprintf("%d %s", r.StatusCode, http.StatusText(r.StatusCode))),
+	}
 	// io.ReadAll returns the bytes it did manage to read alongside a non-nil error on a
 	// truncated/hijacked body (e.g. a declared Content-Length the server never delivered) —
 	// keep that partial snippet instead of discarding it. readErr's own message can embed
@@ -163,16 +170,6 @@ func checkStatus(method, url string, r *http.Response) error {
 	return statusErr
 }
 
-// statusText renders the status from the code alone. r.Status carries the server's own
-// reason phrase, unbounded and chosen by the server; the standard phrase for the code says
-// the same thing without printing anything the server wrote.
-func statusText(code int) string {
-	if text := http.StatusText(code); text != "" {
-		return fmt.Sprintf("%d %s", code, text)
-	}
-	return strconv.Itoa(code)
-}
-
 // sanitizeServerText makes server-supplied text safe to print as one terminal line, and
 // keeps it bounded. Every whitespace run — newlines of a stack trace, tabs, the Unicode
 // line and paragraph separators — becomes one space, so the lines stay readable and
@@ -181,15 +178,24 @@ func statusText(code int) string {
 // follows — a reason that reads backwards could disguise a fee or an address) are dropped.
 // So is every invalid UTF-8 byte: strings.Map would render each one as the 3-byte U+FFFD
 // and triple a body that was capped before sanitising.
+// One pass, one allocation: this runs on every failed mirror post on the node, so no
+// intermediate copy or per-word slice of a 64 KiB body.
 func sanitizeServerText(s string) string {
-	cleaned := strings.Map(func(r rune) rune {
+	var b strings.Builder
+	b.Grow(len(s))
+	pendingSpace := false
+	for _, r := range s { // an invalid byte ranges as utf8.RuneError
 		switch {
 		case unicode.IsSpace(r):
-			return ' '
+			pendingSpace = b.Len() > 0 // leading whitespace is dropped, trailing never flushed
 		case r == utf8.RuneError, unicode.IsControl(r), unicode.Is(unicode.Cf, r):
-			return -1
+		default:
+			if pendingSpace {
+				b.WriteByte(' ')
+				pendingSpace = false
+			}
+			b.WriteRune(r)
 		}
-		return r
-	}, s)
-	return strings.Join(strings.Fields(cleaned), " ")
+	}
+	return b.String()
 }

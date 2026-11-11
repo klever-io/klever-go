@@ -354,9 +354,7 @@ func newHijackingServer(t *testing.T, partial string) *httptest.Server {
 		require.True(t, ok, "test server response writer must support hijacking")
 		conn, _, err := hj.Hijack()
 		require.NoError(t, err)
-		if partial != "" {
-			_, _ = conn.Write([]byte(partial))
-		}
+		_, _ = conn.Write([]byte(partial))
 		_ = conn.Close()
 	}))
 }

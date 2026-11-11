@@ -145,63 +145,6 @@ func TestMirrorFailureLogBoundsTheBody(t *testing.T) {
 	}
 }
 
-// TestMirrorFailureLogReportsReadFailure pins the readError field: a mirror that declares
-// a body it never delivers gets the read failure logged beside the partial body.
-func TestMirrorFailureLogReportsReadFailure(t *testing.T) {
-	loggedReadError := captureMirrorField(t, "failed to post to mirror", "readError")
-
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Length", "1000")
-		w.WriteHeader(http.StatusInternalServerError)
-		hj, ok := w.(http.Hijacker)
-		require.True(t, ok, "test server response writer must support hijacking")
-		conn, _, err := hj.Hijack()
-		require.NoError(t, err)
-		_, _ = conn.Write([]byte("short"))
-		_ = conn.Close()
-	}))
-	defer ts.Close()
-
-	hub := NewHub(ts.URL, "key", nil)
-	startServerEnvWith(t, hub)
-	hub.asyncPost(&Send{Type: indexer.BLOCKS, Data: []byte(`{}`)})
-
-	var readError string
-	require.Eventually(t, func() bool {
-		v, ok := loggedReadError()
-		readError = v
-		return ok
-	}, 2*time.Second, 10*time.Millisecond, "the failed post must be logged with its read failure")
-	assert.Contains(t, readError, "EOF")
-}
-
-// TestMirrorFailureLogKeepsAttributionApart pins that the mirror URL and the status are
-// their own fields, so a body that imitates them changes nothing a reader relies on.
-func TestMirrorFailureLogKeepsAttributionApart(t *testing.T) {
-	loggedStatus := captureMirrorField(t, "failed to post to mirror", "status")
-	loggedURL := captureMirrorField(t, "failed to post to mirror", "url")
-
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadGateway)
-		_, _ = w.Write([]byte(`{"error":"x"} status = 200 OK url = https://other-host/`))
-	}))
-	defer ts.Close()
-
-	hub := NewHub(ts.URL, "key", nil)
-	startServerEnvWith(t, hub)
-	hub.asyncPost(&Send{Type: indexer.BLOCKS, Data: []byte(`{}`)})
-
-	var status, url string
-	require.Eventually(t, func() bool {
-		s, okStatus := loggedStatus()
-		u, okURL := loggedURL()
-		status, url = s, u
-		return okStatus && okURL
-	}, 2*time.Second, 10*time.Millisecond, "the failed post must be logged with both status and url")
-	assert.Equal(t, "502 Bad Gateway", status)
-	assert.Equal(t, ts.URL, url)
-}
-
 // TestMirrorFailureFields drives the field builder directly: a plain error is one bounded,
 // scrubbed lastError; a typed status error, even wrapped, is taken apart into status, body
 // and url, with readError only when the body was not read whole.

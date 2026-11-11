@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/klever-io/klever-go/cmd/operator/utils"
 
@@ -674,13 +673,9 @@ func mirrorFailureFields(err error) []interface{} {
 // by loggableError and loggablePanic, which differ only in where the text comes from.
 func loggableText(text string, maxLength int) string {
 	if len(text) > maxLength {
-		// Step back to a rune boundary so the cut does not leave a split sequence that
-		// renders as U+FFFD in front of the marker.
-		cut := maxLength
-		for cut > 0 && !utf8.RuneStart(text[cut]) {
-			cut--
-		}
-		text = text[:cut] + fmt.Sprintf("… (%d bytes)", len(text))
+		// ToValidUTF8 drops the split sequence a byte-boundary cut leaves at the end, so
+		// no U+FFFD precedes the marker.
+		text = strings.ToValidUTF8(text[:maxLength], "") + fmt.Sprintf("… (%d bytes)", len(text))
 	}
 
 	// Anything that could end a log line becomes a space: CR/LF, the other control runes,
