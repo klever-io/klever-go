@@ -3645,9 +3645,9 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 	headHash := []byte("head-hash")
 	head := &block.Block{Header: &block.BlockHeader{Nonce: headNonce, Slot: epochStartSlot - 1}}
 
-	// the epoch start block a leader proposes at the first slot of epoch 1
-	proposeEpochStart := func(t *testing.T) (*epochStartRevertNode, *block.Block) {
-		leader := newEpochStartRevertNode(t, head, headHash, slotsPerEpoch)
+	propose := func(t *testing.T, slots uint64) (*epochStartRevertNode, *block.Block) {
+		t.Helper()
+		leader := newEpochStartRevertNode(t, head, headHash, slots)
 		created, err := leader.mp.CreateBlock(&block.Block{Header: &block.BlockHeader{
 			Nonce:      headNonce + 1,
 			Slot:       epochStartSlot,
@@ -3657,9 +3657,15 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 
 		hdr, ok := created.(*block.Block)
 		require.True(t, ok)
+		return leader, hdr
+	}
+
+	// the epoch start block a leader proposes at the first slot of epoch 1
+	proposeEpochStart := func(t *testing.T) (*epochStartRevertNode, *block.Block) {
+		t.Helper()
+		leader, hdr := propose(t, slotsPerEpoch)
 		require.True(t, hdr.GetIsEpochStart())
 		require.Equal(t, uint32(1), hdr.GetEpoch())
-
 		return leader, hdr
 	}
 
@@ -3789,20 +3795,49 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		assert.Equal(t, epochStartSlot, validator.trigger.EpochStartSlot())
 	})
 
+	// RevertStateToBlock returns before its own KApp recreate and reload: the failed-commit
+	// path must still put the KApp trie and the live parameters back on the head
+	t.Run("a failed commit still restores parameters when RecreateTrie fails", func(t *testing.T) {
+		t.Parallel()
+
+		_, hdr := proposeEpochStart(t)
+		validator := newRollbackNode(t, slotsPerEpoch)
+		kApps := validator.accountsDB[state.KAppAccountsState]
+
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		requireAdvanced(t, validator)
+
+		_, err := kApps.Commit()
+		require.NoError(t, err)
+		userAccounts, ok := validator.accountsDB[state.UserAccountsState].(*mock.AccountsStub)
+		require.True(t, ok)
+		commit := userAccounts.CommitCalled
+		recreate := userAccounts.RecreateTrieCalled
+		userAccounts.CommitCalled = func() ([]byte, error) { return nil, assert.AnError }
+		userAccounts.RecreateTrieCalled = func([]byte) error { return assert.AnError }
+
+		require.Error(t, validator.mp.CommitBlock(hdr))
+		assertCommittedEpochState(t, validator)
+		kAppsRoot, err := kApps.RootHash()
+		require.NoError(t, err)
+		assert.Equal(t, validator.head.GetKAppsTrieRoot(), kAppsRoot, "the KApp trie must be back at the head")
+
+		userAccounts.CommitCalled = commit
+		userAccounts.RecreateTrieCalled = recreate
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		requireAdvanced(t, validator)
+		require.NoError(t, validator.mp.CommitBlock(hdr))
+		assert.False(t, validator.trigger.IsEpochStart(), "the commit settled the epoch start")
+		assert.Equal(t, uint32(1), validator.trigger.Epoch())
+		assert.Equal(t, epochStartSlot, validator.trigger.EpochStartSlot())
+	})
+
 	// any block's commitAll can save a trie before another fails
 	t.Run("a failed commit of a block inside the epoch restores the tries", func(t *testing.T) {
 		t.Parallel()
 
 		const longEpoch = uint64(100)
-		leader := newEpochStartRevertNode(t, head, headHash, longEpoch)
-		created, err := leader.mp.CreateBlock(&block.Block{Header: &block.BlockHeader{
-			Nonce:      headNonce + 1,
-			Slot:       epochStartSlot,
-			ParentHash: headHash,
-		}}, func() bool { return true })
-		require.NoError(t, err)
-		hdr, ok := created.(*block.Block)
-		require.True(t, ok)
+		_, hdr := propose(t, longEpoch)
 		require.False(t, hdr.GetIsEpochStart())
 
 		validator := newRollbackNode(t, longEpoch)
@@ -3813,7 +3848,7 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		saved := loadKAppAccount(kApps, kapps.ProposalKAppAddress)
 		require.NoError(t, saved.DataTrieTracker().SaveKeyValue([]byte("saved"), []byte("by the failed commit")))
 		require.NoError(t, kApps.SaveAccount(saved))
-		_, err = kApps.Commit()
+		_, err := kApps.Commit()
 		require.NoError(t, err)
 		userAccounts, ok := validator.accountsDB[state.UserAccountsState].(*mock.AccountsStub)
 		require.True(t, ok)
@@ -3903,6 +3938,28 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		require.NoError(t, validator.mp.RevertStateToBlock(target))
 
 		assert.Same(t, target, validator.hookHeader)
+	})
+
+	// a block left pending on top of a committed epoch start, then sync rolls the epoch start back:
+	// the pending restore must run before the trigger revert, or it puts the trigger back in epoch 1
+	t.Run("a pending block, then a sync rollback past the committed epoch start", func(t *testing.T) {
+		t.Parallel()
+
+		_, hdr := proposeEpochStart(t)
+		validator := newRollbackNode(t, slotsPerEpoch)
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		require.NoError(t, validator.mp.CommitBlock(hdr))
+
+		_, err := validator.mp.CreateBlock(&block.Block{Header: &block.BlockHeader{
+			Nonce: headNonce + 2, Slot: epochStartSlot + 1, ParentHash: headHash,
+		}}, func() bool { return true })
+		require.NoError(t, err)
+
+		require.NoError(t, validator.mp.RevertStateToBlock(validator.head))
+
+		assert.Equal(t, uint32(0), validator.trigger.Epoch())
+		assert.False(t, validator.trigger.IsEpochStart())
+		assert.Equal(t, uint64(0), validator.trigger.EpochStartSlot())
 	})
 
 	// storage bootstrap reverts to the stored head before the controller is published

@@ -711,21 +711,44 @@ func (mp *metaProcessor) CreateEpochStartHeader(blk *block.Block) error {
 
 // revertFailedCommit undoes a CommitBlock that failed after it started writing.
 func (mp *metaProcessor) revertFailedCommit(headerHandler data.HeaderHandler, committing bool) {
-	mp.RevertStateToSnapshot(headerHandler)
 	if !committing {
+		mp.RevertStateToSnapshot(headerHandler)
 		return
 	}
 
 	// commitEpochStart and commitAll wrote past the snapshot: a trie saved before the failure
 	// fails the retry's root check, which sync drops as a rejected body without a rollback, and
-	// SetProcessed leaves the trigger on the failed epoch start. Revert both to the head.
+	// SetProcessed leaves the trigger on the failed epoch start. Recreate the tries from the
+	// head before any reload, or the reload reads the trie commitAll already saved.
 	head := mp.currentOrGenesisHeader()
 	if check.IfNil(head) {
+		mp.RevertStateToSnapshot(headerHandler)
 		return
 	}
+
 	err := mp.RevertStateToBlock(head)
-	if err != nil {
-		log.Error("revertFailedCommit: revert to the head", "nonce", head.GetNonce(), "error", err.Error())
+	if err == nil {
+		return
+	}
+	log.Error("revertFailedCommit: revert to the head", "nonce", head.GetNonce(), "error", err.Error())
+	_ = bugsnag.Notify(fmt.Errorf("revertFailedCommit: revert to the head: %w", err),
+		bugsnag.MetaData{"data": {"nonce": head.GetNonce()}})
+
+	// RecreateTrie of the user trie may have failed before the KApp recreate, the trigger
+	// revert and the reload: still put those back on the head. SetProcessed already pointed
+	// epochStartBlock at the failed block, so a trigger left unrestored rejects the retry.
+	if recErr := mp.accountsDB[state.KAppAccountsState].RecreateTrie(head.GetKAppsTrieRoot()); recErr != nil {
+		log.Error("revertFailedCommit: recreate kapp trie", "error", recErr.Error())
+		_ = bugsnag.Notify(fmt.Errorf("revertFailedCommit: recreate kapp trie: %w", recErr))
+	}
+	if trigErr := mp.epochStartTrigger.RevertStateToBlock(head); trigErr != nil {
+		log.Error("revertFailedCommit: revert epoch start trigger", "nonce", head.GetNonce(), "error", trigErr.Error())
+		_ = bugsnag.Notify(fmt.Errorf("revertFailedCommit: revert epoch start trigger: %w", trigErr),
+			bugsnag.MetaData{"data": {"nonce": head.GetNonce()}})
+	}
+	if reloadErr := mp.reloadProposalParameters(); reloadErr != nil {
+		log.Error("revertFailedCommit: reload proposal parameters", "error", reloadErr.Error())
+		_ = bugsnag.Notify(fmt.Errorf("revertFailedCommit: reload proposal parameters: %w", reloadErr))
 	}
 }
 
@@ -1041,6 +1064,8 @@ func (mp *metaProcessor) RevertStateToSnapshot(header data.HeaderHandler) {
 	if err != nil {
 		// the live set no longer matches the committed state, and fees are computed from it
 		log.Error("RevertStateToSnapshot: reload proposal parameters", "error", err.Error())
+		_ = bugsnag.Notify(fmt.Errorf("RevertStateToSnapshot: reload proposal parameters: %w", err),
+			bugsnag.MetaData{"data": {"header": header}})
 	}
 }
 
