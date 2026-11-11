@@ -236,6 +236,11 @@ func (context *VMHooksImpl) BigIntGetExternalBalance(addressOffset executor.MemP
 		return
 	}
 
+	err = blockchain.CountContractAccountRead()
+	if context.WithFault(err, runtime.BigIntAPIErrorShouldFailExecution()) {
+		return
+	}
+
 	balance := blockchain.GetBalance(address)
 	value := managedType.GetBigIntOrCreate(result)
 

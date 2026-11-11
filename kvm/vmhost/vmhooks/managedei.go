@@ -79,6 +79,11 @@ func (context *VMHooksImpl) ManagedOwnerAddress(destinationHandle int32) {
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetOwnerAddress
 	metering.UseGasAndAddTracedGas(managedOwnerAddressName, gasToUse)
 
+	err := blockchain.CountContractAccountRead()
+	if context.WithFault(err, runtime.BaseOpsErrorShouldFailExecution()) {
+		return
+	}
+
 	owner, err := blockchain.GetOwnerAddress()
 	if context.WithFault(err, runtime.BaseOpsErrorShouldFailExecution()) {
 		return
@@ -1318,6 +1323,11 @@ func ManagedGetCodeMetadataWithHost(host vmhost.VMHost, addressHandle int32, res
 		return
 	}
 
+	err = host.Blockchain().CountContractAccountRead()
+	if WithFaultAndHost(host, err, runtime.BaseOpsErrorShouldFailExecution()) {
+		return
+	}
+
 	contract, err := host.Blockchain().GetUserAccount(mBuffAddress)
 	if err != nil || check.IfNil(contract) {
 		WithFaultAndHost(host, err, runtime.BaseOpsErrorShouldFailExecution())
@@ -1552,6 +1562,11 @@ func ManagedAccHasPermWithHost(
 			vmhost.ErrArgOutOfRange,
 			runtime.BaseOpsErrorShouldFailExecution(),
 		)
+		return 0
+	}
+
+	err = blockchain.CountContractAccountRead()
+	if WithFaultAndHost(host, err, runtime.BaseOpsErrorShouldFailExecution()) {
 		return 0
 	}
 

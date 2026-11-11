@@ -2027,6 +2027,46 @@ func TestManagedAccHasPerm_ChargedBeforeCloneFromV6(t *testing.T) {
 	}
 }
 
+func TestVMHooksImpl_ManagedContractAccountReadsCountTowardTrieReadsLimit(t *testing.T) {
+	t.Parallel()
+
+	countAccountLookup := func(blockchain *hostmock.BlockchainContextStub, lookups *int) {
+		blockchain.GetUserAccountCalled = func(_ []byte) (state.UserAccountHandler, error) {
+			*lookups++
+			return state.NewEmptyUserAccount(), nil
+		}
+	}
+
+	runContractAccountReadCases(t, []contractAccountReadCase{
+		{
+			name: "ManagedOwnerAddress",
+			install: func(blockchain *hostmock.BlockchainContextStub, lookups *int) {
+				blockchain.GetOwnerAddressCalled = func() ([]byte, error) {
+					*lookups++
+					return []byte("owner"), nil
+				}
+			},
+			call: func(host *contextmock.VMHostMock) {
+				vmhooks.NewVMHooksImpl(host).ManagedOwnerAddress(0)
+			},
+		},
+		{
+			name:    "ManagedGetCodeMetadata",
+			install: countAccountLookup,
+			call: func(host *contextmock.VMHostMock) {
+				vmhooks.NewVMHooksImpl(host).ManagedGetCodeMetadata(1, 0)
+			},
+		},
+		{
+			name:    "ManagedAccHasPerm",
+			install: countAccountLookup,
+			call: func(host *contextmock.VMHostMock) {
+				_ = vmhooks.NewVMHooksImpl(host).ManagedAccHasPerm(1, 1, 2)
+			},
+		},
+	})
+}
+
 // addressHooksSeedAccount stores an account under address, with code metadata
 // addressHooksSeededMeta and an owner permission signed by signer, as a zero-amount transfer to a
 // junk address could leave one in state before FixAuditChangesV6

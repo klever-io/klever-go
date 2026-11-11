@@ -893,6 +893,104 @@ func TestBlockChainHookImpl_KDAReadsCountTowardTrieReadsLimit(t *testing.T) {
 	})
 }
 
+func TestBlockChainHookImpl_ContractAccountReadsCountTowardTrieReadsLimit(t *testing.T) {
+	t.Parallel()
+
+	testAddress := []byte("testAddress123456789012345678901234")
+	testAssetID := []byte("TESTKDA")
+	scAddress, err := hex.DecodeString("000000000000000005005fed9c659422cd8429ce92f8973bba2a9fb51e0eb3a1")
+	require.NoError(t, err)
+
+	t.Run("before FixAuditChangesV7 contract account reads are not counted", func(t *testing.T) {
+		t.Parallel()
+
+		bh := newBlockChainHookWithTrieReadsLimit(t, false, 1)
+		for i := 0; i < 3; i++ {
+			require.NoError(t, bh.CountContractAccountRead())
+		}
+		assert.Zero(t, trieReadsCount(bh))
+	})
+
+	t.Run("from FixAuditChangesV7 each contract account read counts once", func(t *testing.T) {
+		t.Parallel()
+
+		bh := newBlockChainHookWithTrieReadsLimit(t, true, 10)
+
+		require.NoError(t, bh.CountContractAccountRead())
+		assert.Equal(t, uint64(1), trieReadsCount(bh))
+
+		require.NoError(t, bh.CountContractAccountRead())
+		assert.Equal(t, uint64(2), trieReadsCount(bh))
+	})
+
+	t.Run("from FixAuditChangesV7 a contract account read past the limit fails", func(t *testing.T) {
+		t.Parallel()
+
+		bh := newBlockChainHookWithTrieReadsLimit(t, true, 1)
+		require.NoError(t, bh.CountContractAccountRead())
+
+		assert.ErrorIs(t, bh.CountContractAccountRead(), process.ErrMaxCallsReached)
+	})
+
+	t.Run("from FixAuditChangesV7 storage, KDA and contract account reads share the limit", func(t *testing.T) {
+		t.Parallel()
+
+		bh := newBlockChainHookWithTrieReadsLimit(t, true, 3)
+
+		_, _, err := bh.GetStorageData(testAddress, []byte("key"))
+		require.NoError(t, err)
+		_, _, err = bh.GetKDAToken(testAddress, testAssetID, 0)
+		require.NoError(t, err)
+		require.NoError(t, bh.CountContractAccountRead())
+
+		assert.ErrorIs(t, bh.CountContractAccountRead(), process.ErrMaxCallsReached)
+		_, _, err = bh.GetStorageData(testAddress, []byte("key"))
+		assert.ErrorIs(t, err, process.ErrMaxCallsReached)
+		_, _, err = bh.GetKDAToken(testAddress, testAssetID, 0)
+		assert.ErrorIs(t, err, process.ErrMaxCallsReached)
+	})
+
+	t.Run("from FixAuditChangesV7 the account lookups the VM makes for itself are not counted", func(t *testing.T) {
+		t.Parallel()
+
+		bh := newBlockChainHookWithTrieReadsLimit(t, true, 1)
+		account, err := bh.GetUserAccount(testAddress)
+		require.NoError(t, err)
+		for i := 0; i < 3; i++ {
+			_, err = bh.GetUserAccount(scAddress)
+			require.NoError(t, err)
+			_ = bh.GetCode(account)
+			_ = bh.IsSmartContract(scAddress)
+			_, err = bh.IsPayable(testAddress, scAddress)
+			require.NoError(t, err)
+		}
+		assert.Zero(t, trieReadsCount(bh))
+
+		require.NoError(t, bh.CountContractAccountRead())
+		assert.Equal(t, uint64(1), trieReadsCount(bh))
+	})
+
+	t.Run("from FixAuditChangesV7 lookups of missing accounts the VM makes for itself are not counted", func(t *testing.T) {
+		t.Parallel()
+
+		bh := newBlockChainHookWithTrieReadsLimit(t, true, 1)
+		bh.accountsCacher = &commonMock.AccountsCacherStub{
+			GetExistingUserCalled: func(_ []byte) (state.UserAccountHandler, error) {
+				return nil, common.ErrAccNotFound
+			},
+		}
+		for i := 0; i < 3; i++ {
+			_, err := bh.GetUserAccount(scAddress)
+			require.ErrorIs(t, err, common.ErrAccNotFound)
+			assert.False(t, bh.IsSmartContract(scAddress))
+			payable, err := bh.IsPayable(testAddress, scAddress)
+			require.NoError(t, err)
+			assert.False(t, payable)
+		}
+		assert.Zero(t, trieReadsCount(bh))
+	})
+}
+
 // blockChainHookCounterPassthroughStub is a minimal BlockChainHookCounter that
 // reports no errors and no-ops everything else, used to isolate higher-layer
 // branches under test.

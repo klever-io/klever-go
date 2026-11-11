@@ -75,6 +75,9 @@ type VMHost interface {
 // BlockchainContext defines the functionality needed for interacting with the blockchain context.
 // Unlike the other contexts it has no state stack: transfers settle into the accounts cacher
 // immediately and cannot be reverted below the transaction, so every VM error path must abort it.
+// Its account getters do not count toward the per-transaction trie reads limit, as the VM uses them
+// for its own lookups: a hook that looks up an account for a contract must call
+// CountContractAccountRead before it does.
 type BlockchainContext interface {
 	NewAddress(creatorAddress []byte) ([]byte, error)
 	AccountExists(addr []byte) bool
@@ -103,6 +106,7 @@ type BlockchainContext interface {
 	GetCompiledCode(codeHash []byte) (bool, []byte)
 	GetKDAToken(address []byte, tokenID []byte, nonce uint64) (*kapps.KDAData, *kapps.UserKDA, error)
 	GetSFTMeta(tokenID []byte, nonce uint64) (*kapps.MetaV2, error)
+	CountContractAccountRead() error
 	GetUserAccount(address []byte) (state.UserAccountHandler, error)
 	ProcessBuiltInFunction(input *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error)
 	TransferValueOnly(destination []byte, sender []byte, value *big.Int) error

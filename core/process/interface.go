@@ -658,6 +658,7 @@ type BlockChainHookHandler interface {
 	GetAllState(_ []byte) (map[string][]byte, error)
 	GetKDAToken(address []byte, tokenID []byte, nonce uint64) (*kapps.KDAData, *kapps.UserKDA, error)
 	GetSFTMeta(tokenID []byte, nonce uint64) (*kapps.MetaV2, error)
+	CountContractAccountRead() error
 	SetCurrentHeader(hdr data.HeaderHandler)
 	SaveCompiledCode(codeHash []byte, code []byte)
 	GetCompiledCode(codeHash []byte) (bool, []byte)

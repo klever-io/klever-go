@@ -104,6 +104,9 @@ type BlockchainHook interface {
 	// GetSFTMeta loads the SFT metadata for the given key
 	GetSFTMeta(tokenID []byte, nonce uint64) (*kapps.MetaV2, error)
 
+	// CountContractAccountRead counts an account lookup made by a contract toward the per-transaction trie reads limit
+	CountContractAccountRead() error
+
 	// ExecuteSmartContractCallOnOtherVM executes a smart contract call on another VM
 	ExecuteSmartContractCallOnOtherVM(input *ContractCallInput) (*VMOutput, error)
 

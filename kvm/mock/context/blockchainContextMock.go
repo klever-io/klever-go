@@ -16,8 +16,9 @@ var _ vmhost.BlockchainContext = (*BlockchainContextMock)(nil)
 
 // BlockchainContextMock -
 type BlockchainContextMock struct {
-	GetKdaTokenDataCalled func(addr []byte, ticker []byte, nonce uint64) (*kapps.KDAData, *kapps.UserKDA, error)
-	GetSFTMetaCalled      func(asset []byte, nonce uint64) (*kapps.MetaV2, error)
+	GetKdaTokenDataCalled          func(addr []byte, ticker []byte, nonce uint64) (*kapps.KDAData, *kapps.UserKDA, error)
+	GetSFTMetaCalled               func(asset []byte, nonce uint64) (*kapps.MetaV2, error)
+	CountContractAccountReadCalled func() error
 }
 
 // NewAddress -
@@ -164,6 +165,14 @@ func (b *BlockchainContextMock) GetSFTMeta(asset []byte, nonce uint64) (*kapps.M
 	}
 
 	return &kapps.MetaV2{}, nil
+}
+
+func (b *BlockchainContextMock) CountContractAccountRead() error {
+	if b.CountContractAccountReadCalled != nil {
+		return b.CountContractAccountReadCalled()
+	}
+
+	return nil
 }
 
 // GetUserAccount -

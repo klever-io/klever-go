@@ -51,6 +51,7 @@ type BlockchainHookStub struct {
 	LastBlockCalled                         func() data.HeaderHandler
 	SetCurrentHeaderCalled                  func(hdr data.HeaderHandler)
 	GetSFTMetaCalled                        func(tokenID []byte, nonce uint64) (*kapps.MetaV2, error)
+	CountContractAccountReadCalled          func() error
 	IncreaseNonceCalled                     func(address []byte) error
 }
 
@@ -60,6 +61,14 @@ func (b *BlockchainHookStub) GetSFTMeta(tokenID []byte, nonce uint64) (*kapps.Me
 	}
 
 	return &kapps.MetaV2{}, nil
+}
+
+func (b *BlockchainHookStub) CountContractAccountRead() error {
+	if b.CountContractAccountReadCalled != nil {
+		return b.CountContractAccountReadCalled()
+	}
+
+	return nil
 }
 
 func (b *BlockchainHookStub) GetBlockHash(nonce uint64) ([]byte, error) {

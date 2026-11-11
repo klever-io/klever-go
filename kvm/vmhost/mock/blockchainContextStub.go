@@ -39,6 +39,7 @@ type BlockchainContextStub struct {
 	GetCompiledCodeCalled                   func([]byte) (bool, []byte)
 	GetKDATokenCalled                       func([]byte, []byte, uint64) (*kapps.KDAData, *kapps.UserKDA, error)
 	GetSFTMetaCalled                        func([]byte, uint64) (*kapps.MetaV2, error)
+	CountContractAccountReadCalled          func() error
 	GetUserAccountCalled                    func([]byte) (state.UserAccountHandler, error)
 	ProcessBuiltInFunctionCalled            func(*vmcommon.ContractCallInput) (*vmcommon.VMOutput, error)
 	IsLimitedTransferCalled                 func([]byte) bool
@@ -242,6 +243,13 @@ func (stub *BlockchainContextStub) GetSFTMeta(assetID []byte, nonce uint64) (*ka
 		return stub.GetSFTMetaCalled(assetID, nonce)
 	}
 	return nil, nil
+}
+
+func (stub *BlockchainContextStub) CountContractAccountRead() error {
+	if stub.CountContractAccountReadCalled != nil {
+		return stub.CountContractAccountReadCalled()
+	}
+	return nil
 }
 
 func (stub *BlockchainContextStub) GetUserAccount(address []byte) (state.UserAccountHandler, error) {

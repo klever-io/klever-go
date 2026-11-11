@@ -9,6 +9,7 @@ import (
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core/kapp"
 
+	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	"github.com/klever-io/klever-go/kvm/mock/stub"
@@ -501,4 +502,63 @@ func TestBlockchainContext_GetKAppController(t *testing.T) {
 
 	result := blockchainContext.GetKAppController()
 	require.Equal(t, mockKAppController, result)
+}
+
+func TestBlockchainContext_CountContractAccountRead(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns what the blockchain hook returns", func(t *testing.T) {
+		t.Parallel()
+
+		hook := &contextmock.BlockchainHookStub{
+			CountContractAccountReadCalled: func() error {
+				return errTestError
+			},
+		}
+		blockchainContext, err := NewBlockchainContext(&contextmock.VMHostStub{}, hook)
+		require.Nil(t, err)
+
+		assert.Equal(t, errTestError, blockchainContext.CountContractAccountRead())
+	})
+
+	t.Run("the account getters the VM uses for itself do not count", func(t *testing.T) {
+		t.Parallel()
+
+		reads := 0
+		hook := &contextmock.BlockchainHookStub{
+			CountContractAccountReadCalled: func() error {
+				reads++
+				return nil
+			},
+			GetUserAccountCalled: func(_ []byte) (state.UserAccountHandler, error) {
+				return state.NewEmptyUserAccount(), nil
+			},
+			GetCodeCalled: func(_ state.UserAccountHandler) []byte {
+				return []byte("code")
+			},
+		}
+		host := &contextmock.VMHostMock{
+			OutputContext: &contextmock.OutputContextMock{
+				OutputAccountMock:  &vmcommon.OutputAccount{},
+				OutputAccountIsNew: true,
+			},
+			RuntimeContext: &contextmock.RuntimeContextMock{SCAddress: []byte("sc-address")},
+		}
+		blockchainContext, err := NewBlockchainContext(host, hook)
+		require.Nil(t, err)
+
+		address := []byte("account")
+		_ = blockchainContext.AccountExists(address)
+		_ = blockchainContext.GetBalance(address)
+		_, _ = blockchainContext.GetNonce(address)
+		_ = blockchainContext.GetCodeHash(address)
+		_, _ = blockchainContext.GetCode(address)
+		_, _ = blockchainContext.GetCodeSize(address)
+		_, _ = blockchainContext.GetOwnerAddress()
+		_ = blockchainContext.IsSmartContract(address)
+		_, _ = blockchainContext.IsPayable(address, address)
+		_, _ = blockchainContext.GetUserAccount(address)
+
+		assert.Zero(t, reads)
+	})
 }

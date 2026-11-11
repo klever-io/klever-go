@@ -8,6 +8,7 @@ import (
 
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common/types"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/data/vm"
 	"github.com/klever-io/klever-go/kapps"
@@ -156,6 +157,11 @@ func (context *VMHooksImpl) GetOwnerAddress(resultOffset executor.MemPtr) {
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetOwnerAddress
 	metering.UseGasAndAddTracedGas(getOwnerAddressName, gasToUse)
 
+	err := blockchain.CountContractAccountRead()
+	if context.WithFault(err, runtime.BaseOpsErrorShouldFailExecution()) {
+		return
+	}
+
 	owner, err := blockchain.GetOwnerAddress()
 	if context.WithFault(err, runtime.BaseOpsErrorShouldFailExecution()) {
 		return
@@ -187,6 +193,13 @@ func (context *VMHooksImpl) IsSmartContract(addressOffset executor.MemPtr) int32
 		ocAccs := context.GetOutputContext().GetOutputAccounts()
 		if acc, ok := ocAccs[string(address)]; ok && acc != nil && len(acc.Code) > 0 {
 			return 1
+		}
+	}
+
+	if core.IsSmartContractAddress(address) {
+		err = blockchain.CountContractAccountRead()
+		if context.WithFault(err, runtime.BaseOpsErrorShouldFailExecution()) {
+			return -1
 		}
 	}
 
@@ -230,6 +243,11 @@ func (context *VMHooksImpl) GetExternalBalance(addressOffset executor.MemPtr, re
 	metering.UseGasAndAddTracedGas(getExternalBalanceName, gasToUse)
 
 	address, err := context.MemLoad(addressOffset, vmhost.AddressLen)
+	if context.WithFault(err, runtime.BaseOpsErrorShouldFailExecution()) {
+		return
+	}
+
+	err = blockchain.CountContractAccountRead()
 	if context.WithFault(err, runtime.BaseOpsErrorShouldFailExecution()) {
 		return
 	}
@@ -865,6 +883,11 @@ func UpgradeFromSourceContractWithTypedArgs(
 ) {
 	runtime := host.Runtime()
 	blockchain := host.Blockchain()
+
+	err := blockchain.CountContractAccountRead()
+	if WithFaultAndHost(host, err, runtime.BaseOpsErrorShouldFailExecution()) {
+		return
+	}
 
 	code, err := blockchain.GetCode(sourceContractAddress)
 	if WithFaultAndHost(host, err, runtime.BaseOpsErrorShouldFailExecution()) {
@@ -2519,6 +2542,11 @@ func DeployFromSourceContractWithTypedArgs(
 	sender := runtime.GetContextAddress()
 
 	blockchain := host.Blockchain()
+	err := blockchain.CountContractAccountRead()
+	if err != nil {
+		return nil, err
+	}
+
 	code, err := blockchain.GetCode(sourceContractAddress)
 	if WithFaultAndHost(host, err, runtime.BaseOpsErrorShouldFailExecution()) {
 		return nil, err

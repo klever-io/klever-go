@@ -2,6 +2,7 @@ package vmhooks_test
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"math/big"
@@ -1527,6 +1528,212 @@ func TestVMHooksImpl_GetKDABalance_ReadPastTheTrieReadsLimitFailsExecution(t *te
 
 	assert.Equal(t, int32(-1), getBalance())
 	require.ErrorIs(t, runtime.FailExecutionErr, process.ErrMaxCallsReached)
+}
+
+type contractAccountReadCase struct {
+	name    string
+	install func(blockchain *hostmock.BlockchainContextStub, lookups *int)
+	call    func(host *contextmock.VMHostMock)
+}
+
+func newContractAccountReadHost() (*contextmock.VMHostMock, *hostmock.BlockchainContextStub, *contextmock.RuntimeContextMock) {
+	host := newMockVMHost()
+	runtime := host.RuntimeContext.(*contextmock.RuntimeContextMock)
+	runtime.FailBaseOpsAPI = true
+	runtime.FailBigIntAPI = true
+	return host, host.BlockchainContext.(*hostmock.BlockchainContextStub), runtime
+}
+
+func runContractAccountReadCases(t *testing.T, cases []contractAccountReadCase) {
+	t.Helper()
+
+	for _, c := range cases {
+		t.Run(c.name+"/counts one read before the lookup", func(t *testing.T) {
+			t.Parallel()
+
+			host, blockchain, runtime := newContractAccountReadHost()
+			reads, lookups := 0, 0
+			blockchain.CountContractAccountReadCalled = func() error {
+				assert.Zero(t, lookups, "account looked up before the read was counted")
+				reads++
+				return nil
+			}
+			c.install(blockchain, &lookups)
+
+			c.call(host)
+
+			assert.Equal(t, 1, reads)
+			assert.Equal(t, 1, lookups)
+			assert.NotErrorIs(t, runtime.FailExecutionErr, process.ErrMaxCallsReached)
+		})
+
+		t.Run(c.name+"/past the trie reads limit fails once without the lookup", func(t *testing.T) {
+			t.Parallel()
+
+			host, blockchain, runtime := newContractAccountReadHost()
+			lookups, failures := 0, 0
+			runtime.FailExecutionCalled = func(_ error) {
+				failures++
+			}
+			blockchain.CountContractAccountReadCalled = func() error {
+				return fmt.Errorf("%w: too many reads from trie", process.ErrMaxCallsReached)
+			}
+			c.install(blockchain, &lookups)
+
+			c.call(host)
+
+			assert.Zero(t, lookups)
+			assert.Equal(t, 1, failures)
+			require.ErrorIs(t, runtime.FailExecutionErr, process.ErrMaxCallsReached)
+		})
+	}
+}
+
+func storeAndCall(address []byte, call func(hooks *vmhooks.VMHooksImpl)) func(host *contextmock.VMHostMock) {
+	return func(host *contextmock.VMHostMock) {
+		_ = host.MemStoreToMock(executor.MemPtr(0), address)
+		call(vmhooks.NewVMHooksImpl(host))
+	}
+}
+
+func TestVMHooksImpl_ContractAccountReadsCountTowardTrieReadsLimit(t *testing.T) {
+	t.Parallel()
+
+	missingAddress := makeAddress("missingaccount")
+	scAddress, err := hex.DecodeString("000000000000000005005fed9c659422cd8429ce92f8973bba2a9fb51e0eb3a1")
+	require.NoError(t, err)
+
+	countBalanceLookup := func(blockchain *hostmock.BlockchainContextStub, lookups *int) {
+		blockchain.GetBalanceCalled = func(_ []byte) []byte {
+			*lookups++
+			return big.NewInt(0).Bytes()
+		}
+	}
+	countSourceCodeLookup := func(blockchain *hostmock.BlockchainContextStub, lookups *int) {
+		blockchain.GetCodeCalled = func(_ []byte) ([]byte, error) {
+			*lookups++
+			return nil, vmhost.ErrContractNotFound
+		}
+	}
+
+	runContractAccountReadCases(t, []contractAccountReadCase{
+		{
+			name: "GetOwnerAddress",
+			install: func(blockchain *hostmock.BlockchainContextStub, lookups *int) {
+				blockchain.GetOwnerAddressCalled = func() ([]byte, error) {
+					*lookups++
+					return makeAddress("owner"), nil
+				}
+			},
+			call: storeAndCall(nil, func(hooks *vmhooks.VMHooksImpl) {
+				hooks.GetOwnerAddress(executor.MemPtr(0))
+			}),
+		},
+		{
+			name: "IsSmartContract of a missing contract account",
+			install: func(blockchain *hostmock.BlockchainContextStub, lookups *int) {
+				blockchain.IsSmartContractCalled = func(_ []byte) bool {
+					*lookups++
+					return false
+				}
+			},
+			call: storeAndCall(scAddress, func(hooks *vmhooks.VMHooksImpl) {
+				_ = hooks.IsSmartContract(executor.MemPtr(0))
+			}),
+		},
+		{
+			name:    "GetExternalBalance of a missing account",
+			install: countBalanceLookup,
+			call: storeAndCall(missingAddress, func(hooks *vmhooks.VMHooksImpl) {
+				hooks.GetExternalBalance(executor.MemPtr(0), executor.MemPtr(vmhost.AddressLen))
+			}),
+		},
+		{
+			name:    "BigIntGetExternalBalance of a missing account",
+			install: countBalanceLookup,
+			call: storeAndCall(missingAddress, func(hooks *vmhooks.VMHooksImpl) {
+				hooks.BigIntGetExternalBalance(executor.MemPtr(0), 0)
+			}),
+		},
+		{
+			name:    "UpgradeFromSourceContract",
+			install: countSourceCodeLookup,
+			call: func(host *contextmock.VMHostMock) {
+				vmhooks.UpgradeFromSourceContractWithTypedArgs(host, missingAddress, scAddress, nil, nil, 0, nil)
+			},
+		},
+		{
+			name:    "DeployFromSourceContract",
+			install: countSourceCodeLookup,
+			call: storeAndCall(missingAddress, func(hooks *vmhooks.VMHooksImpl) {
+				_ = hooks.DeployFromSourceContract(
+					0,
+					executor.MemPtr(vmhost.AddressLen),
+					executor.MemPtr(0),
+					executor.MemPtr(2*vmhost.AddressLen),
+					executor.MemPtr(3*vmhost.AddressLen),
+					0,
+					executor.MemPtr(4*vmhost.AddressLen),
+					executor.MemPtr(5*vmhost.AddressLen),
+				)
+			}),
+		},
+	})
+}
+
+func TestVMHooksImpl_IsSmartContract_CountsOnlyContractAccountLookups(t *testing.T) {
+	t.Parallel()
+
+	scAddress, err := hex.DecodeString("000000000000000005005fed9c659422cd8429ce92f8973bba2a9fb51e0eb3a1")
+	require.NoError(t, err)
+
+	t.Run("an address outside the contract format is not counted", func(t *testing.T) {
+		t.Parallel()
+
+		host, blockchain, runtime := newContractAccountReadHost()
+		reads := 0
+		blockchain.CountContractAccountReadCalled = func() error {
+			reads++
+			return nil
+		}
+		blockchain.IsSmartContractCalled = func(_ []byte) bool {
+			return false
+		}
+		require.Nil(t, host.MemStoreToMock(executor.MemPtr(0), makeAddress("regularaddress12345")))
+
+		result := vmhooks.NewVMHooksImpl(host).IsSmartContract(executor.MemPtr(0))
+
+		assert.Equal(t, int32(0), result)
+		assert.Zero(t, reads)
+		assert.NoError(t, runtime.FailExecutionErr)
+	})
+
+	t.Run("a contract already in the output accounts is not counted", func(t *testing.T) {
+		t.Parallel()
+
+		host, blockchain, runtime := newContractAccountReadHost()
+		host.OutputContext = &contextmock.OutputContextMock{
+			OutputAccounts: map[string]*vmcommon.OutputAccount{
+				string(scAddress): {Code: []byte("code")},
+			},
+		}
+		reads := 0
+		blockchain.CountContractAccountReadCalled = func() error {
+			reads++
+			return nil
+		}
+		blockchain.IsSmartContractCalled = func(_ []byte) bool {
+			assert.Fail(t, "contract in the output accounts looked up in state")
+			return false
+		}
+		require.Nil(t, host.MemStoreToMock(executor.MemPtr(0), scAddress))
+
+		result := vmhooks.NewVMHooksImpl(host).IsSmartContract(executor.MemPtr(0))
+
+		assert.Equal(t, int32(1), result)
+		assert.Zero(t, reads)
+		assert.NoError(t, runtime.FailExecutionErr)
+	})
 }
 
 func TestVMHooksImpl_GetKDANameLength(t *testing.T) {

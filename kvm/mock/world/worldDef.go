@@ -380,6 +380,10 @@ func (b *MockWorld) GetSFTMeta(tokenID []byte, nonce uint64) (*kapps.MetaV2, err
 	return sysKapp.SFTGetMeta(tokenID, []byte(fmt.Sprint(nonce)))
 }
 
+func (b *MockWorld) CountContractAccountRead() error {
+	return nil
+}
+
 func (b *MockWorld) MockTestAsset(asset *scenjsonmodel.KDAData) {
 	kdaKappAccount, err := b.KAppsAdapter.LoadAccount(kapps.KDAKAppAddress)
 	if err != nil {

@@ -96,6 +96,12 @@ func (context *blockchainContext) GetSFTMeta(tokenID []byte, nonce uint64) (*kap
 	return context.blockChainHook.GetSFTMeta(tokenID, nonce)
 }
 
+// CountContractAccountRead counts an account lookup made by a contract toward the per-transaction
+// trie reads limit
+func (context *blockchainContext) CountContractAccountRead() error {
+	return context.blockChainHook.CountContractAccountRead()
+}
+
 // GetCodeHash retrieves the hash of the code stored under the given address.
 func (context *blockchainContext) GetCodeHash(address []byte) []byte {
 	account, err := context.blockChainHook.GetUserAccount(address)
