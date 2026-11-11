@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/tools/marshal"
@@ -280,9 +281,18 @@ func prefixLen(a, b []byte) int {
 	return i
 }
 
+// maxTriePathLen bounds a trie node key in nibbles: a data-trie leaf path for a MaxStorageKeyLength key
+// plus the terminator. Account, KApp and peer trie paths are shorter. Extensions share it, a
+// couple of nibbles of deliberate slack over the longest one a real trie can hold.
+const maxTriePathLen = 2*common.MaxStorageKeyLength + 1
+
 func isCanonicalLeafKey(key []byte) bool {
 	if len(key) == 0 {
 		return true
+	}
+
+	if len(key) > maxTriePathLen {
+		return false
 	}
 
 	if key[len(key)-1] != hexTerminator {

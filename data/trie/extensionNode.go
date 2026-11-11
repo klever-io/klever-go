@@ -550,7 +550,7 @@ func (en *extensionNode) isValid() bool {
 		return false
 	}
 
-	return len(en.Key) > 0 && hasOnlyNibbles(en.Key)
+	return len(en.Key) > 0 && len(en.Key) <= maxTriePathLen && hasOnlyNibbles(en.Key)
 }
 
 func (en *extensionNode) setDirty(dirty bool) {
