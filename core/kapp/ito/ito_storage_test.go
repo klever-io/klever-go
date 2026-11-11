@@ -706,6 +706,102 @@ func TestITO_PackCurrencyOrderIsDeterministic(t *testing.T) {
 	}
 }
 
+// TestITO_ConfigWhitelistOrderIsDeterministic checks that from FixAuditChangesV7 ConfigITO checks its
+// whitelist in key order: a valid hex address with a negative limit (ParameterInvalid) sorts before a
+// key that is not hex (AccountError), so the result is ParameterInvalid on every run (KLC-2770).
+func TestITO_ConfigWhitelistOrderIsDeterministic(t *testing.T) {
+	itoAsset := []byte("ITO-1PUA")
+	whitelist := map[string]*transaction.WhitelistInfo{
+		hex.EncodeToString(defaultSender): {Limit: -1},
+		"zz-not-hex":                      {Limit: 1},
+	}
+
+	newConfigRun := func(t *testing.T, epochs config.EnableEpochs) func() transaction.Transaction_TXResultCode {
+		kc, err := createMockControllers(epochs)
+		require.NoError(t, err)
+		createAsset(t, kc, []byte("ITO"), transaction.CreateAssetContract_Fungible, 0, 100_000, 100_000)
+
+		return func() transaction.Transaction_TXResultCode {
+			status, err := kc.GetITOKApp().Config(defaultSender, &transaction.ConfigITOContract{
+				AssetID:         itoAsset,
+				ReceiverAddress: defaultSender,
+				Status:          transaction.ConfigITOContract_ActiveITO,
+				WhitelistStatus: transaction.ConfigITOContract_PausedITO,
+				WhitelistInfo:   whitelist,
+			})
+			require.Error(t, err)
+			return status
+		}
+	}
+
+	t.Run("first refusal in key order wins from FixAuditChangesV7", func(t *testing.T) {
+		run := newConfigRun(t, config.EnableEpochs{})
+		for i := 0; i < 100; i++ {
+			require.Equal(t, transaction.Transaction_ParameterInvalid, run(), "run %d", i)
+		}
+	})
+
+	t.Run("either refusal may fire before FixAuditChangesV7", func(t *testing.T) {
+		run := newConfigRun(t, config.EnableEpochs{FixAuditChangesV7: 1_000})
+		seen := make(map[transaction.Transaction_TXResultCode]bool)
+		for i := 0; i < 100; i++ {
+			seen[run()] = true
+		}
+		require.Equal(t, map[transaction.Transaction_TXResultCode]bool{
+			transaction.Transaction_ParameterInvalid: true,
+			transaction.Transaction_AccountError:     true,
+		}, seen, "pre-fork order must stay Go's map order")
+	})
+}
+
+// TestITO_AddToWhitelistOrderIsDeterministic checks that from FixAuditChangesV7 the AddToWhitelist trigger
+// checks its entries in key order, as ConfigITO does: a valid hex address with a negative limit
+// (ParameterInvalid) sorts before a key that is not hex (AccountError) (KLC-2770).
+func TestITO_AddToWhitelistOrderIsDeterministic(t *testing.T) {
+	itoAsset := []byte("ITO-1PUA")
+	whitelist := map[string]*transaction.WhitelistInfo{
+		hex.EncodeToString(defaultSender): {Limit: -1},
+		"zz-not-hex":                      {Limit: 1},
+	}
+
+	newTriggerRun := func(t *testing.T, epochs config.EnableEpochs) func() transaction.Transaction_TXResultCode {
+		kc, err := createMockControllers(epochs)
+		require.NoError(t, err)
+		createAsset(t, kc, []byte("ITO"), transaction.CreateAssetContract_Fungible, 0, 100_000, 100_000)
+		createAsset(t, kc, defaultTicker, transaction.CreateAssetContract_Fungible, 0, 10_000_000, 10_000_000)
+		createDefaultITO(t, kc, string(defaultAssetID), itoAsset)
+
+		return func() transaction.Transaction_TXResultCode {
+			status, err := kc.GetITOKApp().Trigger(defaultSender, &transaction.ITOTriggerContract{
+				TriggerType:   transaction.ITOTriggerContract_AddToWhitelist,
+				AssetID:       itoAsset,
+				WhitelistInfo: whitelist,
+			})
+			require.Error(t, err)
+			return status
+		}
+	}
+
+	t.Run("first refusal in key order wins from FixAuditChangesV7", func(t *testing.T) {
+		run := newTriggerRun(t, config.EnableEpochs{})
+		for i := 0; i < 100; i++ {
+			require.Equal(t, transaction.Transaction_ParameterInvalid, run(), "run %d", i)
+		}
+	})
+
+	t.Run("either refusal may fire before FixAuditChangesV7", func(t *testing.T) {
+		run := newTriggerRun(t, config.EnableEpochs{FixAuditChangesV7: 1_000})
+		seen := make(map[transaction.Transaction_TXResultCode]bool)
+		for i := 0; i < 100; i++ {
+			seen[run()] = true
+		}
+		require.Equal(t, map[transaction.Transaction_TXResultCode]bool{
+			transaction.Transaction_ParameterInvalid: true,
+			transaction.Transaction_AccountError:     true,
+		}, seen, "pre-fork order must stay Go's map order")
+	})
+}
+
 // errorReceiptFields returns the field of every error receipt in the current KApp context.
 func errorReceiptFields(kc kapp.KAppController) []string {
 	var fields []string

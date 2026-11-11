@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
-	"sort"
 	"strconv"
 
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/common/types"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
@@ -283,31 +283,7 @@ func setPermissionToTrie(
 		for idx := 0; idx < permissionsHandler.Len(); idx++ {
 			p := permissionsHandler.Get(idx)
 
-			contractSigners := make([]*transaction.AccKey, 0)
-			// load keys
-			keys := make([]*state.Key, 0)
-			for addr, weight := range p.GetSigners() {
-				keys = append(keys, &state.Key{
-					Address: []byte(addr),
-					Weight:  weight,
-				})
-
-				contractSigners = append(contractSigners, &transaction.AccKey{
-					Address: []byte(addr),
-					Weight:  weight,
-				})
-			}
-
-			// reorder keys by
-			sort.SliceStable(keys, func(i, j int) bool {
-				switch bytes.Compare(keys[i].Address, keys[j].Address) {
-				case -1:
-					return true
-				case 0, 1:
-					return false
-				}
-				return false
-			})
+			keys, contractSigners := sortedPermissionSigners(p.GetSigners())
 
 			perm := &state.Permission{
 				ID:             p.GetID(),
@@ -893,4 +869,18 @@ func initKLVAndKFIintoKapps(arg ArgsGenesisBlockCreator, initialSupply InitialSu
 	}
 
 	return nil
+}
+
+// sortedPermissionSigners returns a permission's signers ordered by address, both as state keys and as the
+// contract keys recorded in the genesis permission transaction, so its hash is the same on every node.
+func sortedPermissionSigners(signers map[string]int64) ([]*state.Key, []*transaction.AccKey) {
+	keys := make([]*state.Key, 0, len(signers))
+	contractSigners := make([]*transaction.AccKey, 0, len(signers))
+	for _, addr := range types.OrderedKeys(signers, true) {
+		weight := signers[addr]
+		keys = append(keys, &state.Key{Address: []byte(addr), Weight: weight})
+		contractSigners = append(contractSigners, &transaction.AccKey{Address: []byte(addr), Weight: weight})
+	}
+
+	return keys, contractSigners
 }

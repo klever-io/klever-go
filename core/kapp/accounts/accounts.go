@@ -769,7 +769,9 @@ func (a *accountsKapp) claimBalance(
 		}
 	}
 
-	for key, value := range gains {
+	// From FixAuditChangesV7 the gains are credited in asset order, so the first failing credit is the same on every node.
+	for _, key := range a.gainAssets(gains) {
+		value := gains[key]
 		if value > 0 {
 			var userKDAToUpdate *kapps.UserKDA
 			if bytes.Equal([]byte(key), assetID) {
@@ -784,6 +786,11 @@ func (a *accountsKapp) claimBalance(
 	}
 
 	return gains, nil
+}
+
+// gainAssets returns the assets of a claim's gains, in asset order from FixAuditChangesV7 and in map order before.
+func (a *accountsKapp) gainAssets(gains map[string]int64) []string {
+	return types.OrderedKeys(gains, a.forkController.FixAuditChangesV7())
 }
 
 // checkPausedStakingAsset refuses, once FixAuditChangesV6 is active, the staking operations on a
@@ -1019,31 +1026,7 @@ func (a *accountsKapp) Freeze(sender []byte, tc *transaction.FreezeContract) (tr
 		return transaction.Transaction_SaveAccountError, err
 	}
 
-	for key, value := range gains {
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			ctx.ContractID(),
-			claimAddress(staking.InterestType),
-			sender,
-			[]byte(strconv.FormatInt(value, 10)),
-			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
-			nil,
-			txProcess.AssetTypeReceipt(a.forkController.ClaimKFI(), assetID, []byte(key), kda),
-		))
-
-		claimType := []byte(strconv.FormatInt(int64(transaction.ClaimContract_StakingClaim.Enum().Number()), 10))
-
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Claim,
-			ctx.ContractID(),
-			[]byte(strconv.FormatInt(value, 10)),
-			nil,
-			nil,
-			assetID,
-			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
-			claimType,
-		))
-	}
+	a.addStakingGainReceipts(ctx, sender, assetID, gains, staking.InterestType, kda, false)
 
 	ctx.SetReturnData([][]byte{bucketID})
 
@@ -1151,21 +1134,7 @@ func (a *accountsKapp) Unfreeze(
 	))
 
 	// Receipts for gains
-	for asset, gain := range gains {
-		if gain <= 0 {
-			continue
-		}
-
-		a.addClaimReceipts(
-			ctx,
-			ownerAcc.AddressBytes(),
-			assetID,
-			[]byte(asset),
-			gain,
-			staking.InterestType,
-			kda,
-		)
-	}
+	a.addStakingGainReceipts(ctx, ownerAcc.AddressBytes(), assetID, gains, staking.InterestType, kda, true)
 
 	// Receipts for delegation if applicable
 	if delegationAddress != nil {
@@ -1231,29 +1200,74 @@ func (a *accountsKapp) addClaimReceipts(
 	interestType kapps.StakingData_EnumInterestType,
 	kda *kapps.KDAData,
 ) {
+	a.addGainReceipts(ctx, gainReceipt{
+		from:      claimAddress(interestType),
+		owner:     ownerAddrBytes,
+		assetID:   assetID,
+		asset:     assetBytes,
+		gain:      gain,
+		assetType: txProcess.AssetTypeReceipt(a.forkController.ClaimKFI(), assetID, assetBytes, kda),
+		claimType: transaction.ClaimContract_StakingClaim,
+	})
+}
+
+// addStakingGainReceipts records the receipts of every gain of a staking claim on assetID, in gainAssets
+// order, and returns how many gains it recorded. With skipEmpty, a gain that is not positive gets none.
+func (a *accountsKapp) addStakingGainReceipts(
+	ctx kapp.KappContext,
+	ownerAddrBytes, assetID []byte,
+	gains map[string]int64,
+	interestType kapps.StakingData_EnumInterestType,
+	kda *kapps.KDAData,
+	skipEmpty bool,
+) int {
+	recorded := 0
+	for _, asset := range a.gainAssets(gains) {
+		gain := gains[asset]
+		if skipEmpty && gain <= 0 {
+			continue
+		}
+
+		a.addClaimReceipts(ctx, ownerAddrBytes, assetID, []byte(asset), gain, interestType, kda)
+		recorded++
+	}
+
+	return recorded
+}
+
+// gainReceipt is one claimed gain: asset paid to owner from the from address, out of a claim on assetID.
+type gainReceipt struct {
+	from, owner, assetID, asset []byte
+	gain                        int64
+	assetType                   []byte
+	claimType                   transaction.ClaimContract_EnumClaimType
+}
+
+// addGainReceipts records the Transfer and Claim receipts of one claimed gain.
+func (a *accountsKapp) addGainReceipts(ctx kapp.KappContext, r gainReceipt) {
+	gainAsset := txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), r.assetID, r.asset)
+	value := []byte(strconv.FormatInt(r.gain, 10))
+
 	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.Transfer,
 		ctx.ContractID(),
-		claimAddress(interestType),
-		ownerAddrBytes,
-		[]byte(strconv.FormatInt(gain, 10)),
-		txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, assetBytes),
+		r.from,
+		r.owner,
+		value,
+		gainAsset,
 		nil,
-		txProcess.AssetTypeReceipt(a.forkController.ClaimKFI(), assetID, assetBytes, kda),
+		r.assetType,
 	))
 
-	claimType := []byte(
-		strconv.FormatInt(int64(transaction.ClaimContract_StakingClaim.Enum().Number()), 10),
-	)
 	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.Claim,
 		ctx.ContractID(),
-		[]byte(strconv.FormatInt(gain, 10)),
+		value,
 		nil,
 		nil,
-		assetID,
-		txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, assetBytes),
-		claimType,
+		r.assetID,
+		gainAsset,
+		[]byte(strconv.FormatInt(int64(r.claimType.Enum().Number()), 10)),
 	))
 }
 
@@ -1692,31 +1706,8 @@ func (a *accountsKapp) Delegate(sender []byte, tc *transaction.DelegateContract)
 		return transaction.Transaction_SaveAccountError, err
 	}
 
-	for key, value := range gains {
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			ctx.ContractID(),
-			kapps.StakingKAppAddress, // only for KLV (FPR)
-			sender,
-			[]byte(strconv.FormatInt(value, 10)),
-			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), kdautils.KLVIdentifier, []byte(key)),
-			nil,
-			txProcess.AssetTypeReceipt(a.forkController.ClaimKFI(), kdautils.KLVIdentifier, []byte(key), kda),
-		))
-
-		claimType := []byte(strconv.FormatInt(int64(transaction.ClaimContract_StakingClaim.Enum().Number()), 10))
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Claim,
-			ctx.ContractID(),
-			[]byte(strconv.FormatInt(value, 10)),
-			nil,
-			nil,
-			kdautils.KLVIdentifier,
-			[]byte(key),
-			claimType,
-		))
-
-	}
+	// only for KLV (FPR): paid from the staking kapp
+	a.addStakingGainReceipts(ctx, sender, kdautils.KLVIdentifier, gains, kapps.StakingData_FPRI, kda, false)
 
 	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.Delegate,
@@ -1815,30 +1806,8 @@ func (a *accountsKapp) Undelegate(sender []byte, tc *transaction.UndelegateContr
 		return transaction.Transaction_SaveAccountError, err
 	}
 
-	for key, value := range gains {
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			ctx.ContractID(),
-			kapps.StakingKAppAddress, // only for KLV (FPR)
-			sender,
-			[]byte(strconv.FormatInt(value, 10)),
-			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), kdautils.KLVIdentifier, []byte(key)),
-			nil,
-			txProcess.AssetTypeReceipt(a.forkController.ClaimKFI(), kdautils.KLVIdentifier, []byte(key), kda),
-		))
-
-		claimType := []byte(strconv.FormatInt(int64(transaction.ClaimContract_StakingClaim.Enum().Number()), 10))
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Claim,
-			ctx.ContractID(),
-			[]byte(strconv.FormatInt(value, 10)),
-			nil,
-			nil,
-			kdautils.KLVIdentifier,
-			[]byte(key),
-			claimType,
-		))
-	}
+	// only for KLV (FPR): paid from the staking kapp
+	a.addStakingGainReceipts(ctx, sender, kdautils.KLVIdentifier, gains, kapps.StakingData_FPRI, kda, false)
 
 	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.Delegate,
@@ -1921,31 +1890,7 @@ func (a *accountsKapp) Withdraw(sender []byte, tc *transaction.WithdrawContract)
 		return transaction.Transaction_SaveAccountError, err
 	}
 
-	for key, value := range gains {
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			ctx.ContractID(),
-			claimAddress(staking.InterestType),
-			sender,
-			[]byte(strconv.FormatInt(value, 10)),
-			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
-			nil,
-			txProcess.AssetTypeReceipt(a.forkController.ClaimKFI(), assetID, []byte(key), kda),
-		))
-
-		claimType := []byte(strconv.FormatInt(int64(transaction.ClaimContract_StakingClaim.Enum().Number()), 10))
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Claim,
-			ctx.ContractID(),
-			[]byte(strconv.FormatInt(value, 10)),
-			nil,
-			nil,
-			assetID,
-			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
-			claimType,
-		))
-
-	}
+	a.addStakingGainReceipts(ctx, sender, assetID, gains, staking.InterestType, kda, false)
 
 	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.Withdraw,
@@ -1989,37 +1934,7 @@ func (a *accountsKapp) ClaimStaking(sender []byte, tc *transaction.ClaimContract
 		return claimErrorResultCode(err, transaction.Transaction_ClaimError), err
 	}
 
-	validClaims := 0
-	for key, value := range gains {
-		if value <= 0 {
-			continue
-		}
-
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			ctx.ContractID(),
-			claimAddress(staking.InterestType),
-			sender,
-			[]byte(strconv.FormatInt(value, 10)),
-			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
-			nil,
-			txProcess.AssetTypeReceipt(a.forkController.ClaimKFI(), assetID, []byte(key), kda),
-		))
-
-		claimType := []byte(strconv.FormatInt(int64(transaction.ClaimContract_StakingClaim.Enum().Number()), 10))
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Claim,
-			ctx.ContractID(),
-			[]byte(strconv.FormatInt(value, 10)),
-			nil,
-			nil,
-			assetID,
-			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
-			claimType,
-		))
-
-		validClaims++
-	}
+	validClaims := a.addStakingGainReceipts(ctx, sender, assetID, gains, staking.InterestType, kda, true)
 
 	if validClaims <= 0 {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldNoValidClaims, state.ErrClaimNotAvailable.Error())
@@ -2114,29 +2029,16 @@ func (a *accountsKapp) ClaimAllowance(sender []byte, tc *transaction.ClaimContra
 		return claimErrorResultCode(err, transaction.Transaction_ClaimError), err
 	}
 
-	for key, value := range gains {
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			ctx.ContractID(),
-			kapps.StakingKAppAddress, // Only for KLV (FPR), mint is done during  block processing
-			sender,
-			[]byte(strconv.FormatInt(value, 10)),
-			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
-			nil,
-			[]byte{byte(kapps.KDAData_Fungible)}, //only KLV is allowed
-		))
-
-		claimType := []byte(strconv.FormatInt(int64(transaction.ClaimContract_AllowanceClaim.Enum().Number()), 10))
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Claim,
-			ctx.ContractID(),
-			[]byte(strconv.FormatInt(value, 10)),
-			nil,
-			nil,
-			assetID,
-			[]byte(key),
-			claimType,
-		))
+	for _, key := range a.gainAssets(gains) {
+		a.addGainReceipts(ctx, gainReceipt{
+			from:      kapps.StakingKAppAddress, // Only for KLV (FPR), mint is done during  block processing
+			owner:     sender,
+			assetID:   assetID,
+			asset:     []byte(key),
+			gain:      gains[key],
+			assetType: []byte{byte(kapps.KDAData_Fungible)}, //only KLV is allowed
+			claimType: transaction.ClaimContract_AllowanceClaim,
+		})
 	}
 
 	err = ownerAcc.SetUserKDA(kdautils.KLVIdentifier, nil, userKDA)

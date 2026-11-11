@@ -2964,6 +2964,111 @@ func TestScProcessor_ProcessSCOutputAccountsRejectsOverLimitStorageKeyWrite(t *t
 	})
 }
 
+// TestScProcessor_SaveStorageUpdatesFirstFailureInKeyOrder pins which guard rejects an output account carrying
+// two bad updates: from FixAuditChangesV7 the updates are visited in key order, so the error is the same on
+// every run instead of following Go's random map order (KLC-2770).
+func TestScProcessor_SaveStorageUpdatesFirstFailureInKeyOrder(t *testing.T) {
+	t.Parallel()
+
+	contract := transaction.SmartContract{
+		Type:      transaction.SmartContract_SCDeploy,
+		CallValue: map[string]*transaction.CallValue{"KLV": {Amount: 0}},
+	}
+	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("data")})
+	ctx := createDefaultContext(tx)
+
+	// "KDA/..." sorts before the over-limit "a..." key, so the protected-key guard must fire first
+	protectedKey := []byte("KDA/FAKE")
+	keyOverLimit := bytes.Repeat([]byte("a"), common.MaxStorageKeyLength+1)
+	outputAccounts := []*vmcommon.OutputAccount{
+		{
+			Address: []byte("output-account-address-32-bytes!"),
+			StorageUpdates: map[string]*vmcommon.StorageUpdate{
+				string(keyOverLimit): {Offset: keyOverLimit, Data: []byte("data"), Written: true},
+				string(protectedKey): {Offset: protectedKey, Data: []byte("forged"), Written: true},
+			},
+		},
+	}
+
+	t.Run("first failing key in order wins from FixAuditChangesV7", func(t *testing.T) {
+		sc, err := NewSmartContractProcessor(createMockSmartContractProcessorArguments())
+		require.Nil(t, err)
+		require.True(t, sc.forkController.FixAuditChangesV7())
+
+		for i := 0; i < 100; i++ {
+			err = sc.processSCOutputAccounts(ctx, &vmcommon.VMOutput{}, outputAccounts)
+			require.Equal(t, process.ErrStoreProtectedKey, err, "run %d", i)
+		}
+	})
+
+	t.Run("either guard may fire before FixAuditChangesV7", func(t *testing.T) {
+		arguments := createMockSmartContractProcessorArguments()
+		forkController, err := fork.NewForkController(config.EnableEpochs{FixAuditChangesV7: 100}, &commommock.EpochNotifierStub{})
+		require.Nil(t, err)
+		arguments.ForkController = forkController
+		sc, err := NewSmartContractProcessor(arguments)
+		require.Nil(t, err)
+
+		seen := make(map[error]bool)
+		for i := 0; i < 100; i++ {
+			err = sc.processSCOutputAccounts(ctx, &vmcommon.VMOutput{}, outputAccounts)
+			require.True(t, errors.Is(err, process.ErrStoreProtectedKey) || errors.Is(err, process.ErrStorageKeyTooLong), "unexpected error %v", err)
+			seen[err] = true
+		}
+		require.Len(t, seen, 2, "pre-fork order must stay Go's map order")
+	})
+}
+
+// TestScProcessor_PrintScDeployedOnlyWrittenCodeInAddressOrder pins the contracts a deploy records an SCTrigger
+// receipt for: from FixAuditChangesV7 only the contracts whose code it writes, in address order on every node;
+// before, every contract account in the output, in map order (KLC-2770).
+func TestScProcessor_PrintScDeployedOnlyWrittenCodeInAddressOrder(t *testing.T) {
+	t.Parallel()
+
+	scAddress := func(last byte) []byte {
+		addr := make([]byte, 32)
+		copy(addr[core.NumInitCharactersForScAddress-core.VMTypeLen:], common.WasmVirtualMachine)
+		addr[31] = last
+		return addr
+	}
+	deployedLow, deployedHigh, touched := scAddress(0x01), scAddress(0xf0), scAddress(0x80)
+	user := bytes.Repeat([]byte{0x42}, 32)
+	vmOutput := &vmcommon.VMOutput{OutputAccounts: map[string]*vmcommon.OutputAccount{
+		string(deployedHigh): {Address: deployedHigh, Code: []byte("code")},
+		string(touched):      {Address: touched},
+		string(deployedLow):  {Address: deployedLow, Code: []byte("code")},
+		string(user):         {Address: user},
+	}}
+
+	t.Run("written code only, in address order, from FixAuditChangesV7", func(t *testing.T) {
+		sc, err := NewSmartContractProcessor(createMockSmartContractProcessorArguments())
+		require.Nil(t, err)
+		require.True(t, sc.forkController.FixAuditChangesV7())
+
+		for i := 0; i < 50; i++ {
+			require.Equal(t, [][]byte{deployedLow, deployedHigh}, sc.printScDeployed([]byte("sender"), vmOutput), "run %d", i)
+		}
+	})
+
+	t.Run("every contract account, in map order, before FixAuditChangesV7", func(t *testing.T) {
+		arguments := createMockSmartContractProcessorArguments()
+		forkController, err := fork.NewForkController(config.EnableEpochs{FixAuditChangesV7: 100}, &commommock.EpochNotifierStub{})
+		require.Nil(t, err)
+		arguments.ForkController = forkController
+		sc, err := NewSmartContractProcessor(arguments)
+		require.Nil(t, err)
+
+		sorted := [][]byte{deployedLow, touched, deployedHigh}
+		unsorted := false
+		for i := 0; i < 50; i++ {
+			deployed := sc.printScDeployed([]byte("sender"), vmOutput)
+			require.ElementsMatch(t, sorted, deployed)
+			unsorted = unsorted || !assert.ObjectsAreEqual(sorted, deployed)
+		}
+		require.True(t, unsorted, "pre-fork order must stay Go's map order")
+	})
+}
+
 func newOutputAccountAddressProcessor(t *testing.T, fixV6 bool) (*scProcessor, ArgsNewSmartContractProcessor) {
 	arguments := createMockSmartContractProcessorArguments()
 	if !fixV6 {

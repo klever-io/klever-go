@@ -740,15 +740,23 @@ func (sc *scProcessor) doDeploySmartContract(
 }
 
 func (sc *scProcessor) printScDeployed(sender []byte, vmOutput *vmcommon.VMOutput) [][]byte {
+	fixV7 := sc.forkController.FixAuditChangesV7()
 	deployedSC := make([][]byte, 0)
 	scGenerated := make([]string, 0, len(vmOutput.OutputAccounts))
-	for _, account := range vmOutput.OutputAccounts {
+	// From FixAuditChangesV7 the accounts are visited in address order, so the deploy receipts are in the same order on every node.
+	for _, key := range types.OrderedKeys(vmOutput.OutputAccounts, fixV7) {
+		account := vmOutput.OutputAccounts[key]
 		if account == nil {
 			continue
 		}
 
 		addr := account.Address
 		if !core.IsSmartContractAddress(addr) {
+			continue
+		}
+		// From FixAuditChangesV7 only a contract whose code this deploy writes gets a deploy receipt, the same test
+		// updateSmartContractCode applies; a contract the constructor only calls or pays was not deployed.
+		if fixV7 && len(account.Code) == 0 {
 			continue
 		}
 
@@ -866,7 +874,9 @@ func (sc *scProcessor) processSCOutputAccounts(
 func (sc *scProcessor) saveStorageUpdates(acc state.UserAccountHandler, outAcc *vmcommon.OutputAccount) error {
 	// check if keyValue storage is updating in cacher or writing to AccOutputs...
 	// If saved in cacher, then no need to update states here
-	for _, storeUpdate := range outAcc.StorageUpdates {
+	// From FixAuditChangesV7 the updates are visited in key order, so the first failing guard is the same on every node.
+	for _, key := range types.OrderedKeys(outAcc.StorageUpdates, sc.forkController.FixAuditChangesV7()) {
+		storeUpdate := outAcc.StorageUpdates[key]
 		if sc.forkController.FixAuditChangesV3() && storeUpdate.Written && isProtectedStorageKey(storeUpdate.Offset) {
 			log.Warn("saveKeyValue", "error", process.ErrStoreProtectedKey, "key", storeUpdate.Offset)
 			return process.ErrStoreProtectedKey

@@ -14,7 +14,6 @@ import (
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/crypto/hashing"
-	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
@@ -547,60 +546,4 @@ func (txProc *baseTxProcessor) SetMarketplaceKApp(marketplaceKapp state.KAppAcco
 	}
 
 	return nil
-}
-
-func (txProc *baseTxProcessor) ClaimBalance(
-	claimType transaction.ClaimContract_EnumClaimType,
-	assetID []byte,
-	block *block.Block,
-	acc state.UserAccountHandler,
-	staking *kapps.StakingData,
-	kda *kapps.KDAData,
-	userKDA *kapps.UserKDA,
-) (map[string]int64, error) {
-	// Market claim does not update balance based on staking process, return here
-	if claimType == transaction.ClaimContract_MarketClaim {
-		return nil, nil
-	}
-
-	blockTime := block.GetTimestamp()
-	epoch := block.GetEpoch()
-
-	// compute gains
-	gains, err := acc.Claim(claimType,
-		assetID,
-		epoch,
-		blockTime,
-		staking,
-		kda,
-		userKDA,
-		txProc.forkController,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	if claimType == transaction.ClaimContract_StakingClaim {
-		if txProc.forkController.ClaimKFI() ||
-			gains[string(assetID)] > 0 {
-			userKDA.LastClaim.Timestamp = blockTime
-			userKDA.LastClaim.Epoch = epoch
-		}
-	}
-
-	for key, value := range gains {
-		if value > 0 {
-			var userKDAToUpdate *kapps.UserKDA
-			if bytes.Equal([]byte(key), assetID) {
-				userKDAToUpdate = userKDA
-			}
-
-			err = acc.AddToBalance(value, []byte(key), txProc.forkController.EnableSmartContracts(), userKDAToUpdate)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	return gains, nil
 }

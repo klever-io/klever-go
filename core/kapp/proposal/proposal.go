@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/common/types"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process"
@@ -213,7 +214,9 @@ func (p *proposalKapp) validateCreateInput(tc *transaction.ProposalContract) err
 }
 
 func (p *proposalKapp) validateNewParameters(params map[int32][]byte, controller *kapps.ProposalController) error {
-	for parameter, value := range params {
+	// From FixAuditChangesV7 the parameters are checked in key order, so the first error is the same on every node.
+	for _, parameter := range types.OrderedKeys(params, p.forkController.FixAuditChangesV7()) {
+		value := params[parameter]
 		if len(kapps.EnumParameter_name[parameter]) == 0 ||
 			(parameter == int32(kapps.EnumParameter_MinKFIVoteAmount) && !p.forkController.FixAuditChangesV7()) {
 			return common.ErrInvalidParameter

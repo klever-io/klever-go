@@ -910,7 +910,10 @@ func (i *itoKapp) Config(sender []byte, tc *transaction.ConfigITOContract) (tran
 		}
 
 		whitelistData := make(map[string]*kapps.WhitelistData)
-		for hexKey, value := range tc.GetWhitelistInfo() {
+		// From FixAuditChangesV7 the entries are checked in key order, so the first refusal is the same on every node.
+		whitelistInfo := tc.GetWhitelistInfo()
+		for _, hexKey := range types.OrderedKeys(whitelistInfo, i.forkController.FixAuditChangesV7()) {
+			value := whitelistInfo[hexKey]
 			decodedAddress, err := hex.DecodeString(hexKey)
 			if err != nil {
 				return transaction.Transaction_AccountError, process.ErrInvalidWhitelistAddr
@@ -1473,7 +1476,10 @@ func (i *itoKapp) AddToWhitelist(triggerContract *transaction.ITOTriggerContract
 
 	newWhitelistAdditions := int32(0)
 
-	for hexKey, value := range triggerContract.GetWhitelistInfo() {
+	// From FixAuditChangesV7 the entries are checked in key order, as in Config, so the first refusal is the same on every node.
+	whitelistInfo := triggerContract.GetWhitelistInfo()
+	for _, hexKey := range types.OrderedKeys(whitelistInfo, i.forkController.FixAuditChangesV7()) {
+		value := whitelistInfo[hexKey]
 		decodedAddress, err := hex.DecodeString(hexKey)
 		if err != nil {
 			return transaction.Transaction_AccountError, process.ErrInvalidWhitelistAddr
