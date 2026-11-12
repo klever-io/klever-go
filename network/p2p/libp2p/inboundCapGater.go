@@ -28,11 +28,14 @@ var inboundCapPendingTTL = 5 * time.Second
 // protector pass alone reserves nothing: the ResourceManager admits any inbound connection while
 // it is below its limit, so an attacker refills the slots a pass frees before a restarted
 // validator's dials get through, and those dials back off. The gater refuses an inbound connection
-// from a peer that is neither a validator per the resolver nor protected by any tag while the
-// unprotected inbound connections already reach the cap. Validators with a fresh peer ID are
-// admitted as soon as their heartbeat reaches this node: their connections to seeds are never
-// gated (seeds run no gater, and KLC-2716 keeps every node connected to at least one seed), so the
-// heartbeat gossips network-wide within ~25s. Outbound connections, and every connection before the
+// from a peer that is neither a validator per the resolver nor carrying validatorProtectionTag
+// while the unprotected inbound connections already reach the cap. A validator that starts with a
+// fresh peer ID is unknown to every node, so where the cap is full its own dials are refused. It
+// gets in when another node dials it (discovered through the DHT; that connection is outbound on
+// the other side, so never gated, and the new validator's own cap is not armed yet or still in its
+// warm-up), or when it reaches a node that is below the cap. Once one such link exists it joins
+// the heartbeat mesh and its heartbeat identifies it everywhere. Seeds do not help here: they join
+// no topic, so they never relay heartbeats. Outbound connections, and every connection before the
 // cap is armed and past its warm-up, are admitted. libp2p needs the gater before the host exists, so
 // the protector is bound late; until then everything is admitted. The pass still trims what is
 // already over the cap.
