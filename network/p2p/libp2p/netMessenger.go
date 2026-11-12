@@ -1458,9 +1458,13 @@ const (
 	// act on; anything larger is a configuration mistake.
 	maxConnMgrWatermark        = 100000
 	maxConnMgrGracePeriodInSec = 3600
-	// defaultMaxUnprotectedInboundConns caps the inbound connections held by peers that are
-	// neither validators nor protected by any subsystem; it matches defaultConnMgrLowWater.
+	// defaultMaxUnprotectedInboundConns caps the inbound connections held by peers that are not
+	// validators (only validatorProtectionTag exempts a peer); it matches defaultConnMgrLowWater.
 	defaultMaxUnprotectedInboundConns = 100
+	// minInboundSlotsForValidators is the validator headroom the inbound limit should keep above
+	// maxUnprotectedInboundConns: the network has about 200 validators, so a node can expect up to
+	// that many inbound validator connections. Below it the node warns at startup.
+	minInboundSlotsForValidators = 200
 )
 
 // maxUnprotectedInboundConns returns the effective cap the peer protector enforces on the inbound
@@ -1692,6 +1696,12 @@ func connManagerLimitWarnings(low int, high int, maxUnprotectedInboundConns int,
 		warnings = append(warnings, fmt.Sprintf(
 			"p2p.connectionManager.maxUnprotectedInboundConns (%d) is not below the ResourceManager's inbound "+
 				"connection limit (%d): unprotected peers can hold every inbound slot", maxUnprotectedInboundConns, connsInbound))
+	} else if connsInbound-maxUnprotectedInboundConns < minInboundSlotsForValidators {
+		warnings = append(warnings, fmt.Sprintf(
+			"only %d inbound slots are left for validators (ResourceManager inbound limit %d minus "+
+				"p2p.connectionManager.maxUnprotectedInboundConns %d), below the expected %d: raise the inbound "+
+				"limit (strategy \"scaled\" with a larger scaledMemoryMiB) or lower maxUnprotectedInboundConns",
+			connsInbound-maxUnprotectedInboundConns, connsInbound, maxUnprotectedInboundConns, minInboundSlotsForValidators))
 	}
 
 	return warnings
@@ -1712,13 +1722,13 @@ func logNetworkLimits(args ArgsNetworkMessenger, rmStrategy string, rm network.R
 	}
 
 	connManager := "none (seed)"
-	inboundForProtected := "n/a"
+	inboundForValidators := "n/a"
 	if !args.IsSeedNode {
 		low, high, grace := connManagerSettings(args.P2pConfig.ConnectionManager)
 		maxUnprotected := maxUnprotectedInboundConns(args.P2pConfig.ConnectionManager)
 		connManager = fmt.Sprintf("low=%d high=%d grace=%s maxUnprotectedInboundConns=%d", low, high, grace, maxUnprotected)
 		if hasLimits {
-			inboundForProtected = fmt.Sprintf("%d", connsInbound-low)
+			inboundForValidators = fmt.Sprintf("%d", connsInbound-maxUnprotected)
 			for _, warning := range connManagerLimitWarnings(low, high, maxUnprotected, connsInbound, conns) {
 				log.Warn(warning)
 			}
@@ -1730,7 +1740,7 @@ func logNetworkLimits(args ArgsNetworkMessenger, rmStrategy string, rm network.R
 		"system conns inbound", connsInboundStr,
 		"system conns", connsStr,
 		"connection manager", connManager,
-		"inbound slots left for protected peers", inboundForProtected,
+		"inbound slots left for validators", inboundForValidators,
 	)
 }
 

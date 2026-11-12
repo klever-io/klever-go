@@ -257,7 +257,7 @@ func (pp *peerProtector) enforceInboundCap(peers []peer.ID, peerTypes map[peer.I
 }
 
 // collectInboundCandidates returns the connected peers that count against the cap (not a
-// validator, not protected by any tag, at least one inbound connection), each with its closing
+// validator, not carrying validatorProtectionTag, at least one inbound connection), each with its closing
 // priority, and the total of their inbound connections.
 func (pp *peerProtector) collectInboundCandidates(
 	peers []peer.ID,
@@ -357,7 +357,7 @@ func (pp *peerProtector) capState(now time.Time) (armed bool, enforced bool) {
 
 // admitInbound decides, for the connection gater, whether a new inbound connection from pid may be
 // admitted. It refuses only when the cap is enforced, pid is neither a validator per the resolver
-// nor protected by any tag, and the unprotected inbound connections already reach the cap. It
+// nor carrying validatorProtectionTag, and the unprotected inbound connections already reach the cap. It
 // does not take mut, so it never waits for a pass.
 func (pp *peerProtector) admitInbound(pid peer.ID) bool {
 	if !pp.capEnforcedNow() || pp.exemptFromCap(pid) {

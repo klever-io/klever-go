@@ -225,6 +225,13 @@ func TestConnManagerLimitWarnings(t *testing.T) {
 
 	assert.Len(t, libp2p.ConnManagerLimitWarnings(200, 300, 150, 128, 256), 3,
 		"an 8 GB host on libp2p auto-scale fits none of the three")
+
+	// Explicit "default" on an 8 GB host: 128 inbound and the default cap of 100 leave 28 slots for
+	// about 200 validators.
+	warnings = libp2p.ConnManagerLimitWarnings(50, 250, 100, 128, 256)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "only 28 inbound slots are left for validators")
+	assert.Empty(t, libp2p.ConnManagerLimitWarnings(100, 300, 120, 320, 640), "exactly 200 slots left is enough")
 }
 
 func TestScaledLimits_RegularNodesLimitInboundConnsPerPeer(t *testing.T) {

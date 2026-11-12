@@ -36,7 +36,10 @@ p2p:
   #             below); on a seed node, libp2p's auto-scaled DefaultResourceManager.
   #   "default" libp2p's auto-scaled DefaultResourceManager (memory budget =
   #             TotalRAM/8): 64 + 8*GB inbound and 128 + 16*GB total (GB of host RAM),
-  #             128/256 on an 8 GB host, too few for a ~200-validator network.
+  #             128/256 on an 8 GB host, too few for a ~200-validator network. With
+  #             the default maxUnprotectedInboundConns of 100 that leaves 28 inbound
+  #             slots for validators, so lower the cap with it (the node warns at
+  #             startup when fewer than 200 slots are left for validators).
   #   "null"    disable libp2p resource limits (bounded only by OS ulimit and RAM).
   #   "scaled"  auto-scale limits as if the host had `scaledMemoryMiB` MiB of memory.
   # Shipped default (KLC-2417): "scaled" with 4096 MiB, giving up to 64 + 4096/16 =
@@ -78,9 +81,12 @@ p2p:
   # At admission, a new inbound connection from such a peer is refused once the cap
   # is reached, so freed slots cannot be refilled by an attacker ahead of a
   # reconnecting validator; validators per the node's records are always admitted,
-  # and outbound connections are never refused. A validator with a
-  # new peer ID is admitted once its heartbeat reaches this node: seed nodes never
-  # refuse, so the heartbeat gossips through them within ~25s. Every 10s the node also
+  # and outbound connections are never refused. A validator that starts with a new
+  # peer ID is unknown everywhere, so where the cap is full its own dials are refused;
+  # it gets in when another node dials it (found through the DHT; outbound on that
+  # side, so never refused, and its own cap is still in warm-up) or when it reaches a
+  # node below the cap, and its heartbeat then identifies it network-wide. Seed nodes
+  # join no topic, so they do not relay heartbeats. Every 10s the node also
   # closes whole peers, whatever their age, until the sum is within the cap.
   # Closing order: unknown peers connected for over 60s, newest first; then observers
   # (any peer can become an "observer" with a self-signed heartbeat), newest first;
