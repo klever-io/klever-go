@@ -3,6 +3,7 @@ package block
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -740,6 +741,33 @@ func (bp *baseProcessor) PruneStateOnRollback(currHeader data.HeaderHandler, pre
 		bp.accountsDB[key].CancelPrune(prevRootHash, data.OldRoot)
 		bp.accountsDB[key].PruneTrie(rootHash, data.NewRoot)
 	}
+}
+
+func (bp *baseProcessor) CheckStateAvailable(header data.HeaderHandler) error {
+	stateTries := []struct {
+		identifier state.AccountsDbIdentifier
+		name       string
+		rootHash   []byte
+	}{
+		{identifier: state.UserAccountsState, name: "user accounts", rootHash: header.GetTrieRoot()},
+		{identifier: state.KAppAccountsState, name: "kapps", rootHash: header.GetKAppsTrieRoot()},
+		{identifier: state.PeerAccountsState, name: "validators", rootHash: header.GetValidatorsTrieRoot()},
+	}
+
+	for _, stateTrie := range stateTries {
+		if bp.accountsDB[stateTrie.identifier].IsRootHashAvailable(stateTrie.rootHash) {
+			continue
+		}
+
+		return fmt.Errorf("%w: %s trie, nonce %d, root hash %s",
+			process.ErrStateNotAvailable,
+			stateTrie.name,
+			header.GetNonce(),
+			hex.EncodeToString(stateTrie.rootHash),
+		)
+	}
+
+	return nil
 }
 
 func (bp *baseProcessor) getAccountRootHashes(

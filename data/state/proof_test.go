@@ -618,3 +618,54 @@ func TestAccountsDB_MerkleProofCapsHistoricalWalks(t *testing.T) {
 	_, err = adb.GetMerkleProofAtRoot(root, address)
 	require.NoError(t, err)
 }
+
+func TestAccountsDB_IsRootHashAvailableShouldReportPrunedRootWithoutChangingState(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.ProtobufMarshalizerMock{}
+	adb := newPruningProofAccountsDB(t, mock.NewMemDbMock(), marshalizer)
+
+	address := make([]byte, 32)
+	address[0] = 1
+	other := make([]byte, 32)
+	other[0] = 2
+	putBalance(t, adb, address, 10)
+	putBalance(t, adb, other, 3)
+	root1, err := adb.Commit()
+	require.NoError(t, err)
+	putBalance(t, adb, address, 5)
+	root2, err := adb.Commit()
+	require.NoError(t, err)
+	require.NotEqual(t, root1, root2)
+
+	require.True(t, adb.IsRootHashAvailable(root2))
+	require.True(t, adb.IsRootHashAvailable(root1))
+
+	adb.CancelPrune(root1, data.NewRoot)
+	adb.PruneTrie(root1, data.OldRoot)
+
+	putBalance(t, adb, other, 4)
+	journal := adb.JournalLen()
+	require.NotZero(t, journal)
+	dirtyRoot, err := adb.RootHash()
+	require.NoError(t, err)
+	require.NotEqual(t, root2, dirtyRoot)
+
+	require.False(t, adb.IsRootHashAvailable(root1))
+	require.True(t, adb.IsRootHashAvailable(root2))
+
+	rootAfter, err := adb.RootHash()
+	require.NoError(t, err)
+	require.Equal(t, dirtyRoot, rootAfter)
+	require.Equal(t, journal, adb.JournalLen())
+	acc, err := adb.LoadAccount(other)
+	require.NoError(t, err)
+	require.Equal(t, int64(7), acc.(state.UserAccountHandler).GetBalance(nil, false))
+
+	root3, err := adb.Commit()
+	require.NoError(t, err)
+	require.Equal(t, dirtyRoot, root3)
+	require.True(t, adb.IsRootHashAvailable(root3))
+	require.NoError(t, adb.RecreateTrie(root2))
+	require.ErrorIs(t, adb.RecreateTrie(root1), trie.ErrHashNotFound)
+}

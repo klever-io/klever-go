@@ -22,6 +22,7 @@ type BlockProcessorMock struct {
 	DecodeBlockHeaderCalled          func(dta []byte) data.HeaderHandler
 	CreateNewHeaderCalled            func(slot uint64, nonce uint64) data.HeaderHandler
 	RevertStateToBlockCalled         func(header data.HeaderHandler) error
+	CheckStateAvailableCalled        func(header data.HeaderHandler) error
 	RevertIndexedBlockCalled         func(header data.HeaderHandler)
 	SetProposalControllerCalled      func(controller kapps.ActiveProposalController) error
 }
@@ -68,6 +69,14 @@ func (bpm *BlockProcessorMock) PruneStateOnRollback(currHeader data.HeaderHandle
 func (bpm *BlockProcessorMock) RevertStateToBlock(header data.HeaderHandler) error {
 	if bpm.RevertStateToBlockCalled != nil {
 		return bpm.RevertStateToBlockCalled(header)
+	}
+
+	return nil
+}
+
+func (bpm *BlockProcessorMock) CheckStateAvailable(header data.HeaderHandler) error {
+	if bpm.CheckStateAvailableCalled != nil {
+		return bpm.CheckStateAvailableCalled(header)
 	}
 
 	return nil

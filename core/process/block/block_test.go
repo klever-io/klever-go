@@ -2,6 +2,7 @@ package block_test
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -38,6 +39,7 @@ import (
 	"github.com/klever-io/klever-go/data/state/factory"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/data/trie"
+	"github.com/klever-io/klever-go/data/trie/evictionWaitingList"
 	"github.com/klever-io/klever-go/eventNotifier/epochStart"
 	"github.com/klever-io/klever-go/eventNotifier/notifier"
 	"github.com/klever-io/klever-go/kapps"
@@ -5230,4 +5232,161 @@ func TestMetaProcessor_DecodeBlockHeaderLeavesTheHeaderBytesUnchanged(t *testing
 	reencodedBlock, err := marshalizer.Marshal(decodedBlock)
 	require.NoError(t, err)
 	assert.True(t, bytes.Equal(blockBuff, reencodedBlock), "re-encoded block must drop only the unknown fields outside the header")
+}
+
+func createPruningPeerAccountsDB(t *testing.T) *state.PeerAccountsDB {
+	t.Helper()
+
+	hasher := &sha256.Sha256{}
+	ewl, err := evictionWaitingList.NewEvictionWaitingList(100, memorydb.New(), marshalizer)
+	require.NoError(t, err)
+	trieStorage, err := trie.NewTrieStorageManager(
+		createMemUnit(),
+		marshalizer,
+		hasher,
+		config.DBConfig{
+			FilePath:          t.TempDir(),
+			Type:              string(storageUnit.LvlDBSerial),
+			BatchDelaySeconds: 1,
+			MaxBatchSize:      1,
+			MaxOpenFiles:      10,
+		},
+		ewl,
+		config.TrieStorageManagerConfig{PruningBufferLen: 1000, SnapshotsBufferLen: 10, MaxSnapshots: 2},
+	)
+	require.NoError(t, err)
+	peerTrie, err := trie.NewTrie(trieStorage, marshalizer, hasher, 5)
+	require.NoError(t, err)
+	peerAccounts, err := state.NewPeerAccountsDB(peerTrie, hasher, marshalizer, factory.NewPeerAccountCreator(), core.Normal)
+	require.NoError(t, err)
+
+	return peerAccounts
+}
+
+func commitPeerStateChange(t *testing.T, peerAccounts state.AccountsAdapter, blsKey []byte) []byte {
+	t.Helper()
+
+	account, err := peerAccounts.LoadAccount(blsKey)
+	require.NoError(t, err)
+	peerAccount, ok := account.(state.PeerAccountHandler)
+	require.True(t, ok)
+	peerAccount.IncreaseLeaderSuccessRate(1)
+	require.NoError(t, peerAccounts.SaveAccount(peerAccount))
+	rootHash, err := peerAccounts.Commit()
+	require.NoError(t, err)
+
+	return rootHash
+}
+
+func TestMetaProcessor_CheckStateAvailableShouldErrWhenValidatorsStateWasPruned(t *testing.T) {
+	t.Parallel()
+
+	peerAccounts := createPruningPeerAccountsDB(t)
+	require.True(t, peerAccounts.IsPruningEnabled())
+
+	validators := make([][]byte, 8)
+	for i := range validators {
+		validators[i] = bytes.Repeat([]byte{byte(i + 1)}, 96)
+	}
+
+	headers := make(map[string]*block.Block)
+	headersPool := &mock.HeadersCacherStub{
+		GetHeaderByHashCalled: func(hash []byte) (data.HeaderHandler, error) {
+			header, ok := headers[string(hash)]
+			if !ok {
+				return nil, errors.New("not found")
+			}
+			return header, nil
+		},
+	}
+
+	arguments := createMockMetaArguments()
+	arguments.ProcessingMode = core.Normal
+	arguments.Store = initStore()
+	arguments.DataPool.(*mock.PoolsHolderStub).HeadersCalled = func() retriever.HeadersPool {
+		return headersPool
+	}
+	arguments.AccountsDB[state.UserAccountsState] = &mock.AccountsStub{
+		RecreateTrieCalled:        func(_ []byte) error { return nil },
+		IsRootHashAvailableCalled: func(_ []byte) bool { return true },
+	}
+	arguments.AccountsDB[state.KAppAccountsState] = &mock.AccountsStub{
+		RecreateTrieCalled:        func(_ []byte) error { return nil },
+		IsRootHashAvailableCalled: func(_ []byte) bool { return true },
+		LoadAccountCalled: func(_ []byte) (state.AccountHandler, error) {
+			return &mock.KAppAccountHandlerStub{
+				DataTrieTrackerCalled: func() state.DataTrieTracker {
+					return &mock.DataTrieTrackerStub{
+						RetrieveValueCalled: func(_ []byte) ([]byte, error) {
+							return []byte{}, nil
+						},
+					}
+				},
+			}, nil
+		},
+	}
+	arguments.AccountsDB[state.PeerAccountsState] = peerAccounts
+	arguments.ValidatorStatisticsProcessor = &mock.ValidatorStatisticsProcessorStub{
+		RevertPeerStateCalled: func(header data.HeaderHandler) error {
+			return peerAccounts.RecreateTrie(header.GetValidatorsTrieRoot())
+		},
+	}
+
+	mp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
+	mpTest := blproc.NewMetaProcessorForTests(mp)
+
+	for _, blsKey := range validators {
+		_ = commitPeerStateChange(t, peerAccounts, blsKey)
+	}
+
+	chain := make([]*block.Block, 0, 5)
+	commitBlock := func(nonce uint64) {
+		parentHash := []byte(nil)
+		var current data.HeaderHandler
+		if len(chain) > 0 {
+			parentHash = []byte(fmt.Sprintf("hash%d", nonce-1))
+			current = chain[len(chain)-1]
+		}
+		validatorsRoot := commitPeerStateChange(t, peerAccounts, validators[nonce%uint64(len(validators))])
+		header := &block.Block{Header: &block.BlockHeader{
+			Nonce:              nonce,
+			Slot:               nonce,
+			ParentHash:         parentHash,
+			ValidatorsTrieRoot: validatorsRoot,
+		}}
+		headers[fmt.Sprintf("hash%d", nonce)] = header
+		if current != nil {
+			mpTest.UpdateState(current)
+		}
+		chain = append(chain, header)
+	}
+
+	for nonce := uint64(1); nonce <= 4; nonce++ {
+		commitBlock(nonce)
+	}
+	block2, block3, block4 := chain[1], chain[2], chain[3]
+
+	require.NoError(t, mp.CheckStateAvailable(block4))
+	require.NoError(t, mp.CheckStateAvailable(block3))
+
+	err = mp.RevertStateToBlock(block3)
+	require.NoError(t, err, "rolling back the head once must work")
+	mp.PruneStateOnRollback(block4, block3)
+
+	err = mp.CheckStateAvailable(block2)
+	require.ErrorIs(t, err, process.ErrStateNotAvailable)
+	assert.Contains(t, err.Error(), "validators trie")
+	assert.Contains(t, err.Error(), hex.EncodeToString(block2.GetValidatorsTrieRoot()))
+
+	rootHash, err := peerAccounts.RootHash()
+	require.NoError(t, err)
+	assert.Equal(t, block3.GetValidatorsTrieRoot(), rootHash, "the check must leave the validators state where it was")
+
+	require.NoError(t, mp.CheckStateAvailable(block3))
+	require.ErrorIs(t, mp.RevertStateToBlock(block2), trie.ErrHashNotFound)
+
+	rootHash, err = peerAccounts.RootHash()
+	require.NoError(t, err)
+	assert.Equal(t, block3.GetValidatorsTrieRoot(), rootHash)
 }

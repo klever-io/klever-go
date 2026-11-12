@@ -65,6 +65,10 @@ func (k KappsDBMock) RecreateTrie(rootHash []byte) error {
 	return nil
 }
 
+func (k KappsDBMock) IsRootHashAvailable(rootHash []byte) bool {
+	return true
+}
+
 func (k KappsDBMock) PruneTrie(rootHash []byte, identifier data.TriePruningIdentifier) {
 }
 

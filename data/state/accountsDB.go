@@ -911,6 +911,24 @@ func (adb *AccountsDB) recreateTrie(rootHash []byte) error {
 	return nil
 }
 
+func (adb *AccountsDB) IsRootHashAvailable(rootHash []byte) bool {
+	adb.mutOp.Lock()
+	defer adb.mutOp.Unlock()
+
+	recreatedTrie, err := adb.mainTrie.RecreateFromMainDb(rootHash)
+	if err == nil && !check.IfNil(recreatedTrie) {
+		return true
+	}
+
+	snapshot := adb.mainTrie.GetStorageManager().GetSnapshotThatContainsHash(rootHash)
+	if check.IfNil(snapshot) {
+		return false
+	}
+	snapshot.DecreaseNumReferences()
+
+	return true
+}
+
 // RecreateAllTries recreates all the tries from the accounts DB
 func (adb *AccountsDB) RecreateAllTries(rootHash []byte, ctx context.Context) (map[string]data.Trie, error) {
 	// Recreated before the walk starts, so a failure here cannot abandon a running producer.

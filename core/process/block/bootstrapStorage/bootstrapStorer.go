@@ -128,6 +128,25 @@ func (bs *bootstrapStorer) SaveLastSlot(slot int64) error {
 	return nil
 }
 
+func (bs *bootstrapStorer) RaiseHighestFinalBlockNonce(slot int64, nonce uint64) error {
+	bootData, err := bs.Get(slot)
+	if err != nil {
+		return err
+	}
+	if bootData.HighestFinalBlockNonce >= nonce {
+		return nil
+	}
+
+	bootData.HighestFinalBlockNonce = nonce
+
+	bootDataBytes, err := bs.marshalizer.Marshal(bootData)
+	if err != nil {
+		return err
+	}
+
+	return bs.store.Put([]byte(strconv.FormatInt(slot, 10)), bootDataBytes)
+}
+
 // IsInterfaceNil returns true if there is no value under the interface
 func (bs *bootstrapStorer) IsInterfaceNil() bool {
 	return bs == nil
