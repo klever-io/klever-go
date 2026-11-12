@@ -100,8 +100,13 @@ type inboundCandidate struct {
 // younger than its grace period, so a peer that keeps rotating its identity and reconnecting stays
 // inside the grace period forever, is never a trim candidate, and can hold inbound slots
 // indefinitely. The protector therefore sums the inbound connections of the connected peers that
-// are not validators and carry no protection tag at all (so gossipsub mesh and kad-dht peers are
-// left alone), and closes whole peers regardless of grace until that sum is within the cap. The
+// are not validators, and closes whole peers regardless of grace until that sum is within the cap.
+// Only validators are exempt (resolver-identified, or carrying validatorProtectionTag). Protection
+// set by other subsystems does not exempt a peer: kad-dht protects most routing-table peers (its
+// two lowest buckets), and gossipsub never unprotects a mesh peer that disconnects (its
+// RemovePeer does not call Prune, and BasicConnMgr keeps protections across disconnects), so any
+// identity that joined a mesh once would otherwise bypass the cap on every reconnect. Those peers
+// still keep libp2p's own trim protection. The
 // budget is in connections because the ResourceManager limits connections: one identity can hold
 // several inbound connections. Closing order:
 //  1. unknown peers that have been connected longer than unknownPeerIdentificationWindow, newest
@@ -122,6 +127,9 @@ type peerProtector struct {
 	tagged                     map[peer.ID]struct{}
 	now                        func() time.Time
 	warmUp                     time.Duration
+	// identificationWindow is unknownPeerIdentificationWindow, copied at construction so passes on
+	// the protector's goroutine never read the package variable.
+	identificationWindow time.Duration
 	// mutArm guards armed and capEnforcedFrom apart from mut, so the connection gater can read
 	// them without waiting for a pass to finish.
 	mutArm          sync.RWMutex
@@ -146,6 +154,7 @@ func newPeerProtector(
 		tagged:                     make(map[peer.ID]struct{}),
 		now:                        now,
 		warmUp:                     warmUp,
+		identificationWindow:       unknownPeerIdentificationWindow,
 	}
 }
 
@@ -256,7 +265,7 @@ func (pp *peerProtector) collectInboundCandidates(
 	now time.Time,
 	res *peerProtectorPassResult,
 ) ([]inboundCandidate, int) {
-	identifiedBy := now.Add(-unknownPeerIdentificationWindow)
+	identifiedBy := now.Add(-pp.identificationWindow)
 
 	candidates := make([]inboundCandidate, 0)
 	total := 0
@@ -265,8 +274,8 @@ func (pp *peerProtector) collectInboundCandidates(
 		if peerType == core.ValidatorPeer {
 			continue
 		}
-		// "" asks whether any subsystem protects the peer, not only the validator tag.
-		if pp.cm.IsProtected(pid, "") {
+		// Only our validator tag exempts a peer; see peerProtector for why other tags do not.
+		if pp.cm.IsProtected(pid, validatorProtectionTag) {
 			continue
 		}
 
@@ -365,23 +374,24 @@ func (pp *peerProtector) capEnforcedNow() bool {
 	return enforced
 }
 
-// exemptFromCap reports whether pid is a validator per the resolver or protected by any tag.
+// exemptFromCap reports whether pid is a validator per the resolver or carries validatorProtectionTag.
+// Protection tags from other subsystems do not exempt a peer (see peerProtector).
 func (pp *peerProtector) exemptFromCap(pid peer.ID) bool {
 	if pp.resolver().GetPeerInfo(core.PeerID(pid)).PeerType == core.ValidatorPeer {
 		return true
 	}
 
-	return pp.cm.IsProtected(pid, "")
+	return pp.cm.IsProtected(pid, validatorProtectionTag)
 }
 
-// unprotectedInboundConns counts, and returns, the inbound connections of connected peers that
-// carry no protection tag. Unlike the pass it does not consult the resolver for every peer:
+// unprotectedInboundConns counts, and returns, the inbound connections of connected peers that do
+// not carry validatorProtectionTag. Unlike the pass it does not consult the resolver for every peer:
 // connected validators are protected by the previous pass, and one that connected since is counted
 // until the next pass, which can only make admission stricter for a few seconds.
 func (pp *peerProtector) unprotectedInboundConns() (int, map[network.Conn]struct{}) {
 	conns := make(map[network.Conn]struct{})
 	for _, pid := range pp.net.Peers() {
-		if pp.cm.IsProtected(pid, "") {
+		if pp.cm.IsProtected(pid, validatorProtectionTag) {
 			continue
 		}
 		for _, conn := range pp.net.ConnsToPeer(pid) {

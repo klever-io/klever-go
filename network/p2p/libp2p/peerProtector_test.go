@@ -346,7 +346,7 @@ func TestPeerProtector_InboundCapIgnoresOutboundOnlyPeers(t *testing.T) {
 	assert.Empty(t, mp.closedPeers())
 }
 
-func TestPeerProtector_InboundCapNeverClosesValidatorsOrProtectedPeers(t *testing.T) {
+func TestPeerProtector_InboundCapNeverClosesValidatorsButCountsOtherProtection(t *testing.T) {
 	cm := newTestConnMgr(t)
 	mp := &mutablePeers{}
 	mp.connect("validator", core.ValidatorPeer, conn(network.DirInbound, at(10)))
@@ -358,9 +358,12 @@ func TestPeerProtector_InboundCapNeverClosesValidatorsOrProtectedPeers(t *testin
 
 	res := libp2p.NewPeerProtector(cm, mp, mp.resolver(), 0).RunPass()
 
-	assert.Equal(t, []peer.ID{"unknown"}, mp.closedPeers(),
-		"only the peer without any protection may be closed, even with a cap of 0")
-	assert.Equal(t, 1, res.Closed)
+	// gossipsub and kad-dht protection does not exempt a peer from the cap: only the validator
+	// survives a cap of 0.
+	assert.ElementsMatch(t, []peer.ID{"unknown", "mesh", "dht"}, mp.closedPeers(),
+		"every non-validator is closed with a cap of 0, protected by gossipsub or kad-dht or not")
+	assert.NotContains(t, mp.closedPeers(), peer.ID("validator"))
+	assert.Equal(t, 3, res.Closed)
 }
 
 func TestPeerProtector_InboundCapClosesObserversOnlyAfterUnknownPeers(t *testing.T) {
