@@ -71,12 +71,14 @@ p2p:
   # Trimming never closes a connection younger than gracePeriodInSec, so a peer that
   # keeps rotating its peer ID and reconnecting would never be trimmed. To close that
   # gap, the node caps the inbound connections of peers that are not known validators
-  # and not protected by gossipsub or kad-dht at maxUnprotectedInboundConns. It counts
+  # at maxUnprotectedInboundConns. Only validators are exempt: peers that gossipsub or
+  # kad-dht protect still count, because kad-dht protects most routing-table peers and
+  # gossipsub never drops the protection of a mesh peer that disconnected. It counts
   # connections, as the ResourceManager does, because one peer ID can hold several.
   # At admission, a new inbound connection from such a peer is refused once the cap
   # is reached, so freed slots cannot be refilled by an attacker ahead of a
-  # reconnecting validator; validators per the node's records and protected peers are
-  # always admitted, and outbound connections are never refused. A validator with a
+  # reconnecting validator; validators per the node's records are always admitted,
+  # and outbound connections are never refused. A validator with a
   # new peer ID is admitted once its heartbeat reaches this node: seed nodes never
   # refuse, so the heartbeat gossips through them within ~25s. Every 10s the node also
   # closes whole peers, whatever their age, until the sum is within the cap.

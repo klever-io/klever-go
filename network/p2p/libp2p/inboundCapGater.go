@@ -63,12 +63,16 @@ type inboundCapGater struct {
 	mut     sync.Mutex
 	pending map[network.Conn]time.Time
 	now     func() time.Time
+	// pendingTTL is inboundCapPendingTTL, copied at construction so connection goroutines never
+	// read the package variable.
+	pendingTTL time.Duration
 }
 
 func newInboundCapGater(now func() time.Time) *inboundCapGater {
 	return &inboundCapGater{
-		pending: make(map[network.Conn]time.Time),
-		now:     now,
+		pending:    make(map[network.Conn]time.Time),
+		now:        now,
+		pendingTTL: inboundCapPendingTTL,
 	}
 }
 
@@ -132,7 +136,7 @@ func (g *inboundCapGater) InterceptUpgraded(conn network.Conn) (bool, control.Di
 	now := g.now()
 	pending := 0
 	for c, admittedAt := range g.pending {
-		if now.Sub(admittedAt) >= inboundCapPendingTTL {
+		if now.Sub(admittedAt) >= g.pendingTTL {
 			delete(g.pending, c)
 			continue
 		}

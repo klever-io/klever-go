@@ -80,8 +80,9 @@ type DirectSendConfig struct {
 //
 // Trimming never closes a connection younger than GracePeriodInSec, so a peer that keeps rotating
 // its identity and reconnecting is never trimmed. MaxUnprotectedInboundConns closes that gap: the
-// node sums the inbound connections of the peers that are not known validators and not protected
-// by any subsystem; at admission it refuses new inbound connections from such peers once the cap is
+// node sums the inbound connections of the peers that are not known validators (protection set by
+// gossipsub or kad-dht does not exempt a peer: kad-dht protects most routing-table peers, and
+// gossipsub never unprotects a mesh peer that disconnected); at admission it refuses new inbound connections from such peers once the cap is
 // reached, and every 10s it closes whole peers whatever their age until the sum is within it. It
 // counts connections because the ResourceManager does and one identity can hold several. Closing
 // order: unknown peers connected for over 60s (newest first), then observers (newest first), then

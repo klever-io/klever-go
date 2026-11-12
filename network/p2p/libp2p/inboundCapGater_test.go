@@ -46,10 +46,20 @@ func TestInboundCapGater_AdmitsValidatorAtCap(t *testing.T) {
 	assert.True(t, g.InterceptSecured(network.DirInbound, "validator", nil))
 }
 
-func TestInboundCapGater_AdmitsProtectedPeerAtCap(t *testing.T) {
+func TestInboundCapGater_RefusesPeerProtectedByOtherSubsystemsAtCap(t *testing.T) {
 	_, g, protect := gaterAtCap(t)
+	// gossipsub never unprotects a mesh peer that disconnected, and kad-dht protects most
+	// routing-table peers, so their tags must not exempt a peer from the cap.
 	protect("mesh-peer", "pubsub:topic")
-	assert.True(t, g.InterceptSecured(network.DirInbound, "mesh-peer", nil))
+	protect("dht-peer", "kbucket")
+	assert.False(t, g.InterceptSecured(network.DirInbound, "mesh-peer", nil))
+	assert.False(t, g.InterceptSecured(network.DirInbound, "dht-peer", nil))
+}
+
+func TestInboundCapGater_AdmitsPeerWithValidatorTagAtCap(t *testing.T) {
+	_, g, protect := gaterAtCap(t)
+	protect("validator", libp2p.ValidatorProtectionTag)
+	assert.True(t, g.InterceptSecured(network.DirInbound, "validator", nil))
 }
 
 func TestInboundCapGater_AdmitsOutboundAtCap(t *testing.T) {
@@ -57,10 +67,17 @@ func TestInboundCapGater_AdmitsOutboundAtCap(t *testing.T) {
 	assert.True(t, g.InterceptSecured(network.DirOutbound, "newcomer", nil))
 }
 
-func TestInboundCapGater_ProtectedPeersDoNotCountAgainstTheCap(t *testing.T) {
+func TestInboundCapGater_ValidatorTaggedPeersDoNotCountAgainstTheCap(t *testing.T) {
+	_, g, protect := gaterAtCap(t)
+	protect("u1", libp2p.ValidatorProtectionTag)
+	assert.True(t, g.InterceptSecured(network.DirInbound, "newcomer", nil), "only u2's connection counts: 1 < 2")
+}
+
+func TestInboundCapGater_PeersProtectedByOtherSubsystemsCountAgainstTheCap(t *testing.T) {
 	_, g, protect := gaterAtCap(t)
 	protect("u1", "kbucket")
-	assert.True(t, g.InterceptSecured(network.DirInbound, "newcomer", nil), "only u2's connection counts: 1 < 2")
+	protect("u2", "pubsub:topic")
+	assert.False(t, g.InterceptSecured(network.DirInbound, "newcomer", nil), "u1 and u2 still count: 2 >= 2")
 }
 
 func TestInboundCapGater_AdmitsBelowCap(t *testing.T) {
@@ -285,9 +302,13 @@ func TestInboundCapGater_UpgradedExemptions(t *testing.T) {
 	allow, _ = g.InterceptUpgraded(connFrom("validator", network.DirInbound))
 	assert.True(t, allow, "validators are exempt")
 
+	cm.Protect("tagged-validator", libp2p.ValidatorProtectionTag)
+	allow, _ = g.InterceptUpgraded(connFrom("tagged-validator", network.DirInbound))
+	assert.True(t, allow, "peers with the validator tag are exempt")
+
 	cm.Protect("mesh-peer", "pubsub:topic")
 	allow, _ = g.InterceptUpgraded(connFrom("mesh-peer", network.DirInbound))
-	assert.True(t, allow, "protected peers are exempt")
+	assert.False(t, allow, "protection from other subsystems does not exempt a peer")
 
 	allow, _ = g.InterceptUpgraded(connFrom("newcomer", network.DirOutbound))
 	assert.True(t, allow, "outbound is exempt")
