@@ -121,7 +121,6 @@ type networkMessenger struct {
 	debugger            p2p.Debugger
 	marshalizer         p2p.Marshalizer
 	syncTimer           p2p.SyncTimer
-	rmStrategy          string
 	inboundGater        *inboundCapGater
 }
 
@@ -222,7 +221,6 @@ func NewNetworkMessenger(args ArgsNetworkMessenger) (*networkMessenger, error) {
 		log.LogIfError(h.Close())
 		return nil, err
 	}
-	p2pNode.rmStrategy = rmSetup.strategy
 	p2pNode.bindInboundGater(gater, h.Network())
 
 	return p2pNode, nil
@@ -521,10 +519,6 @@ func (netMes *networkMessenger) createConnectionMonitor(p2pConfig config.P2PConf
 // manager. Seeds run NullConnMgr, as do hosts built without a connection manager (mocknet), so
 // there is nothing to protect there and no loop is started.
 func (netMes *networkMessenger) createPeerProtector(args ArgsNetworkMessenger, p2pHost host.Host) {
-	if args.IsSeedNode {
-		return
-	}
-
 	cm := p2pHost.ConnManager()
 	switch cm.(type) {
 	case connmgr.NullConnMgr, *connmgr.NullConnMgr:
@@ -1439,14 +1433,9 @@ func scaledLimits(memBytes int64, numFD int, isSeedNode bool) rcmgr.ConcreteLimi
 // regular nodes (see scaledLimits).
 const regularNodePeerConnsInbound = 4
 
-// BasicConnMgr counts connections, not peers. It trims once the connection count reaches
-// highWater: it closes the connections of the lowest-value unprotected peers that are past their
-// grace period until lowWater unprotected, out-of-grace connections remain. Connections of
-// protected peers (validators protected by the peer protector, and peers gossipsub and kad-dht
-// protect themselves) are not counted against lowWater and are never closed, so lowWater is the
-// connection budget for unprotected peers, and lowWater plus the protected peers' inbound
-// connections must stay below the inbound ResourceManager limit: otherwise unprotected peers can
-// hold every inbound slot without a trim ever closing them.
+// Connection manager defaults for regular nodes. lowWater is the trim's budget for unprotected
+// peers, so lowWater plus the validators' inbound connections must fit in the inbound
+// ResourceManager limit (see peerProtector for how the watermarks and the cap interact).
 const (
 	// defaultConnMgrHighWater is the connection count that triggers a trim.
 	defaultConnMgrHighWater = 300
@@ -1467,11 +1456,8 @@ const (
 	minInboundSlotsForValidators = 200
 )
 
-// maxUnprotectedInboundConns returns the effective cap the peer protector enforces on the inbound
-// connections of unprotected peers, whatever their age. It closes the hole BasicConnMgr's grace
-// period leaves: an attacker rotating peer identities keeps every connection younger than the
-// grace period, so none is ever a trim candidate. It counts connections, as the ResourceManager
-// does, because one identity can hold several. A zero config value selects the default.
+// maxUnprotectedInboundConns returns the effective inbound cap for peers that are not validators
+// (see peerProtector). A zero config value selects the default.
 func maxUnprotectedInboundConns(cmCfg config.ConnectionManagerConfig) int {
 	if cmCfg.MaxUnprotectedInboundConns != 0 {
 		return cmCfg.MaxUnprotectedInboundConns
@@ -1548,21 +1534,11 @@ func validateConnectionManagerConfig(cmCfg config.ConnectionManagerConfig) error
 }
 
 // newConnManager returns the connection manager handed to libp2p. Seeds get NullConnMgr: they
-// exist to be connected to and must not trim the peers they serve; their peer count is bounded by
-// the ResourceManager, which refuses new connections rather than closing existing ones. Every
-// other node, whatever its sharder type, gets a BasicConnMgr built from p2p.connectionManager.
-// Without trimming, a few dozen IPv4 addresses (libp2p allows 8 connections per /32) could hold
-// every inbound ResourceManager slot indefinitely; with it, once the high watermark (in
-// connections) is reached, the connections of the lowest-value unprotected peers are closed down
-// to the low watermark. Which unprotected peers go first follows their connection-manager value,
-// which gossipsub's decaying pubsub-deliveries tags dominate (a peer that delivers messages first
-// is worth more); the observer tag adds little. Validators are never trimmed: the peer protector
-// (see createPeerProtector) protects them, and gossipsub and kad-dht protect their own mesh and
-// routing peers through the same manager. Trimming spares connections inside the grace period, so the protector
-// also caps the inbound connections of unprotected peers on its own (see
-// maxUnprotectedInboundConns), at admission through inboundCapGater and every pass, ordering by
-// peer class rather than value. On success the
-// host owns the manager and closes it in host.Close.
+// exist to be connected to and must not trim the peers they serve; the ResourceManager bounds their
+// peer count. Every other node, whatever its sharder type, gets a BasicConnMgr built from
+// p2p.connectionManager; the peer protector protects validators in it and enforces the inbound cap
+// that the grace period would otherwise leave open (see peerProtector). On success the host owns
+// the manager and closes it in host.Close.
 func newConnManager(args ArgsNetworkMessenger) (connmgr.ConnManager, error) {
 	if args.IsSeedNode {
 		return connmgr.NullConnMgr{}, nil
@@ -1612,15 +1588,18 @@ const defaultRegularNodeScaledMemoryMiB = 4096
 // effectiveResourceManagerConfig applies the in-code default for regular nodes. Upgraded nodes keep
 // their old config.yaml, which may have no resourceManager section (strategy ""); libp2p's
 // auto-scaled limits would then be 128 inbound on an 8 GB host, too few for the validator set, so
-// a regular node with strategy "" gets "scaled" with 4096 MiB instead. Seeds keep libp2p's
-// auto-scale for "", and an explicit "default" always means libp2p's auto-scale.
+// a regular node with strategy "" gets "scaled" instead, with the configured scaledMemoryMiB when
+// it is set and 4096 MiB otherwise. Seeds keep libp2p's auto-scale for "", and an explicit
+// "default" always means libp2p's auto-scale.
 func effectiveResourceManagerConfig(rmCfg config.ResourceManagerConfig, isSeedNode bool) config.ResourceManagerConfig {
 	if isSeedNode || rmCfg.Strategy != config.ResourceManagerStrategyDefault {
 		return rmCfg
 	}
 
 	rmCfg.Strategy = config.ResourceManagerStrategyScaled
-	rmCfg.ScaledMemoryMiB = defaultRegularNodeScaledMemoryMiB
+	if rmCfg.ScaledMemoryMiB <= 0 {
+		rmCfg.ScaledMemoryMiB = defaultRegularNodeScaledMemoryMiB
+	}
 
 	return rmCfg
 }
@@ -1631,8 +1610,6 @@ type resourceManagerSetup struct {
 	closer io.Closer
 	// strategy is the effective strategy, after effectiveResourceManagerConfig.
 	strategy string
-	// limits is set only for the "scaled" strategy.
-	limits *rcmgr.ConcreteLimitConfig
 }
 
 // buildResourceManager validates the configured resourceManager section as written (so the
@@ -1644,7 +1621,12 @@ func buildResourceManager(args ArgsNetworkMessenger) (resourceManagerSetup, erro
 	}
 
 	rmCfg := effectiveResourceManagerConfig(args.P2pConfig.ResourceManager, args.IsSeedNode)
-	opt, closer, limits, err := buildResourceManagerOption(rmCfg, args.IsSeedNode)
+	if rmCfg.Strategy != args.P2pConfig.ResourceManager.Strategy {
+		log.Info("p2p.resourceManager.strategy is not set, using the regular-node default",
+			"strategy", rmCfg.Strategy, "scaledMemoryMiB", rmCfg.ScaledMemoryMiB,
+			"scaledMemoryMiBFromConfig", args.P2pConfig.ResourceManager.ScaledMemoryMiB > 0)
+	}
+	opt, closer, err := buildResourceManagerOption(rmCfg, args.IsSeedNode)
 	if err != nil {
 		return resourceManagerSetup{}, err
 	}
@@ -1653,7 +1635,6 @@ func buildResourceManager(args ArgsNetworkMessenger) (resourceManagerSetup, erro
 		option:   opt,
 		closer:   closer,
 		strategy: rmCfg.Strategy,
-		limits:   limits,
 	}, nil
 }
 
@@ -1748,23 +1729,22 @@ func logNetworkLimits(args ArgsNetworkMessenger, rmStrategy string, rm network.R
 // by rmCfg. The closer is non-nil only when a fresh rcmgr was constructed
 // (currently only the "scaled" strategy); callers must Close() it if
 // libp2p.New() fails, since the host can no longer take ownership.
-// A nil option means "let libp2p use its DefaultResourceManager". The limits are
-// returned only for the "scaled" strategy.
-func buildResourceManagerOption(rmCfg config.ResourceManagerConfig, isSeedNode bool) (libp2p.Option, io.Closer, *rcmgr.ConcreteLimitConfig, error) {
+// A nil option means "let libp2p use its DefaultResourceManager".
+func buildResourceManagerOption(rmCfg config.ResourceManagerConfig, isSeedNode bool) (libp2p.Option, io.Closer, error) {
 	if err := validateResourceManagerConfig(rmCfg); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	switch rmCfg.Strategy {
 	case config.ResourceManagerStrategyDefault, config.ResourceManagerStrategyLibp2pDefault:
-		return nil, nil, nil, nil
+		return nil, nil, nil
 
 	case config.ResourceManagerStrategyNull:
-		return libp2p.ResourceManager(&network.NullResourceManager{}), nil, nil, nil
+		return libp2p.ResourceManager(&network.NullResourceManager{}), nil, nil
 
 	case config.ResourceManagerStrategyScaled:
 		if rmCfg.ScaledMemoryMiB <= 0 {
-			return nil, nil, nil, fmt.Errorf("p2p.resourceManager.strategy=%q requires scaledMemoryMiB > 0",
+			return nil, nil, fmt.Errorf("p2p.resourceManager.strategy=%q requires scaledMemoryMiB > 0",
 				rmCfg.Strategy)
 		}
 		memBytes := clampToPhysicalMemory(int64(rmCfg.ScaledMemoryMiB) << 20)
@@ -1772,12 +1752,12 @@ func buildResourceManagerOption(rmCfg config.ResourceManagerConfig, isSeedNode b
 		opts := scaledResourceManagerOptions(rmCfg)
 		rm, err := rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(limits), opts...)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("creating scaled resource manager: %w", err)
+			return nil, nil, fmt.Errorf("creating scaled resource manager: %w", err)
 		}
-		return libp2p.ResourceManager(rm), rm, &limits, nil
+		return libp2p.ResourceManager(rm), rm, nil
 
 	default:
-		return nil, nil, nil, fmt.Errorf("invalid p2p.resourceManager.strategy %q (valid: %q, %q, %q, %q)",
+		return nil, nil, fmt.Errorf("invalid p2p.resourceManager.strategy %q (valid: %q, %q, %q, %q)",
 			rmCfg.Strategy,
 			config.ResourceManagerStrategyDefault,
 			config.ResourceManagerStrategyLibp2pDefault,

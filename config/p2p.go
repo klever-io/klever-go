@@ -68,28 +68,13 @@ type DirectSendConfig struct {
 	MaxSeenMessages          int `yaml:"maxSeenMessages"`
 }
 
-// ConnectionManagerConfig sets the watermarks of the libp2p BasicConnMgr that regular (non-seed)
-// nodes run; seed nodes ignore it and never trim. Both watermarks count connections, not peers.
-// Once the connection count reaches HighWater, the manager closes the connections of the
-// lowest-value unprotected peers that are older than GracePeriodInSec, until LowWater unprotected,
-// out-of-grace connections remain. Connections of protected peers (known validators, and peers
-// gossipsub and kad-dht protect) are not counted against LowWater and never trimmed, so LowWater is
-// the connection budget for unprotected peers and LowWater plus the protected peers' inbound
-// connections must stay below the inbound ResourceManager limit. A zero value selects the built-in
-// default: LowWater 100, HighWater 300, GracePeriodInSec 60.
-//
-// Trimming never closes a connection younger than GracePeriodInSec, so a peer that keeps rotating
-// its identity and reconnecting is never trimmed. MaxUnprotectedInboundConns closes that gap: the
-// node sums the inbound connections of the peers that are not known validators (protection set by
-// gossipsub or kad-dht does not exempt a peer: kad-dht protects most routing-table peers, and
-// gossipsub never unprotects a mesh peer that disconnected); at admission it refuses new inbound connections from such peers once the cap is
-// reached, and every 10s it closes whole peers whatever their age until the sum is within it. It
-// counts connections because the ResourceManager does and one identity can hold several. Closing
-// order: unknown peers connected for over 60s (newest first), then observers (newest first), then
-// unknown peers younger than 60s (oldest first), since a validator that just connected is unknown
-// until its next heartbeat (every 20-25s). The cap is armed once the node's peer shard resolver is
-// installed and enforced 60s after that, so reconnecting validators are identified first. Zero
-// selects the default of 100.
+// ConnectionManagerConfig configures regular (non-seed) nodes' libp2p BasicConnMgr and the inbound
+// cap of the peer protector; seed nodes ignore it and never trim. LowWater, HighWater and
+// GracePeriodInSec are the BasicConnMgr watermarks (in connections) and grace period;
+// MaxUnprotectedInboundConns caps the inbound connections of peers that are not validators. A zero
+// value selects the built-in default: 100, 300, 60 and 100. How the watermarks, the cap and its
+// closing order interact is documented on peerProtector (network/p2p/libp2p/peerProtector.go) and,
+// for operators, in config/node/config.yaml.
 type ConnectionManagerConfig struct {
 	LowWater                   int `yaml:"lowWater"`
 	HighWater                  int `yaml:"highWater"`
