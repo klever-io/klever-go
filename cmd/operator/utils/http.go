@@ -176,19 +176,24 @@ func checkStatus(method, url string, r *http.Response) error {
 // padding cannot stretch the text. The other control characters (escape sequences) and
 // the format characters (bidi overrides, zero-width joiners, which reorder or hide what
 // follows — a reason that reads backwards could disguise a fee or an address) are dropped.
-// So is every invalid UTF-8 byte: strings.Map would render each one as the 3-byte U+FFFD
-// and triple a body that was capped before sanitising.
+// So is every invalid UTF-8 byte: rendering each one as the 3-byte U+FFFD would triple a
+// body that was capped before sanitising. A U+FFFD the server itself sent is kept.
 // One pass, one allocation: this runs on every failed mirror post on the node, so no
 // intermediate copy or per-word slice of a 64 KiB body.
 func sanitizeServerText(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	pendingSpace := false
-	for _, r := range s { // an invalid byte ranges as utf8.RuneError
+	for i := 0; i < len(s); {
+		// An invalid byte decodes as utf8.RuneError with width 1; a genuine U+FFFD in the
+		// body (the node itself writes one when it echoes bad input bytes through JSON) has
+		// width 3 and is kept, since it is the one hint that bad bytes were in the input.
+		r, width := utf8.DecodeRuneInString(s[i:])
+		i += width
 		switch {
 		case unicode.IsSpace(r):
 			pendingSpace = b.Len() > 0 // leading whitespace is dropped, trailing never flushed
-		case r == utf8.RuneError, unicode.IsControl(r), unicode.Is(unicode.Cf, r):
+		case r == utf8.RuneError && width == 1, unicode.IsControl(r), unicode.Is(unicode.Cf, r):
 		default:
 			if pendingSpace {
 				b.WriteByte(' ')

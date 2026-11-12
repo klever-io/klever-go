@@ -301,6 +301,23 @@ func TestErrorDropsInvalidUTF8(t *testing.T) {
 	assert.Less(t, len(err.Error()), 200)
 }
 
+// TestErrorKeepsGenuineReplacementChar pins the other side of that rule: a U+FFFD the server
+// itself encoded (the node writes one when it echoes bad input bytes through JSON) is a
+// real 3-byte rune and survives, since it is the one hint that bad bytes were in the input.
+func TestErrorKeepsGenuineReplacementChar(t *testing.T) {
+	replacement := string(rune(0xFFFD))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid ticker random sequence encoding: ab` + replacement + replacement + `"}`))
+	}))
+	defer srv.Close()
+
+	var got sampleResult
+	err := utils.GetURL(srv.URL, &got)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "encoding: ab"+replacement+replacement)
+}
+
 // TestErrorStripsFormatCharsFromServerBody pins that the characters which change how text
 // is displayed without being control characters are dropped too: a bidi override that
 // would show the reason reversed, the line/paragraph separators some terminals treat as
