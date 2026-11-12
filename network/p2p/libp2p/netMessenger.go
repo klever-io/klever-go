@@ -143,15 +143,9 @@ type ArgsNetworkMessenger struct {
 
 // NewNetworkMessenger creates a libP2P messenger by opening a port on the current machine
 func NewNetworkMessenger(args ArgsNetworkMessenger) (*networkMessenger, error) {
-	if check.IfNil(args.Marshalizer) {
-		return nil, fmt.Errorf(errFmtCreatingMessenger, p2p.ErrNilMarshalizer)
-	}
-	if check.IfNil(args.SyncTimer) {
-		return nil, fmt.Errorf(errFmtCreatingMessenger, p2p.ErrNilSyncTimer)
-	}
-
-	if check.IfNilReflect(args.P2pPrivateKey) {
-		return nil, fmt.Errorf(errFmtCreatingMessenger, p2p.ErrNilP2pPrivateKey)
+	err := checkNetworkMessengerArgs(args)
+	if err != nil {
+		return nil, err
 	}
 
 	port, err := getPort(args.P2pConfig.Node.Port, checkFreePort)
@@ -177,16 +171,6 @@ func NewNetworkMessenger(args ArgsNetworkMessenger) (*networkMessenger, error) {
 		//we need the disable relay option in order to save the node's bandwidth as much as possible
 		libp2p.DisableRelay(),
 		libp2p.NATPortMap(),
-	}
-
-	err = validateDirectSendConfig(args.P2pConfig.DirectSend)
-	if err != nil {
-		return nil, err
-	}
-
-	err = validateConnectionManagerConfig(args.P2pConfig.ConnectionManager)
-	if err != nil {
-		return nil, err
 	}
 
 	rmSetup, err := buildResourceManager(args)
@@ -239,14 +223,42 @@ func NewNetworkMessenger(args ArgsNetworkMessenger) (*networkMessenger, error) {
 		return nil, err
 	}
 	p2pNode.rmStrategy = rmSetup.strategy
-	if gater != nil {
-		p2pNode.inboundGater = gater
-		if p2pNode.peerProtector != nil {
-			gater.bind(p2pNode.peerProtector, h.Network())
-		}
-	}
+	p2pNode.bindInboundGater(gater, h.Network())
 
 	return p2pNode, nil
+}
+
+// checkNetworkMessengerArgs rejects nil dependencies and invalid p2p config before anything is
+// opened or allocated.
+func checkNetworkMessengerArgs(args ArgsNetworkMessenger) error {
+	if check.IfNil(args.Marshalizer) {
+		return fmt.Errorf(errFmtCreatingMessenger, p2p.ErrNilMarshalizer)
+	}
+	if check.IfNil(args.SyncTimer) {
+		return fmt.Errorf(errFmtCreatingMessenger, p2p.ErrNilSyncTimer)
+	}
+	if check.IfNilReflect(args.P2pPrivateKey) {
+		return fmt.Errorf(errFmtCreatingMessenger, p2p.ErrNilP2pPrivateKey)
+	}
+
+	err := validateDirectSendConfig(args.P2pConfig.DirectSend)
+	if err != nil {
+		return err
+	}
+
+	return validateConnectionManagerConfig(args.P2pConfig.ConnectionManager)
+}
+
+// bindInboundGater attaches the inbound cap gater (nil on seeds) to the messenger and, once the
+// peer protector exists, binds the two so the gater starts enforcing the cap.
+func (netMes *networkMessenger) bindInboundGater(gater *inboundCapGater, net network.Network) {
+	if gater == nil {
+		return
+	}
+	netMes.inboundGater = gater
+	if netMes.peerProtector != nil {
+		gater.bind(netMes.peerProtector, net)
+	}
 }
 
 // buildAddressFactory returns an AddrsFactory that appends the operator-supplied

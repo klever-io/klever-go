@@ -161,13 +161,20 @@ func (g *inboundCapGater) Connected(_ network.Network, conn network.Conn) {
 }
 
 // Disconnected is a no-op: a pending entry is cleared by Connected or expires.
-func (g *inboundCapGater) Disconnected(_ network.Network, _ network.Conn) {}
+func (g *inboundCapGater) Disconnected(_ network.Network, _ network.Conn) {
+	// Nothing to do: a pending entry is cleared by Connected, or by its TTL if the connection
+	// never got registered.
+}
 
 // Listen is a no-op.
-func (g *inboundCapGater) Listen(_ network.Network, _ ma.Multiaddr) {}
+func (g *inboundCapGater) Listen(_ network.Network, _ ma.Multiaddr) {
+	// Nothing to do: the gater only tracks connections, not listen addresses.
+}
 
 // ListenClose is a no-op.
-func (g *inboundCapGater) ListenClose(_ network.Network, _ ma.Multiaddr) {}
+func (g *inboundCapGater) ListenClose(_ network.Network, _ ma.Multiaddr) {
+	// Nothing to do: the gater only tracks connections, not listen addresses.
+}
 
 func (g *inboundCapGater) recordRejection(pid peer.ID, addrs network.ConnMultiaddrs, maxConns int) {
 	remote := ""
