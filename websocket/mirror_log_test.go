@@ -101,9 +101,11 @@ func TestMirrorFailureLogBoundsTheBody(t *testing.T) {
 		wantHead string
 	}{
 		{
+			// The forged line sits inside the first 256 bytes, so the bound alone cannot
+			// hide it: it must have been flattened to one line.
 			name:     "ascii body with a forged log line",
-			body:     strings.Repeat("X", 60000) + "\nWARN forged line\n" + strings.Repeat("Y", 5000),
-			wantHead: "XXXXXXXX",
+			body:     "head\nWARN forged line\n" + strings.Repeat("X", 60000) + strings.Repeat("Y", 5000),
+			wantHead: "head WARN forged line XXXXXXXX",
 		},
 		{
 			// 3-byte runes: byte 256 of the field falls inside one unless the cut steps back.

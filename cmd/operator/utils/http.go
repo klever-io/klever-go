@@ -154,7 +154,7 @@ func checkStatus(method, url string, r *http.Response) error {
 		// invalid bytes, so no U+FFFD precedes the marker.
 		snippet = snippet[:maxErrorBody]
 	}
-	statusErr.Body = sanitizeServerText(string(snippet))
+	statusErr.Body = sanitizeServerBytes(snippet)
 	if truncated {
 		marker := fmt.Sprintf("(response body truncated at %d bytes)", maxErrorBody)
 		if statusErr.Body == "" {
@@ -174,13 +174,21 @@ func checkStatus(method, url string, r *http.Response) error {
 // keeps it bounded. Every whitespace run — newlines of a stack trace, tabs, the Unicode
 // line and paragraph separators — becomes one space, so the lines stay readable and
 // padding cannot stretch the text. The other control characters (escape sequences) and
-// the format characters (bidi overrides, zero-width joiners, which reorder or hide what
-// follows — a reason that reads backwards could disguise a fee or an address) are dropped.
-// So is every invalid UTF-8 byte: rendering each one as the 3-byte U+FFFD would triple a
-// body that was capped before sanitising. A U+FFFD the server itself sent is kept.
-// One pass, one allocation: this runs on every failed mirror post on the node, so no
-// intermediate copy or per-word slice of a 64 KiB body.
+// the format characters (category Cf: bidi overrides, zero-width joiners, which reorder or
+// hide what follows — a reason that reads backwards could disguise a fee or an address)
+// are dropped. Invisible code points outside Cf (combining graphemes, variation selectors,
+// Hangul fillers) are not chased. So is every invalid UTF-8 byte: rendering each one as the
+// 3-byte U+FFFD would triple a body that was capped before sanitising. A U+FFFD the server
+// itself sent is kept.
 func sanitizeServerText(s string) string {
+	return sanitizeServerBytes([]byte(s))
+}
+
+// sanitizeServerBytes is sanitizeServerText over the bytes io.ReadAll returned: on the node
+// this runs on every failed mirror post, so the body is decoded straight from that buffer
+// into one Builder, with no intermediate string copy and no per-word slice. The ReadAll
+// buffer and the Builder are the two allocations left.
+func sanitizeServerBytes(s []byte) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	pendingSpace := false
@@ -188,7 +196,7 @@ func sanitizeServerText(s string) string {
 		// An invalid byte decodes as utf8.RuneError with width 1; a genuine U+FFFD in the
 		// body (the node itself writes one when it echoes bad input bytes through JSON) has
 		// width 3 and is kept, since it is the one hint that bad bytes were in the input.
-		r, width := utf8.DecodeRuneInString(s[i:])
+		r, width := utf8.DecodeRune(s[i:])
 		i += width
 		switch {
 		case unicode.IsSpace(r):
