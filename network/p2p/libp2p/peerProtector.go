@@ -96,6 +96,14 @@ type inboundCandidate struct {
 // validator identity ever seen. Tags live in the per-peer record that BasicConnMgr drops on the
 // last disconnect, so only still-connected peers need their observer tag removed.
 //
+// BasicConnMgr counts connections, not peers. Once the count reaches highWater it closes the
+// connections of the lowest-value unprotected peers that are past their grace period, until
+// lowWater unprotected, out-of-grace connections remain. Which peers go first follows their
+// connection-manager value, which gossipsub's decaying delivery tags dominate; the observer tag
+// adds little. Protected peers are not counted against lowWater and are never trimmed, so lowWater
+// is the budget for unprotected peers, and lowWater plus the validators' inbound connections must
+// fit in the inbound ResourceManager limit.
+//
 // Each pass also enforces maxUnprotectedInboundConns. BasicConnMgr never trims a connection
 // younger than its grace period, so a peer that keeps rotating its identity and reconnecting stays
 // inside the grace period forever, is never a trim candidate, and can hold inbound slots
@@ -117,6 +125,14 @@ type inboundCandidate struct {
 //  3. unknown peers still inside the identification window, oldest first: a validator that has
 //     just connected looks like one of these until its next heartbeat, so it is the last thing
 //     closed.
+//
+// The last rule is a trade-off. An attacker that reopens its connections under a fresh peer ID
+// every <60s also stays in class 3, so when the cap is exceeded it outlives honest observers and
+// long-lived unknown peers and keeps its share of the cap. That share is all it gets: the cap bounds
+// every non-validator together, so the inbound slots above it stay free for validators. Closing
+// young peers first would instead close the validator that has just connected, which is what the
+// cap exists to protect. libp2p's per-IP limits (8 connections per IPv4 /32) bound how much of the
+// cap one address can take.
 type peerProtector struct {
 	mut                        sync.Mutex
 	cm                         connmgr.ConnManager

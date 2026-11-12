@@ -289,31 +289,29 @@ var ConnManagerLimitWarnings = connManagerLimitWarnings
 // SystemConnLimits exposes systemConnLimits for testing.
 var SystemConnLimits = systemConnLimits
 
-// ResourceManagerStrategy returns the effective ResourceManager strategy NewNetworkMessenger chose.
-func (netMes *networkMessenger) ResourceManagerStrategy() string {
-	return netMes.rmStrategy
-}
-
 // EffectiveResourceManagerConfig exposes effectiveResourceManagerConfig for testing.
 func EffectiveResourceManagerConfig(rmCfg config.ResourceManagerConfig, isSeedNode bool) config.ResourceManagerConfig {
 	return effectiveResourceManagerConfig(rmCfg, isSeedNode)
 }
 
 // BuildResourceManagerStrategy runs the messenger's ResourceManager setup for args and returns the
-// effective strategy and, for "scaled", the system limits; it closes what it built.
-func BuildResourceManagerStrategy(args ArgsNetworkMessenger) (string, *rcmgr.PartialLimitConfig, error) {
+// effective strategy and, when it built its own ResourceManager ("scaled"), that manager's system
+// connection limits read back through systemConnLimits; it closes what it built.
+func BuildResourceManagerStrategy(args ArgsNetworkMessenger) (strategy string, connsInbound int, conns int, hasLimits bool, err error) {
 	setup, err := buildResourceManager(args)
 	if err != nil {
-		return "", nil, err
+		return "", 0, 0, false, err
 	}
-	if setup.closer != nil {
-		_ = setup.closer.Close()
+	if setup.closer == nil {
+		return setup.strategy, 0, 0, false, nil
 	}
-	if setup.limits == nil {
-		return setup.strategy, nil, nil
+	defer func() { _ = setup.closer.Close() }()
+	rm, ok := setup.closer.(network.ResourceManager)
+	if !ok {
+		return setup.strategy, 0, 0, false, nil
 	}
-	partial := setup.limits.ToPartialLimitConfig()
-	return setup.strategy, &partial, nil
+	connsInbound, conns, hasLimits = systemConnLimits(rm)
+	return setup.strategy, connsInbound, conns, hasLimits, nil
 }
 
 // NewInboundCapGater exposes newInboundCapGater for testing, on the wall clock.

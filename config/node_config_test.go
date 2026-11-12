@@ -8,10 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestNodeConfig_ResourceManagerIsScaled guards KLC-2417: with NilListSharder no connection
-// manager closes idle peers, so validators must ship a scaled ResourceManager whose inbound
-// ceiling (64 + scaledMemoryMiB/16) fits the validator set, instead of libp2p's auto-scaled
-// default (128 inbound on an 8 GB host). Loads the shipped file the way cmd/node does.
+// TestNodeConfig_ResourceManagerIsScaled guards KLC-2417: regular nodes cap unknown inbound peers
+// at maxUnprotectedInboundConns and keep the remaining inbound slots for validators, so they must
+// ship a scaled ResourceManager whose inbound ceiling (64 + scaledMemoryMiB/16) leaves room for the
+// validator set above that cap, instead of libp2p's auto-scaled default (128 inbound on an 8 GB
+// host). Loads the shipped file the way cmd/node does.
 func TestNodeConfig_ResourceManagerIsScaled(t *testing.T) {
 	cfg, err := config.LoadFromPath(filepath.Join("node", "config.yaml"))
 	require.NoError(t, err)

@@ -94,6 +94,16 @@ func TestEffectiveResourceManagerConfig_RegularNodeWithoutSectionGetsScaled(t *t
 	assert.Zero(t, got.ConnRateBurst)
 }
 
+func TestEffectiveResourceManagerConfig_RegularNodeKeepsConfiguredScaledMemory(t *testing.T) {
+	// scaledMemoryMiB without a strategy used to be replaced by 4096 silently.
+	got := libp2p.EffectiveResourceManagerConfig(config.ResourceManagerConfig{ScaledMemoryMiB: 16384}, false)
+	assert.Equal(t, config.ResourceManagerStrategyScaled, got.Strategy)
+	assert.Equal(t, 16384, got.ScaledMemoryMiB)
+
+	seed := libp2p.EffectiveResourceManagerConfig(config.ResourceManagerConfig{ScaledMemoryMiB: 16384}, true)
+	assert.Equal(t, config.ResourceManagerStrategyDefault, seed.Strategy, "seeds keep libp2p auto-scale for \"\"")
+}
+
 func TestEffectiveResourceManagerConfig_LeavesOtherCasesAlone(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -129,38 +139,38 @@ func libp2pAutoScaledSystemLimits() rcmgr.ResourceLimits {
 func TestBuildResourceManager_InCodeDefault(t *testing.T) {
 	t.Run("regular node with strategy \"\" runs scaled 4096", func(t *testing.T) {
 		arg := createMockNetworkArgs()
-		strategy, limits, err := libp2p.BuildResourceManagerStrategy(arg)
+		strategy, inbound, total, hasLimits, err := libp2p.BuildResourceManagerStrategy(arg)
 		require.NoError(t, err)
 		assert.Equal(t, config.ResourceManagerStrategyScaled, strategy)
-		require.NotNil(t, limits)
+		require.True(t, hasLimits)
 		expected := expectedScaled4096SystemLimits()
-		assert.Equal(t, expected.ConnsInbound, limits.System.ConnsInbound)
-		assert.Equal(t, expected.Conns, limits.System.Conns)
+		assert.Equal(t, int(expected.ConnsInbound), inbound)
+		assert.Equal(t, int(expected.Conns), total)
 	})
 
 	t.Run("seed with strategy \"\" keeps libp2p auto-scale", func(t *testing.T) {
 		arg := createMockNetworkArgs()
 		arg.IsSeedNode = true
-		strategy, limits, err := libp2p.BuildResourceManagerStrategy(arg)
+		strategy, _, _, hasLimits, err := libp2p.BuildResourceManagerStrategy(arg)
 		require.NoError(t, err)
 		assert.Equal(t, config.ResourceManagerStrategyDefault, strategy)
-		assert.Nil(t, limits)
+		assert.False(t, hasLimits)
 	})
 
 	t.Run("explicit default keeps libp2p auto-scale on a regular node", func(t *testing.T) {
 		arg := createMockNetworkArgs()
 		arg.P2pConfig.ResourceManager.Strategy = config.ResourceManagerStrategyLibp2pDefault
-		strategy, limits, err := libp2p.BuildResourceManagerStrategy(arg)
+		strategy, _, _, hasLimits, err := libp2p.BuildResourceManagerStrategy(arg)
 		require.NoError(t, err)
 		assert.Equal(t, config.ResourceManagerStrategyLibp2pDefault, strategy)
-		assert.Nil(t, limits)
+		assert.False(t, hasLimits)
 	})
 
 	t.Run("per-subnet knobs still require an explicit scaled strategy", func(t *testing.T) {
 		// The in-code default must not make "" + knobs valid: validation runs on the config as written.
 		arg := createMockNetworkArgs()
 		arg.P2pConfig.ResourceManager.MaxConnsPerIPv4 = 16
-		_, _, err := libp2p.BuildResourceManagerStrategy(arg)
+		_, _, _, _, err := libp2p.BuildResourceManagerStrategy(arg)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "scaled")
 	})
@@ -175,7 +185,8 @@ func TestNewNetworkMessenger_RegularNodeWithoutRMSectionGetsScaledLimits(t *test
 
 	// libp2p's auto-scale budgets TotalRAM/8, so on a 32 GiB host it lands on the same limits as
 	// "scaled" 4096; the strategy is what tells the two apart there.
-	assert.Equal(t, config.ResourceManagerStrategyScaled, mes.ResourceManagerStrategy())
+	assert.Equal(t, config.ResourceManagerStrategyScaled,
+		libp2p.EffectiveResourceManagerConfig(arg.P2pConfig.ResourceManager, arg.IsSeedNode).Strategy)
 
 	var inbound, total int
 	err = mes.Host().Network().ResourceManager().ViewSystem(func(scope network.ResourceScope) error {
@@ -204,7 +215,14 @@ func TestNewNetworkMessenger_SeedWithoutRMSectionKeepsLibp2pAutoScale(t *testing
 	require.NoError(t, err)
 	defer func() { _ = mes.Close() }()
 
-	assert.Equal(t, config.ResourceManagerStrategyDefault, mes.ResourceManagerStrategy())
+	assert.Equal(t, config.ResourceManagerStrategyDefault,
+		libp2p.EffectiveResourceManagerConfig(arg.P2pConfig.ResourceManager, arg.IsSeedNode).Strategy)
+
+	inbound, total, hasLimits := libp2p.SystemConnLimits(mes.Host().Network().ResourceManager())
+	require.True(t, hasLimits)
+	auto := libp2pAutoScaledSystemLimits()
+	assert.Equal(t, int(auto.ConnsInbound), inbound)
+	assert.Equal(t, int(auto.Conns), total)
 }
 
 func TestConnManagerLimitWarnings(t *testing.T) {

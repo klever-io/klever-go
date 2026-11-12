@@ -13,7 +13,6 @@ import (
 )
 
 var _ connmgr.ConnectionGater = (*inboundCapGater)(nil)
-var _ network.Notifiee = (*inboundCapGater)(nil)
 
 // inboundCapRejectionSummaryInterval is how often refused connections are summarized at Info.
 const inboundCapRejectionSummaryInterval = time.Minute
@@ -24,21 +23,20 @@ const inboundCapRejectionSummaryInterval = time.Minute
 // so its entry expires instead of holding cap budget forever. A var so tests can change it.
 var inboundCapPendingTTL = 5 * time.Second
 
-// inboundCapGater enforces the peer protector's unprotected inbound cap at admission. The 10s
-// protector pass alone reserves nothing: the ResourceManager admits any inbound connection while
-// it is below its limit, so an attacker refills the slots a pass frees before a restarted
-// validator's dials get through, and those dials back off. The gater refuses an inbound connection
-// from a peer that is neither a validator per the resolver nor carrying validatorProtectionTag
-// while the unprotected inbound connections already reach the cap. A validator that starts with a
-// fresh peer ID is unknown to every node, so where the cap is full its own dials are refused. It
-// gets in when another node dials it (discovered through the DHT; that connection is outbound on
-// the other side, so never gated, and the new validator's own cap is not armed yet or still in its
-// warm-up), or when it reaches a node that is below the cap. Once one such link exists it joins
-// the heartbeat mesh and its heartbeat identifies it everywhere. Seeds do not help here: they join
-// no topic, so they never relay heartbeats. Outbound connections, and every connection before the
-// cap is armed and past its warm-up, are admitted. libp2p needs the gater before the host exists, so
-// the protector is bound late; until then everything is admitted. The pass still trims what is
-// already over the cap.
+// inboundCapGater enforces the peer protector's unprotected inbound cap at admission (see
+// peerProtector for the cap itself). The 10s protector pass alone reserves nothing: the
+// ResourceManager admits any inbound connection while it is below its limit, so an attacker refills
+// the slots a pass frees before a restarted validator's dials get through. The gater refuses an
+// inbound connection from a peer that is not exempt (peerProtector.exemptFromCap) while the cap is
+// reached. Outbound connections, and every connection before the cap is armed and past its warm-up,
+// are admitted. libp2p needs the gater before the host exists, so the protector is bound late;
+// until then everything is admitted.
+//
+// A validator that starts with a fresh peer ID is unknown to every node, so where the cap is full
+// its own dials are refused. It gets in when another node dials it (discovered through the DHT;
+// that connection is outbound on the other side, so never gated), or when it reaches a node below
+// the cap. Once one such link exists it joins the heartbeat mesh and its heartbeat identifies it
+// everywhere. Seeds do not help here: they join no topic, so they never relay heartbeats.
 //
 // Two checks, because the swarm only lists a connection once it is fully set up:
 //   - InterceptSecured runs right after the security handshake and rejects early, from the
@@ -84,7 +82,7 @@ func newInboundCapGater(now func() time.Time) *inboundCapGater {
 func (g *inboundCapGater) bind(pp *peerProtector, net network.Network) {
 	g.protector.Store(pp)
 	if net != nil {
-		net.Notify(g)
+		net.Notify(&network.NotifyBundle{ConnectedF: g.Connected})
 	}
 }
 
@@ -165,22 +163,6 @@ func (g *inboundCapGater) Connected(_ network.Network, conn network.Conn) {
 	g.mut.Lock()
 	delete(g.pending, conn)
 	g.mut.Unlock()
-}
-
-// Disconnected is a no-op: a pending entry is cleared by Connected or expires.
-func (g *inboundCapGater) Disconnected(_ network.Network, _ network.Conn) {
-	// Nothing to do: a pending entry is cleared by Connected, or by its TTL if the connection
-	// never got registered.
-}
-
-// Listen is a no-op.
-func (g *inboundCapGater) Listen(_ network.Network, _ ma.Multiaddr) {
-	// Nothing to do: the gater only tracks connections, not listen addresses.
-}
-
-// ListenClose is a no-op.
-func (g *inboundCapGater) ListenClose(_ network.Network, _ ma.Multiaddr) {
-	// Nothing to do: the gater only tracks connections, not listen addresses.
 }
 
 func (g *inboundCapGater) recordRejection(pid peer.ID, addrs network.ConnMultiaddrs, maxConns int) {
