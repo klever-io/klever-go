@@ -227,6 +227,35 @@ func (pp *peerProtector) runPass() peerProtectorPassResult {
 // until their inbound connections fit in maxUnprotectedInboundConns.
 func (pp *peerProtector) enforceInboundCap(peers []peer.ID, peerTypes map[peer.ID]core.P2PPeerType, res *peerProtectorPassResult) {
 	now := pp.now()
+	candidates, total := pp.collectInboundCandidates(peers, peerTypes, now, res)
+	res.UnprotectedInboundConns = total
+
+	armed, enforced := pp.capState(now)
+	if !armed {
+		res.NotArmed = true
+		return
+	}
+	if !enforced {
+		res.InWarmUp = true
+		return
+	}
+	if total <= pp.maxUnprotectedInboundConns {
+		return
+	}
+
+	sortInboundCandidates(candidates)
+	pp.closeExcessInbound(candidates, total, res)
+}
+
+// collectInboundCandidates returns the connected peers that count against the cap (not a
+// validator, not protected by any tag, at least one inbound connection), each with its closing
+// priority, and the total of their inbound connections.
+func (pp *peerProtector) collectInboundCandidates(
+	peers []peer.ID,
+	peerTypes map[peer.ID]core.P2PPeerType,
+	now time.Time,
+	res *peerProtectorPassResult,
+) ([]inboundCandidate, int) {
 	identifiedBy := now.Add(-unknownPeerIdentificationWindow)
 
 	candidates := make([]inboundCandidate, 0)
@@ -246,15 +275,10 @@ func (pp *peerProtector) enforceInboundCap(peers []peer.ID, peerTypes map[peer.I
 			continue
 		}
 
-		priority := priorityIdentifiedTooLateUnknown
-		switch {
-		case peerType == core.ObserverPeer:
-			priority = priorityObserver
+		priority := inboundPriority(peerType, firstInbound, identifiedBy)
+		if priority == priorityObserver {
 			res.UnprotectedInboundObservers++
-		case firstInbound.After(identifiedBy):
-			priority = priorityYoungUnknown
-			res.UnprotectedInboundUnknown++
-		default:
+		} else {
 			res.UnprotectedInboundUnknown++
 		}
 		total += inboundConns
@@ -265,21 +289,26 @@ func (pp *peerProtector) enforceInboundCap(peers []peer.ID, peerTypes map[peer.I
 			inboundConns: inboundConns,
 		})
 	}
-	res.UnprotectedInboundConns = total
 
-	armed, enforced := pp.capState(now)
-	if !armed {
-		res.NotArmed = true
-		return
-	}
-	if !enforced {
-		res.InWarmUp = true
-		return
-	}
-	if total <= pp.maxUnprotectedInboundConns {
-		return
-	}
+	return candidates, total
+}
 
+// inboundPriority classifies an unprotected inbound peer: observers, unknown peers that connected
+// inside the identification window, and unknown peers that had time to identify themselves.
+func inboundPriority(peerType core.P2PPeerType, firstInbound time.Time, identifiedBy time.Time) int {
+	switch {
+	case peerType == core.ObserverPeer:
+		return priorityObserver
+	case firstInbound.After(identifiedBy):
+		return priorityYoungUnknown
+	default:
+		return priorityIdentifiedTooLateUnknown
+	}
+}
+
+// sortInboundCandidates orders candidates for closing: by priority, then newest first, except
+// young unknown peers, which go oldest first so a just-connected validator is closed last.
+func sortInboundCandidates(candidates []inboundCandidate) {
 	sort.SliceStable(candidates, func(i, j int) bool {
 		ci, cj := candidates[i], candidates[j]
 		if ci.priority != cj.priority {
@@ -290,10 +319,13 @@ func (pp *peerProtector) enforceInboundCap(peers []peer.ID, peerTypes map[peer.I
 		}
 		return ci.firstInbound.After(cj.firstInbound)
 	})
+}
 
+// closeExcessInbound closes candidates in order until the inbound connections fit in the cap.
+func (pp *peerProtector) closeExcessInbound(candidates []inboundCandidate, total int, res *peerProtectorPassResult) {
 	for _, c := range candidates {
 		if total <= pp.maxUnprotectedInboundConns {
-			break
+			return
 		}
 		err := pp.net.ClosePeer(c.pid)
 		if err != nil {
