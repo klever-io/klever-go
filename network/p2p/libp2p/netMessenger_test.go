@@ -29,6 +29,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
+	p2pConnMgr "github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	mocknet "github.com/libp2p/go-libp2p/p2p/net/mock"
 	rate "github.com/libp2p/go-libp2p/x/rate"
 	"github.com/multiformats/go-multiaddr"
@@ -254,50 +255,28 @@ func TestNewNetworkMessenger_WithKadDiscovererListSharderShouldWork(t *testing.T
 	_ = mes.Close()
 }
 
-func TestNewNetworkMessenger_SeedNodeUsesNullConnMgr(t *testing.T) {
-	arg := createMockNetworkArgs()
-	arg.IsSeedNode = true
-	// Use a trimming sharder so NullConnMgr can only come from IsSeedNode,
-	// not from the NilListSharder rule.
-	arg.P2pConfig.Sharding = config.ShardingConfig{
-		Type:                    p2p.ListsSharder,
+// shardingConfig returns a valid sharding section for the given sharder type, small enough for
+// tests that only care about which connection manager the messenger picks.
+func shardingConfig(sharderType string) config.ShardingConfig {
+	return config.ShardingConfig{
+		Type:                    sharderType,
 		TargetPeerCount:         10,
 		MaxIntraShardValidators: 2,
 		MaxCrossShardValidators: 2,
 		MaxIntraShardObservers:  2,
 		MaxCrossShardObservers:  2,
 	}
-
-	mes, err := libp2p.NewNetworkMessenger(arg)
-	require.NoError(t, err)
-	require.False(t, check.IfNil(mes))
-	defer func() { _ = mes.Close() }()
-
-	_, isNull := mes.Host().ConnManager().(connmgr.NullConnMgr)
-	assert.True(t, isNull, "seed node should use NullConnMgr to avoid the libp2p default 160/192 peer cap")
 }
 
-func TestNewNetworkMessenger_RegularNodeConnMgrFollowsSharderType(t *testing.T) {
-	cases := []struct {
-		sharderType string
-		wantNull    bool
-	}{
-		{sharderType: p2p.NilListSharder, wantNull: true},
-		{sharderType: p2p.ListsSharder, wantNull: false},
-		{sharderType: p2p.OneListSharder, wantNull: false},
-	}
+var allSharderTypes = []string{p2p.NilListSharder, p2p.ListsSharder, p2p.OneListSharder}
 
-	for _, tc := range cases {
-		t.Run(tc.sharderType, func(t *testing.T) {
-			arg := createMockNetworkArgs() // IsSeedNode defaults to false
-			arg.P2pConfig.Sharding = config.ShardingConfig{
-				Type:                    tc.sharderType,
-				TargetPeerCount:         10,
-				MaxIntraShardValidators: 2,
-				MaxCrossShardValidators: 2,
-				MaxIntraShardObservers:  2,
-				MaxCrossShardObservers:  2,
-			}
+func TestNewNetworkMessenger_SeedNodeUsesNullConnMgr(t *testing.T) {
+	// Seeds run the no-op connection manager whatever sharder they are configured with.
+	for _, sharderType := range allSharderTypes {
+		t.Run(sharderType, func(t *testing.T) {
+			arg := createMockNetworkArgs()
+			arg.IsSeedNode = true
+			arg.P2pConfig.Sharding = shardingConfig(sharderType)
 
 			mes, err := libp2p.NewNetworkMessenger(arg)
 			require.NoError(t, err)
@@ -305,14 +284,90 @@ func TestNewNetworkMessenger_RegularNodeConnMgrFollowsSharderType(t *testing.T) 
 			defer func() { _ = mes.Close() }()
 
 			_, isNull := mes.Host().ConnManager().(connmgr.NullConnMgr)
-			assert.Equal(t, tc.wantNull, isNull,
-				"NilListSharder must disable libp2p trimming; Lists/OneList sharders keep the default BasicConnMgr")
+			assert.True(t, isNull, "seed node should use NullConnMgr to avoid trimming the peers it serves")
 		})
 	}
 }
 
-func TestNewNetworkMessenger_EmptyStrategyUsesLibp2pAutoScaleRM(t *testing.T) {
-	// Empty Strategy → libp2p's auto-scaled default, independent of IsSeedNode.
+func TestNewNetworkMessenger_RegularNodeUsesBasicConnMgrWithDefaults(t *testing.T) {
+	// Every regular node, NilListSharder included, runs a BasicConnMgr with klever-go's watermarks
+	// (not libp2p's 160/192), so idle unknown peers cannot hold the inbound ResourceManager slots.
+	for _, sharderType := range allSharderTypes {
+		t.Run(sharderType, func(t *testing.T) {
+			arg := createMockNetworkArgs() // IsSeedNode defaults to false
+			arg.P2pConfig.Sharding = shardingConfig(sharderType)
+
+			mes, err := libp2p.NewNetworkMessenger(arg)
+			require.NoError(t, err)
+			require.False(t, check.IfNil(mes))
+			defer func() { _ = mes.Close() }()
+
+			cm, isBasic := mes.Host().ConnManager().(*p2pConnMgr.BasicConnMgr)
+			require.True(t, isBasic, "regular nodes must run a trimming BasicConnMgr, got %T", mes.Host().ConnManager())
+			info := cm.GetInfo()
+			assert.Equal(t, 100, info.LowWater)
+			assert.Equal(t, 300, info.HighWater)
+			assert.Equal(t, time.Minute, info.GracePeriod)
+		})
+	}
+}
+
+func TestNewNetworkMessenger_RegularNodeConnMgrUsesConfiguredWatermarks(t *testing.T) {
+	arg := createMockNetworkArgs()
+	arg.P2pConfig.ConnectionManager = config.ConnectionManagerConfig{
+		LowWater:         40,
+		HighWater:        50,
+		GracePeriodInSec: 5,
+	}
+
+	mes, err := libp2p.NewNetworkMessenger(arg)
+	require.NoError(t, err)
+	defer func() { _ = mes.Close() }()
+
+	cm, isBasic := mes.Host().ConnManager().(*p2pConnMgr.BasicConnMgr)
+	require.True(t, isBasic)
+	info := cm.GetInfo()
+	assert.Equal(t, 40, info.LowWater)
+	assert.Equal(t, 50, info.HighWater)
+	assert.Equal(t, 5*time.Second, info.GracePeriod)
+}
+
+func TestNetworkMessenger_SetPeerShardResolverConcurrentWithReadsIsRaceFree(t *testing.T) {
+	// SetPeerShardResolver is called once the node's components are up, while the peer protector
+	// loop and GetConnectedPeersInfo read the resolver from other goroutines. This test only
+	// catches a regression when run with -race; without it, the unsynchronized access passes.
+	_, mes1, mes2 := createMockNetworkOf2()
+	defer func() {
+		_ = mes1.Close()
+		_ = mes2.Close()
+	}()
+
+	resolver := &mock.PeerShardResolverStub{
+		GetPeerInfoCalled: func(_ core.PeerID) core.P2PPeerInfo {
+			return core.P2PPeerInfo{PeerType: core.ValidatorPeer}
+		},
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			_ = mes1.SetPeerShardResolver(resolver)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			_ = mes1.GetConnectedPeersInfo()
+		}
+	}()
+	wg.Wait()
+}
+
+func TestNewNetworkMessenger_EmptyStrategyNeverProducesNullRM(t *testing.T) {
+	// Empty Strategy → "scaled" 4096 MiB on regular nodes (in-code default, see
+	// TestBuildResourceManager_InCodeDefault) and libp2p's auto-scaled default on seeds; never Null.
 	// (The seed-binary policy of using "null" lives in config/seednode/config.yaml.)
 	for _, isSeed := range []bool{false, true} {
 		isSeed := isSeed
@@ -326,7 +381,7 @@ func TestNewNetworkMessenger_EmptyStrategyUsesLibp2pAutoScaleRM(t *testing.T) {
 			defer func() { _ = mes.Close() }()
 
 			_, isNull := mes.Host().Network().ResourceManager().(*network.NullResourceManager)
-			assert.False(t, isNull, "empty strategy should produce libp2p's default ResourceManager (not Null) regardless of IsSeedNode")
+			assert.False(t, isNull, "empty strategy must produce a bounded ResourceManager (not Null) regardless of IsSeedNode")
 		})
 	}
 }
