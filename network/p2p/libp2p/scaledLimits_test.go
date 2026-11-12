@@ -15,7 +15,7 @@ import (
 // bundled per-service limits, as libp2p's own default ResourceManager does. Without them a
 // single peer could open as many ping streams as the generic per-peer limit allows.
 func TestScaledLimits_KeepsLibp2pServiceLimits(t *testing.T) {
-	limits := libp2p.ScaledLimits(4096<<20, 4096).ToPartialLimitConfig()
+	limits := libp2p.ScaledLimits(4096<<20, 4096, true).ToPartialLimitConfig()
 
 	pingPeer, ok := limits.ServicePeer[ping.ServiceName]
 	require.True(t, ok, "ping must have its own per-peer service limit")
