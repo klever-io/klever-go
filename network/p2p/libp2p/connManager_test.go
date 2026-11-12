@@ -54,6 +54,9 @@ func TestValidateConnectionManagerConfig(t *testing.T) {
 		{name: "negative lowWater", cfg: config.ConnectionManagerConfig{LowWater: -1}, wantErr: "lowWater must be non-negative"},
 		{name: "negative highWater", cfg: config.ConnectionManagerConfig{HighWater: -1}, wantErr: "highWater must be non-negative"},
 		{name: "negative grace", cfg: config.ConnectionManagerConfig{GracePeriodInSec: -1}, wantErr: "gracePeriodInSec must be non-negative"},
+		{name: "grace equal to the protector interval", cfg: config.ConnectionManagerConfig{GracePeriodInSec: 10}, wantErr: "above the peer protector interval of 10s"},
+		{name: "grace below the protector interval", cfg: config.ConnectionManagerConfig{GracePeriodInSec: 1}, wantErr: "above the peer protector interval of 10s"},
+		{name: "grace just above the protector interval", cfg: config.ConnectionManagerConfig{GracePeriodInSec: 11}},
 		{name: "low equal to high", cfg: config.ConnectionManagerConfig{LowWater: 100, HighWater: 100}, wantErr: "must be lower than highWater"},
 		{name: "low above high", cfg: config.ConnectionManagerConfig{LowWater: 200, HighWater: 100}, wantErr: "must be lower than highWater"},
 		{name: "only lowWater, above the default high", cfg: config.ConnectionManagerConfig{LowWater: 400}, wantErr: "must be lower than highWater"},
@@ -223,6 +226,14 @@ func TestNewNetworkMessenger_SeedWithoutRMSectionKeepsLibp2pAutoScale(t *testing
 	auto := libp2pAutoScaledSystemLimits()
 	assert.Equal(t, int(auto.ConnsInbound), inbound)
 	assert.Equal(t, int(auto.Conns), total)
+}
+
+func TestGracePeriodWarning(t *testing.T) {
+	assert.Empty(t, libp2p.GracePeriodWarning(time.Minute, time.Minute), "the default grace covers the identification window")
+	assert.Empty(t, libp2p.GracePeriodWarning(2*time.Minute, time.Minute))
+
+	warning := libp2p.GracePeriodWarning(59*time.Second, time.Minute)
+	assert.Contains(t, warning, "gracePeriodInSec (59s) is shorter than the 1m0s")
 }
 
 func TestConnManagerLimitWarnings(t *testing.T) {
