@@ -100,8 +100,8 @@ func (tc *TimeCache) Sweep() {
 
 // ResetAll remove all keys from cache
 func (tc *TimeCache) ResetAll() {
-	tc.mut.RLock()
-	defer tc.mut.RUnlock()
+	tc.mut.Lock()
+	defer tc.mut.Unlock()
 
 	tc.data = make(map[string]*span)
 }
