@@ -68,8 +68,9 @@ p2p:
   # limit (320 above): 100 plus ~200 validators fits. With a larger lowWater,
   # unprotected peers could hold every inbound slot without a trim ever closing them. The node warns at startup when the watermarks do not fit the
   # ResourceManager limits. A zero or missing value selects the default shown here;
-  # lowWater must stay below highWater, both at most 100000, gracePeriodInSec at most
-  # 3600.
+  # lowWater must stay below highWater, both at most 100000, gracePeriodInSec above 10
+  # (the peer protector's interval) and at most 3600. Below 60 the node warns: a
+  # validator with a fresh peer ID can stay unidentified until its next heartbeat.
   #
   # Trimming never closes a connection younger than gracePeriodInSec, so a peer that
   # keeps rotating its peer ID and reconnecting would never be trimmed. To close that

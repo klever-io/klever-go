@@ -183,7 +183,7 @@ func NewNetworkMessenger(args ArgsNetworkMessenger) (*networkMessenger, error) {
 	cm, err := newConnManager(args)
 	if err != nil {
 		if rmSetup.closer != nil {
-			_ = rmSetup.closer.Close()
+			log.LogIfError(rmSetup.closer.Close())
 		}
 		return nil, err
 	}
@@ -206,9 +206,9 @@ func NewNetworkMessenger(args ArgsNetworkMessenger) (*networkMessenger, error) {
 		// config validation fails, not when an option or the fx app start fails, so close both
 		// here. Both Close methods are idempotent, so a double close is harmless.
 		if rmSetup.closer != nil {
-			_ = rmSetup.closer.Close()
+			log.LogIfError(rmSetup.closer.Close())
 		}
-		_ = cm.Close()
+		log.LogIfError(cm.Close())
 		return nil, err
 	}
 
@@ -1521,6 +1521,14 @@ func validateConnectionManagerConfig(cmCfg config.ConnectionManagerConfig) error
 			maxConnMgrGracePeriodInSec, cmCfg.GracePeriodInSec)
 	}
 
+	// A connected validator is protected only at the next protector pass, so a grace period that
+	// does not outlast one pass lets a trim close a validator the protector has not tagged yet.
+	minGraceInSec := int(peerProtectorInterval / time.Second)
+	if cmCfg.GracePeriodInSec != 0 && cmCfg.GracePeriodInSec <= minGraceInSec {
+		return fmt.Errorf("p2p.connectionManager.gracePeriodInSec must be 0 (default) or above the peer "+
+			"protector interval of %ds, got %d", minGraceInSec, cmCfg.GracePeriodInSec)
+	}
+
 	// Checked after the defaults are applied, so setting only one watermark cannot cross the
 	// other's default (lowWater 400 alone would otherwise run 400/300).
 	low, high, _ := connManagerSettings(cmCfg)
@@ -1644,7 +1652,7 @@ func systemConnLimits(rm network.ResourceManager) (connsInbound int, conns int, 
 	if rm == nil {
 		return 0, 0, false
 	}
-	_ = rm.ViewSystem(func(scope network.ResourceScope) error {
+	err := rm.ViewSystem(func(scope network.ResourceScope) error {
 		limiter, isLimiter := scope.(rcmgr.ResourceScopeLimiter)
 		if !isLimiter {
 			return nil
@@ -1653,6 +1661,10 @@ func systemConnLimits(rm network.ResourceManager) (connsInbound int, conns int, 
 		connsInbound, conns, ok = limit.GetConnLimit(network.DirInbound), limit.GetConnTotalLimit(), true
 		return nil
 	})
+	if err != nil {
+		log.Warn("cannot read the ResourceManager's system connection limits", "error", err)
+		return 0, 0, false
+	}
 
 	return connsInbound, conns, ok
 }
@@ -1688,6 +1700,19 @@ func connManagerLimitWarnings(low int, high int, maxUnprotectedInboundConns int,
 	return warnings
 }
 
+// gracePeriodWarning warns when the grace period is shorter than the window a validator may need to
+// be identified: one that connects under a fresh peer ID is unknown until its next heartbeat, so
+// until then only the grace period keeps a trim from closing it.
+func gracePeriodWarning(grace time.Duration, identificationWindow time.Duration) string {
+	if grace >= identificationWindow {
+		return ""
+	}
+
+	return fmt.Sprintf("p2p.connectionManager.gracePeriodInSec (%s) is shorter than the %s a validator with a "+
+		"fresh peer ID may need to be identified by its heartbeat: above highWater, a trim can close it first",
+		grace, identificationWindow)
+}
+
 // logNetworkLimits logs, once at startup, the connection limits the host runs with, read back from
 // its ResourceManager, and warns when the connection manager's watermarks do not fit them.
 func logNetworkLimits(args ArgsNetworkMessenger, rmStrategy string, rm network.ResourceManager) {
@@ -1708,6 +1733,9 @@ func logNetworkLimits(args ArgsNetworkMessenger, rmStrategy string, rm network.R
 		low, high, grace := connManagerSettings(args.P2pConfig.ConnectionManager)
 		maxUnprotected := maxUnprotectedInboundConns(args.P2pConfig.ConnectionManager)
 		connManager = fmt.Sprintf("low=%d high=%d grace=%s maxUnprotectedInboundConns=%d", low, high, grace, maxUnprotected)
+		if warning := gracePeriodWarning(grace, unknownPeerIdentificationWindow); warning != "" {
+			log.Warn(warning)
+		}
 		if hasLimits {
 			inboundForValidators = fmt.Sprintf("%d", connsInbound-maxUnprotected)
 			for _, warning := range connManagerLimitWarnings(low, high, maxUnprotected, connsInbound, conns) {

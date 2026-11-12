@@ -286,6 +286,9 @@ var GetFDLimit = getFDLimit
 // ConnManagerLimitWarnings exposes connManagerLimitWarnings for testing.
 var ConnManagerLimitWarnings = connManagerLimitWarnings
 
+// GracePeriodWarning exposes gracePeriodWarning for testing.
+var GracePeriodWarning = gracePeriodWarning
+
 // SystemConnLimits exposes systemConnLimits for testing.
 var SystemConnLimits = systemConnLimits
 

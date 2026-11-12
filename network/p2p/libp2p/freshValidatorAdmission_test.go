@@ -208,6 +208,20 @@ func connectedCount(n network.Network, ids []peer.ID) int {
 	return count
 }
 
+// linkedCount counts the existing nodes that V and the node both hold a connection to. V's own dial
+// can show up on V's side for a moment before the existing node's gater refuses it, so V's side
+// alone is not enough.
+func linkedCount(vNet network.Network, existing []*existingNode) int {
+	count := 0
+	for _, e := range existing {
+		eNet := e.mes.Host().Network()
+		if len(eNet.ConnsToPeer(vNet.LocalPeer())) > 0 && len(vNet.ConnsToPeer(eNet.LocalPeer())) > 0 {
+			count++
+		}
+	}
+	return count
+}
+
 // inboundHolders lists the peers that hold inbound connections on n and are not identified, the
 // ones the cap counts.
 func inboundHolders(n network.Network, identified *identifiedSet, labels *peerLabels) string {
@@ -315,6 +329,7 @@ func runFreshValidatorScenario(t *testing.T, iv expIntervals, control bool) expR
 	labels.set(probe.ID(), "probe")
 	for i, e := range existingMes {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		// The probe may or may not see the refusal as an error, so it is asserted on the node's side.
 		_ = probe.Connect(ctx, peer.AddrInfo{ID: e.mes.Host().ID(), Addrs: e.mes.Host().Addrs()})
 		cancel()
 		require.NotEqual(t, network.Connected, e.mes.Host().Network().Connectedness(probe.ID()),
@@ -343,24 +358,17 @@ func runFreshValidatorScenario(t *testing.T, iv expIntervals, control bool) expR
 
 	if control {
 		res.control, ok = events.waitFor(start, expTimeout, func() bool {
-			return connectedCount(vNet, ids) == expNumExisting
+			return linkedCount(vNet, existingMes) == expNumExisting
 		})
 		if !ok {
-			res.timedOut = fmt.Sprintf("control: only %d/%d connected", connectedCount(vNet, ids), expNumExisting)
+			res.timedOut = fmt.Sprintf("control: only %d/%d connected", linkedCount(vNet, existingMes), expNumExisting)
 		}
 		return res
 	}
 
-	// t1: first link to an existing node that both sides hold. V's own dial can show up on V's side
-	// for a moment before the existing node's gater refuses it, so V's side alone is not enough.
+	// t1: first link to an existing node
 	res.t1, ok = events.waitFor(start, expTimeout, func() bool {
-		for _, e := range existingMes {
-			eNet := e.mes.Host().Network()
-			if len(eNet.ConnsToPeer(vID)) > 0 && len(vNet.ConnsToPeer(eNet.LocalPeer())) > 0 {
-				return true
-			}
-		}
-		return false
+		return linkedCount(vNet, existingMes) > 0
 	})
 	if !ok {
 		res.timedOut = "t1: never connected to any existing node"
@@ -394,10 +402,10 @@ func runFreshValidatorScenario(t *testing.T, iv expIntervals, control bool) expR
 	identified.add(vID)
 	t2Start := time.Now()
 	res.t2, ok = events.waitFor(t2Start, expTimeout, func() bool {
-		return connectedCount(vNet, ids) == expNumExisting
+		return linkedCount(vNet, existingMes) == expNumExisting
 	})
 	if !ok {
-		res.timedOut = fmt.Sprintf("t2: only %d/%d connected after timeout", connectedCount(vNet, ids), expNumExisting)
+		res.timedOut = fmt.Sprintf("t2: only %d/%d connected after timeout", linkedCount(vNet, existingMes), expNumExisting)
 	}
 	return res
 }

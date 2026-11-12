@@ -317,7 +317,7 @@ func TestNewNetworkMessenger_RegularNodeConnMgrUsesConfiguredWatermarks(t *testi
 	arg.P2pConfig.ConnectionManager = config.ConnectionManagerConfig{
 		LowWater:         40,
 		HighWater:        50,
-		GracePeriodInSec: 5,
+		GracePeriodInSec: 30,
 	}
 
 	mes, err := libp2p.NewNetworkMessenger(arg)
@@ -329,7 +329,7 @@ func TestNewNetworkMessenger_RegularNodeConnMgrUsesConfiguredWatermarks(t *testi
 	info := cm.GetInfo()
 	assert.Equal(t, 40, info.LowWater)
 	assert.Equal(t, 50, info.HighWater)
-	assert.Equal(t, 5*time.Second, info.GracePeriod)
+	assert.Equal(t, 30*time.Second, info.GracePeriod)
 }
 
 func TestNetworkMessenger_SetPeerShardResolverConcurrentWithReadsIsRaceFree(t *testing.T) {
@@ -353,7 +353,7 @@ func TestNetworkMessenger_SetPeerShardResolverConcurrentWithReadsIsRaceFree(t *t
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 50; i++ {
-			_ = mes1.SetPeerShardResolver(resolver)
+			assert.NoError(t, mes1.SetPeerShardResolver(resolver))
 		}
 	}()
 	go func() {

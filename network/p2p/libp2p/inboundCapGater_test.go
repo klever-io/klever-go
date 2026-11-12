@@ -180,7 +180,9 @@ func TestNetworkMessenger_GaterRefusesUnknownDialAtCapButAdmitsValidator(t *test
 	}
 
 	refused := newLocalPeerHost(t)
-	_ = dial(5*time.Second, refused) // the dialer may or may not see the refusal as an error
+	// The dialer may or may not see the refusal as an error (the gater can refuse after the dialer's
+	// side has completed its upgrade), so the outcome is asserted on the node's side below.
+	_ = dial(5*time.Second, refused)
 	assert.Never(t, func() bool {
 		return mes.Host().Network().Connectedness(refused.ID()) == network.Connected
 	}, 500*time.Millisecond, 20*time.Millisecond, "an unknown peer over the cap must be refused at admission")
