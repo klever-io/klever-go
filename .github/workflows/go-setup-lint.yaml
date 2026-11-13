@@ -14,7 +14,7 @@ on:
       golangci-lint-version:
         required: false
         type: string
-        default: 'latest'
+        default: 'v2.15.0'
     secrets:
       git-user:
         required: false
@@ -32,7 +32,7 @@ jobs:
       lint-results: ${{ steps.lint.outputs.results }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -72,12 +72,26 @@ jobs:
 
       - name: Run golangci-lint
         run: |
-          golangci-lint run --output.checkstyle.path=golangci-report.xml || true
+          # SonarQube enforces ordinary findings; execution errors must fail CI.
+          golangci-lint run --issues-exit-code=0 \
+            --output.checkstyle.path=golangci-report.xml \
+            --output.json.path=golangci-report.json
+
+          # Typecheck failures are reported as findings, but prevent complete analysis.
+          if ! jq -e 'has("Issues") and all(.Issues[]?; .FromLinter != "typecheck")' golangci-report.json > /dev/null; then
+            echo "::error::golangci-lint reported typecheck failures or an invalid report."
+            exit 1
+          fi
+          test -s golangci-report.xml
 
       - name: Upload lint results
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: lint-results
-          path: golangci-report.xml
+          path: |
+            golangci-report.xml
+            golangci-report.json
+          if-no-files-found: error
           retention-days: 1
           overwrite: true
