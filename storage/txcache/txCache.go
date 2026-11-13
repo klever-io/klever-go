@@ -255,6 +255,8 @@ func (cache *TxCache) GetBySenderPaginated(sender []byte, page int, pageSize int
 	if !ok {
 		return make([]interface{}, 0), 0
 	}
+	listForSender.mutex.RLock()
+	defer listForSender.mutex.RUnlock()
 
 	l := listForSender.items.Len()
 	idx := page * pageSize

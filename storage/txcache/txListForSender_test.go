@@ -3,6 +3,7 @@ package txcache
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -107,6 +108,26 @@ func TestListForSender_AddTx_AppliesSizeConstraintsForNumBytes(t *testing.T) {
 	require.Equal(t, []string{"tx3++", "tx4", "tx5--"}, list.getTxHashesAsStrings())
 	require.Equal(t, []string{}, hashesAsStrings(evicted))
 
+}
+
+func TestListForSender_AddTx_EvictsFromBackUntilWithinCapacity(t *testing.T) {
+	list := newListToTest(1024, math.MaxUint32)
+	fresh := time.Now().Add(time.Hour).Unix()
+	add := func(hash string, nonce uint64, size uint64) [][]byte {
+		tx := createTxWithParams([]byte(hash), ".", nonce, size, 42)
+		tx.ExpireOn = fresh
+		_, evicted := list.AddTx(tx)
+		return evicted
+	}
+
+	add("tx2", 2, 256)
+	add("tx3", 3, 256)
+	add("tx4", 4, 256)
+
+	// 768 + 768 bytes is over 1024 by two 256-byte txs, so two evictions from the back
+	evicted := add("tx1", 1, 768)
+	require.Equal(t, []string{"tx4", "tx3"}, hashesAsStrings(evicted))
+	require.Equal(t, []string{"tx1", "tx2"}, list.getTxHashesAsStrings())
 }
 
 func TestListForSender_findTx(t *testing.T) {
