@@ -125,3 +125,36 @@ func TestNumGoRoutinesThrottler_TryStartProcessingNeverExceedsMax(t *testing.T) 
 	assert.True(t, nt.TryStartProcessing())
 	assert.False(t, nt.TryStartProcessing())
 }
+
+func TestNumGoRoutinesThrottler_TryStartProcessingKeepsLimitWhileSlotsAreReleased(t *testing.T) {
+	t.Parallel()
+
+	const max = 4
+	nt, _ := throttler.NewNumGoRoutinesThrottler(max)
+
+	inFlight, exceeded := int32(0), int32(0)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < 200; j++ {
+				if !nt.TryStartProcessing() {
+					continue
+				}
+				if atomic.AddInt32(&inFlight, 1) > max {
+					atomic.StoreInt32(&exceeded, 1)
+				}
+				atomic.AddInt32(&inFlight, -1)
+				nt.EndProcessing()
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	assert.Zero(t, atomic.LoadInt32(&exceeded), "more than max callers held a slot at once")
+	assert.True(t, nt.CanProcess())
+}

@@ -106,7 +106,8 @@ func (u *userAccountsSyncer) syncAccountDataTries(rootHashes [][]byte, ssh data.
 	wg.Add(len(rootHashes))
 
 	for _, rootHash := range rootHashes {
-		for !u.throttler.CanProcess() {
+		// Take the slot here, not in the goroutine, so the loop cannot start more than the limit
+		for !u.throttler.TryStartProcessing() {
 			select {
 			case <-time.After(timeBetweenRetries):
 				continue
@@ -116,13 +117,15 @@ func (u *userAccountsSyncer) syncAccountDataTries(rootHashes [][]byte, ssh data.
 		}
 
 		go func(trieRootHash []byte) {
+			defer wg.Done()
+			defer u.throttler.EndProcessing() // runs before wg.Done, so no slot is held once Wait returns
+
 			newErr := u.syncDataTrie(trieRootHash, ssh, ctx)
 			if newErr != nil {
 				errMutex.Lock()
 				errFound = newErr
 				errMutex.Unlock()
 			}
-			wg.Done()
 		}(rootHash)
 	}
 
@@ -135,9 +138,6 @@ func (u *userAccountsSyncer) syncAccountDataTries(rootHashes [][]byte, ssh data.
 }
 
 func (u *userAccountsSyncer) syncDataTrie(rootHash []byte, ssh data.SyncStatisticsHandler, ctx context.Context) error {
-	u.throttler.StartProcessing()
-	defer u.throttler.EndProcessing()
-
 	u.syncerMutex.Lock()
 	if _, ok := u.dataTries[string(rootHash)]; ok {
 		u.syncerMutex.Unlock()

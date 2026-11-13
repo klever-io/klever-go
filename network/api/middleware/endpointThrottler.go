@@ -17,11 +17,6 @@ type throttlerGetter interface {
 	GetThrottlerForEndpoint(endpoint string) (core.Throttler, bool)
 }
 
-// tryStarter is a throttler that can check its limit and take a slot in one atomic step
-type tryStarter interface {
-	TryStartProcessing() bool
-}
-
 // CreateEndpointThrottler will create a middleware-type of handler to be used in conjunction with special
 // REST API end points that need to be better protected
 func CreateEndpointThrottler(throttlerName string) gin.HandlerFunc {
@@ -65,7 +60,7 @@ func CreateEndpointThrottler(throttlerName string) gin.HandlerFunc {
 			return
 		}
 
-		if !tryStartProcessing(endpointThrottler) {
+		if !endpointThrottler.TryStartProcessing() {
 			c.AbortWithStatusJSON(
 				http.StatusTooManyRequests,
 				shared.GenericAPIResponse{
@@ -81,20 +76,6 @@ func CreateEndpointThrottler(throttlerName string) gin.HandlerFunc {
 
 		c.Next()
 	}
-}
-
-// tryStartProcessing takes a slot if one is free, atomically when the throttler supports it
-func tryStartProcessing(throttler core.Throttler) bool {
-	if ts, ok := throttler.(tryStarter); ok {
-		return ts.TryStartProcessing()
-	}
-
-	if !throttler.CanProcess() {
-		return false
-	}
-	throttler.StartProcessing()
-
-	return true
 }
 
 // bufferRequestBody reads the whole request body and puts it back for the handler.

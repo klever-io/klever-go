@@ -26,7 +26,7 @@ func accountLeafWithRootHash(t *testing.T, rootHash []byte) data.KeyValueHolder 
 func TestUserAccountsSyncer_FindAllAccountRootHashesReportsATruncatedWalk(t *testing.T) {
 	t.Parallel()
 
-	syncer, _ := newTestUserAccountsSyncer(t, 2)
+	syncer := newTestUserAccountsSyncer(t, newTestThrottler(t, 2))
 
 	expectedErr := errors.New("trie iteration failed")
 	mainTrie := &mock.TrieStub{
@@ -45,7 +45,7 @@ func TestUserAccountsSyncer_FindAllAccountRootHashesReportsATruncatedWalk(t *tes
 func TestUserAccountsSyncer_FindAllAccountRootHashesReturnsEveryDataTrie(t *testing.T) {
 	t.Parallel()
 
-	syncer, _ := newTestUserAccountsSyncer(t, 2)
+	syncer := newTestUserAccountsSyncer(t, newTestThrottler(t, 2))
 
 	mainTrie := &mock.TrieStub{
 		RootCalled: func() ([]byte, error) { return []byte("root"), nil },

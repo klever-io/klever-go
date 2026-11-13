@@ -100,7 +100,8 @@ func (k *kappAccountsSyncer) syncAccountDataTries(rootHashes [][]byte, ssh data.
 	wg.Add(len(rootHashes))
 
 	for _, rootHash := range rootHashes {
-		for !k.throttler.CanProcess() {
+		// Take the slot here, not in the goroutine, so the loop cannot start more than the limit
+		for !k.throttler.TryStartProcessing() {
 			select {
 			case <-time.After(timeBetweenRetries):
 				continue
@@ -110,13 +111,15 @@ func (k *kappAccountsSyncer) syncAccountDataTries(rootHashes [][]byte, ssh data.
 		}
 
 		go func(trieRootHash []byte) {
+			defer wg.Done()
+			defer k.throttler.EndProcessing() // runs before wg.Done, so no slot is held once Wait returns
+
 			newErr := k.syncDataTrie(trieRootHash, ssh, ctx)
 			if newErr != nil {
 				errMutex.Lock()
 				errFound = newErr
 				errMutex.Unlock()
 			}
-			wg.Done()
 		}(rootHash)
 	}
 
@@ -129,9 +132,6 @@ func (k *kappAccountsSyncer) syncAccountDataTries(rootHashes [][]byte, ssh data.
 }
 
 func (k *kappAccountsSyncer) syncDataTrie(rootHash []byte, ssh data.SyncStatisticsHandler, ctx context.Context) error {
-	k.throttler.StartProcessing()
-	defer k.throttler.EndProcessing()
-
 	k.syncerMutex.Lock()
 	if _, ok := k.dataTries[string(rootHash)]; ok {
 		k.syncerMutex.Unlock()

@@ -17,6 +17,11 @@ func (d *disabledThrottler) CanProcess() bool {
 func (d *disabledThrottler) StartProcessing() {
 }
 
+// TryStartProcessing will return true always
+func (d *disabledThrottler) TryStartProcessing() bool {
+	return true
+}
+
 // EndProcessing won't do anything
 func (d *disabledThrottler) EndProcessing() {
 }

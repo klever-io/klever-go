@@ -26,7 +26,7 @@ func kappLeafWithRootHash(t *testing.T, rootHash []byte) data.KeyValueHolder {
 func TestKappAccountsSyncer_FindAllAccountRootHashesReportsATruncatedWalk(t *testing.T) {
 	t.Parallel()
 
-	syncer, _ := newTestKappAccountsSyncer(t, 2)
+	syncer := newTestKappAccountsSyncer(t, newTestThrottler(t, 2))
 
 	expectedErr := errors.New("trie iteration failed")
 	mainTrie := &mock.TrieStub{
@@ -45,7 +45,7 @@ func TestKappAccountsSyncer_FindAllAccountRootHashesReportsATruncatedWalk(t *tes
 func TestKappAccountsSyncer_FindAllAccountRootHashesReturnsEveryDataTrie(t *testing.T) {
 	t.Parallel()
 
-	syncer, _ := newTestKappAccountsSyncer(t, 2)
+	syncer := newTestKappAccountsSyncer(t, newTestThrottler(t, 2))
 
 	mainTrie := &mock.TrieStub{
 		RootCalled: func() ([]byte, error) { return []byte("root"), nil },

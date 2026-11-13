@@ -20,6 +20,7 @@ type messageProcessor struct {
 	topic            string
 }
 
+// canProcessMessage takes a throttler slot when it returns nil; the caller must release it
 func (mp *messageProcessor) canProcessMessage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error {
 	if check.IfNil(message) {
 		return common.ErrNilMessage
@@ -32,7 +33,7 @@ func (mp *messageProcessor) canProcessMessage(message p2p.MessageP2P, fromConnec
 	if err != nil {
 		return fmt.Errorf("%w on resolver topic %s", err, mp.topic)
 	}
-	if !mp.throttler.CanProcess() {
+	if !mp.throttler.TryStartProcessing() {
 		return fmt.Errorf("%w on resolver topic %s", common.ErrSystemBusy, mp.topic)
 	}
 

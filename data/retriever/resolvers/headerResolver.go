@@ -124,7 +124,6 @@ func (hdrRes *HeaderResolver) ProcessReceivedMessage(message p2p.MessageP2P, fro
 		return err
 	}
 
-	hdrRes.throttler.StartProcessing()
 	defer hdrRes.throttler.EndProcessing()
 
 	rd, err := hdrRes.parseReceivedMessage(message, fromConnectedPeer)

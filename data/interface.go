@@ -233,7 +233,7 @@ type ValidatorInfoHandler interface {
 // GoRoutineThrottler can monitor the number of the currently running go routines
 type GoRoutineThrottler interface {
 	CanProcess() bool
-	StartProcessing()
+	TryStartProcessing() bool
 	EndProcessing()
 	IsInterfaceNil() bool
 }
