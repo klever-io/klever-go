@@ -8,7 +8,7 @@ type BoostrapStorerMock struct {
 	GetCalled                         func(slot int64) (*bootstrapStorage.BootstrapData, error)
 	GetHighestSlotCalled              func() int64
 	SaveLastSlotCalled                func(slot int64) error
-	RaiseHighestFinalBlockNonceCalled func(slot int64, nonce uint64) error
+	RaiseHighestFinalBlockNonceCalled func(slot int64, nonce uint64, headerHash []byte) error
 }
 
 // Put -
@@ -36,9 +36,9 @@ func (bsm *BoostrapStorerMock) SaveLastSlot(slot int64) error {
 	return nil
 }
 
-func (bsm *BoostrapStorerMock) RaiseHighestFinalBlockNonce(slot int64, nonce uint64) error {
+func (bsm *BoostrapStorerMock) RaiseHighestFinalBlockNonce(slot int64, nonce uint64, headerHash []byte) error {
 	if bsm.RaiseHighestFinalBlockNonceCalled != nil {
-		return bsm.RaiseHighestFinalBlockNonceCalled(slot, nonce)
+		return bsm.RaiseHighestFinalBlockNonceCalled(slot, nonce, headerHash)
 	}
 	return nil
 }

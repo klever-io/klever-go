@@ -1,6 +1,7 @@
 package bootstrapStorage_test
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -152,7 +153,7 @@ func TestBootstrapStorer_RaiseHighestFinalBlockNonceShouldChangeOnlyTheFinalNonc
 	assert.Nil(t, err)
 	numPutsBefore := numPuts()
 
-	err = bt.RaiseHighestFinalBlockNonce(9, 4)
+	err = bt.RaiseHighestFinalBlockNonce(9, 4, []byte("hash4"))
 	assert.Nil(t, err)
 
 	olderAfter, err := bt.Get(9)
@@ -191,7 +192,7 @@ func TestBootstrapStorer_RaiseHighestFinalBlockNonceShouldNotLowerTheStoredNonce
 	numPutsBefore := numPuts()
 
 	for _, nonce := range []uint64{4, 3, 0} {
-		err = bt.RaiseHighestFinalBlockNonce(10, nonce)
+		err = bt.RaiseHighestFinalBlockNonce(10, nonce, []byte("hash5"))
 		assert.Nil(t, err)
 
 		after, errGet := bt.Get(10)
@@ -200,7 +201,7 @@ func TestBootstrapStorer_RaiseHighestFinalBlockNonceShouldNotLowerTheStoredNonce
 		assert.Equal(t, numPutsBefore, numPuts())
 	}
 
-	err = bt.RaiseHighestFinalBlockNonce(10, 5)
+	err = bt.RaiseHighestFinalBlockNonce(10, 5, []byte("hash5"))
 	assert.Nil(t, err)
 
 	after, err := bt.Get(10)
@@ -215,11 +216,140 @@ func TestBootstrapStorer_RaiseHighestFinalBlockNonceMissingRecordShouldErr(t *te
 	bt, numPuts := newBootstrapStorerWithConsecutiveSlots(t)
 	numPutsBefore := numPuts()
 
-	err := bt.RaiseHighestFinalBlockNonce(7, 4)
+	err := bt.RaiseHighestFinalBlockNonce(7, 4, []byte("hash4"))
 	assert.NotNil(t, err)
 
 	_, err = bt.Get(7)
 	assert.NotNil(t, err)
 	assert.Equal(t, numPutsBefore, numPuts())
 	assert.Equal(t, int64(10), bt.GetHighestSlot())
+}
+
+func TestBootstrapStorer_RaiseHighestFinalBlockNonceOtherHeaderShouldErr(t *testing.T) {
+	t.Parallel()
+
+	bt, numPuts := newBootstrapStorerWithConsecutiveSlots(t)
+
+	before, err := bt.Get(9)
+	assert.Nil(t, err)
+	numPutsBefore := numPuts()
+
+	err = bt.RaiseHighestFinalBlockNonce(9, 4, []byte("hash5"))
+	assert.Equal(t, bootstrapStorage.ErrBootDataHeaderMismatch, err)
+
+	after, err := bt.Get(9)
+	assert.Nil(t, err)
+	assert.Equal(t, before, after)
+	assert.Equal(t, numPutsBefore, numPuts())
+	assert.Equal(t, int64(10), bt.GetHighestSlot())
+}
+
+func TestBootstrapStorer_RaiseHighestFinalBlockNonceAboveTheHeaderNonceShouldErr(t *testing.T) {
+	t.Parallel()
+
+	bt, numPuts := newBootstrapStorerWithConsecutiveSlots(t)
+
+	before, err := bt.Get(9)
+	assert.Nil(t, err)
+	numPutsBefore := numPuts()
+
+	err = bt.RaiseHighestFinalBlockNonce(9, 5, []byte("hash4"))
+	assert.Equal(t, bootstrapStorage.ErrFinalNonceAboveHeader, err)
+
+	after, err := bt.Get(9)
+	assert.Nil(t, err)
+	assert.Equal(t, before, after)
+	assert.Equal(t, numPutsBefore, numPuts())
+}
+
+func TestBootstrapStorer_RaiseHighestFinalBlockNonceStorageFailureShouldErrAndKeepTheRecord(t *testing.T) {
+	t.Parallel()
+
+	errExpected := errors.New("expected error")
+	recordKey := []byte("9")
+
+	newFailingBootstrapStorer := func(t *testing.T) (process.BootStorer, *mock.StorerMock, *bool, *bool) {
+		failMarshal, failPut := false, false
+		inner := mock.NewStorerMock("", 1)
+		storer := &mock.StorerStub{
+			PutCalled: func(key, data []byte) error {
+				if failPut {
+					return errExpected
+				}
+				return inner.Put(key, data)
+			},
+			GetCalled: inner.Get,
+		}
+		marshalizer := &mock.MarshalizerStub{
+			MarshalCalled: func(obj interface{}) ([]byte, error) {
+				if failMarshal {
+					return nil, errExpected
+				}
+				return testMarshalizer.Marshal(obj)
+			},
+			UnmarshalCalled: testMarshalizer.Unmarshal,
+		}
+		bt, err := bootstrapStorage.NewBootstrapStorer(marshalizer, storer)
+		assert.Nil(t, err)
+
+		for nonce := uint64(3); nonce <= 5; nonce++ {
+			err = bt.Put(int64(nonce)+5, &bootstrapStorage.BootstrapData{
+				LastHeader:             &bootstrapStorage.BootstrapHeaderInfo{Epoch: 1, Nonce: nonce, Hash: []byte(fmt.Sprintf("hash%d", nonce))},
+				HighestFinalBlockNonce: nonce - 1,
+			})
+			assert.Nil(t, err)
+		}
+
+		return bt, inner, &failMarshal, &failPut
+	}
+
+	t.Run("invalid stored record", func(t *testing.T) {
+		t.Parallel()
+
+		bt, inner, _, _ := newFailingBootstrapStorer(t)
+		invalidRecord := []byte("not a boot record")
+		assert.Nil(t, inner.Put(recordKey, invalidRecord))
+
+		err := bt.RaiseHighestFinalBlockNonce(9, 4, []byte("hash4"))
+		assert.NotNil(t, err)
+
+		stored, err := inner.Get(recordKey)
+		assert.Nil(t, err)
+		assert.Equal(t, invalidRecord, stored)
+		assert.Equal(t, int64(10), bt.GetHighestSlot())
+	})
+
+	t.Run("marshal failure", func(t *testing.T) {
+		t.Parallel()
+
+		bt, inner, failMarshal, _ := newFailingBootstrapStorer(t)
+		storedBefore, err := inner.Get(recordKey)
+		assert.Nil(t, err)
+
+		*failMarshal = true
+		err = bt.RaiseHighestFinalBlockNonce(9, 4, []byte("hash4"))
+		assert.Equal(t, errExpected, err)
+
+		storedAfter, err := inner.Get(recordKey)
+		assert.Nil(t, err)
+		assert.Equal(t, storedBefore, storedAfter)
+		assert.Equal(t, int64(10), bt.GetHighestSlot())
+	})
+
+	t.Run("put failure", func(t *testing.T) {
+		t.Parallel()
+
+		bt, inner, _, failPut := newFailingBootstrapStorer(t)
+		storedBefore, err := inner.Get(recordKey)
+		assert.Nil(t, err)
+
+		*failPut = true
+		err = bt.RaiseHighestFinalBlockNonce(9, 4, []byte("hash4"))
+		assert.Equal(t, errExpected, err)
+
+		storedAfter, err := inner.Get(recordKey)
+		assert.Nil(t, err)
+		assert.Equal(t, storedBefore, storedAfter)
+		assert.Equal(t, int64(10), bt.GetHighestSlot())
+	})
 }

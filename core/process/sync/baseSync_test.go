@@ -608,22 +608,27 @@ func TestSyncBlock_ForcedForkShouldRollBackOneBlock(t *testing.T) {
 	assert.Equal(t, 1, sim.numResetFork)
 }
 
+const syncLoggerName = "process/sync"
+
 type warnRecorder struct {
-	message string
-	level   logger.LogLevel
-	mut     sync.Mutex
-	lines   [][]string
+	message  string
+	level    logger.LogLevel
+	mut      sync.Mutex
+	lines    [][]string
+	messages []string
 }
 
 func (r *warnRecorder) Write(p []byte) (int, error) { return len(p), nil }
 
 func (r *warnRecorder) Output(line logger.LogLineHandler) []byte {
-	if line.GetMessage() != r.message || line.GetLogLevel() != int32(r.level) {
+	isOtherMessage := r.message != "" && line.GetMessage() != r.message
+	if isOtherMessage || line.GetLoggerName() != syncLoggerName || line.GetLogLevel() != int32(r.level) {
 		return nil
 	}
 
 	r.mut.Lock()
 	r.lines = append(r.lines, line.GetArgs())
+	r.messages = append(r.messages, line.GetMessage())
 	r.mut.Unlock()
 
 	return nil
@@ -638,10 +643,23 @@ func (r *warnRecorder) snapshot() [][]string {
 	return append([][]string(nil), r.lines...)
 }
 
+func (r *warnRecorder) loggedMessages() []string {
+	r.mut.Lock()
+	defer r.mut.Unlock()
+
+	return append([]string(nil), r.messages...)
+}
+
 func observeWarn(t *testing.T, message string) *warnRecorder {
 	t.Helper()
 
 	return observeLog(t, message, logger.LogWarning)
+}
+
+func observeAllWarn(t *testing.T) *warnRecorder {
+	t.Helper()
+
+	return observeLog(t, "", logger.LogWarning)
 }
 
 func observeLog(t *testing.T, message string, level logger.LogLevel) *warnRecorder {
@@ -771,9 +789,13 @@ func TestSyncBlock_ForcedForkWithUnavailableTargetStateShouldKeepHead(t *testing
 
 	forceOneBlockRollBack(boot)
 	sim.checkStateErr = fmt.Errorf("%w: validators trie, nonce 4", process.ErrStateNotAvailable)
+	warnings := observeAllWarn(t)
 
 	err := boot.syncBlock()
 	require.NoError(t, err)
+
+	assert.Equal(t, []string{warnRollBackRefused}, warnings.loggedMessages(),
+		"the refusal must be logged once at warn level")
 
 	sim.mut.Lock()
 	defer sim.mut.Unlock()
@@ -783,6 +805,106 @@ func TestSyncBlock_ForcedForkWithUnavailableTargetStateShouldKeepHead(t *testing
 	assert.Equal(t, 0, sim.numReverts, "state must not be reverted")
 	assert.Equal(t, []uint64{4}, sim.checkedStateNonces)
 	assert.Equal(t, 1, sim.numResetFork)
+}
+
+func forkAtHead(boot *baseBootstrap) {
+	forkDetector := boot.forkDetector.(*mock.ForkDetectorMock)
+	forkDetector.CheckForkCalled = func() *process.ForkInfo {
+		forkInfo := process.NewForkInfo()
+		forkInfo.IsDetected = true
+		forkInfo.Nonce = 5
+		forkInfo.Slot = 10
+		forkInfo.Hash = []byte("other-h5")
+		return forkInfo
+	}
+}
+
+func TestSyncBlock_ForkWithUnavailableTargetStateShouldWarnOnceForRepeatedAttempts(t *testing.T) {
+	sim, boot := newSyncSim(t)
+
+	forkAtHead(boot)
+	sim.checkStateErr = fmt.Errorf("%w: validators trie, nonce 4", process.ErrStateNotAvailable)
+	warnings := observeAllWarn(t)
+
+	for i := 0; i < 3; i++ {
+		err := boot.syncBlock()
+		require.ErrorIs(t, err, process.ErrStateNotAvailable)
+	}
+
+	assert.Equal(t, []string{warnRollBackRefused}, warnings.loggedMessages(),
+		"attempts repeated in the same slot must warn once")
+	sim.mut.Lock()
+	defer sim.mut.Unlock()
+	assert.Equal(t, uint64(5), sim.current.GetNonce(), "the committed block must stay the head")
+	assert.Equal(t, 0, sim.numReverts, "state must not be reverted")
+	assert.Equal(t, []uint64{4, 4, 4}, sim.checkedStateNonces)
+}
+
+func TestRollBackOneBlockForced_RepeatedRefusalInTheSameSlotShouldWarnOnce(t *testing.T) {
+	sim, boot := newSyncSim(t)
+
+	sim.checkStateErr = fmt.Errorf("%w: validators trie, nonce 4", process.ErrStateNotAvailable)
+	warnings := observeAllWarn(t)
+
+	boot.rollBackOneBlockForced()
+	boot.rollBackOneBlockForced()
+
+	assert.Equal(t, []string{warnRollBackRefused}, warnings.loggedMessages())
+	sim.mut.Lock()
+	defer sim.mut.Unlock()
+	assert.Equal(t, uint64(5), sim.current.GetNonce(), "the committed block must stay the head")
+	assert.Equal(t, 0, sim.numReverts, "state must not be reverted")
+}
+
+func TestSyncBlock_ForcedForkBehindFinalBlockShouldNotWarn(t *testing.T) {
+	sim, boot := newSyncSim(t)
+
+	forceOneBlockRollBack(boot)
+	sim.finalNonce = 5
+	warnings := observeAllWarn(t)
+	refusals := observeLog(t, "rollBackOneBlockForced", logger.LogDebug)
+
+	err := boot.syncBlock()
+	require.NoError(t, err)
+
+	assert.Empty(t, warnings.loggedMessages(), "an expected refusal must not warn")
+	lines := refusals.snapshot()
+	require.Len(t, lines, 1, "the refusal must still be logged at debug level")
+	assert.Equal(t, []string{"error", ErrRollBackBehindFinalHeader.Error()}, lines[0])
+
+	sim.mut.Lock()
+	defer sim.mut.Unlock()
+	assert.Equal(t, uint64(5), sim.current.GetNonce(), "the final block must stay the head")
+	assert.Equal(t, 0, sim.numReverts, "state must not be reverted")
+	assert.Empty(t, sim.checkedStateNonces)
+}
+
+func TestDoJobOnSyncBlockFail_RollBackBehindFinalBlockShouldNotWarn(t *testing.T) {
+	sim, boot := newSyncSim(t)
+
+	sim.finalNonce = 5
+	warnings := observeAllWarn(t)
+	refusals := observeLog(t, "rollBack", logger.LogDebug)
+
+	boot.doJobOnSyncBlockFail(sim.queued, process.ErrInvalidTXCount, sim.index())
+	boot.doJobOnSyncBlockFail(sim.queued, process.ErrInvalidTXCount, sim.index())
+
+	assert.Empty(t, warnings.loggedMessages(), "an expected refusal must not warn, however often a block fails")
+	assert.Len(t, refusals.snapshot(), 2, "each refusal must still be logged at debug level")
+
+	sim.mut.Lock()
+	defer sim.mut.Unlock()
+	assert.Equal(t, uint64(5), sim.current.GetNonce(), "the final block must stay the head")
+	assert.Equal(t, 0, sim.numReverts, "state must not be reverted")
+}
+
+func TestRollBackErrorLogLevel_OnlyUnexpectedFailuresShouldWarn(t *testing.T) {
+	assert.Equal(t, logger.LogDebug, rollBackErrorLogLevel(ErrRollBackBehindFinalHeader))
+	assert.Equal(t, logger.LogDebug, rollBackErrorLogLevel(process.ErrNilBlockHeader))
+	assert.Equal(t, logger.LogDebug,
+		rollBackErrorLogLevel(fmt.Errorf("%w: validators trie, nonce 4", process.ErrStateNotAvailable)))
+	assert.Equal(t, logger.LogWarning, rollBackErrorLogLevel(ErrRollBackBehindForkNonce))
+	assert.Equal(t, logger.LogWarning, rollBackErrorLogLevel(errSimStorage))
 }
 
 func TestDoJobOnSyncBlockFail_TimeoutAtErrorLimitShouldRollBackOneBlock(t *testing.T) {
@@ -808,9 +930,12 @@ func TestDoJobOnSyncBlockFail_TimeoutAtErrorLimitWithUnavailableTargetStateShoul
 	sim.setSlot(process.SlotModulusTrigger * 2)
 	boot.SetNumSyncedWithErrorsForNonce(6, process.MaxSyncWithErrorsAllowed)
 	sim.checkStateErr = fmt.Errorf("%w: validators trie, nonce 4", process.ErrStateNotAvailable)
+	warnings := observeAllWarn(t)
 
 	boot.doJobOnSyncBlockFail(nil, process.ErrTimeIsOut, sim.index())
 
+	assert.Equal(t, []string{warnRollBackRefused}, warnings.loggedMessages(),
+		"the refusal must be logged once at warn level")
 	sim.mut.Lock()
 	defer sim.mut.Unlock()
 	assert.Equal(t, uint64(5), sim.current.GetNonce(), "the committed block must stay the head")
@@ -826,8 +951,8 @@ const warnFinalNonceNotSaved = "roll back: highest final block nonce not saved i
 func recordBootStorerCalls(boot *baseBootstrap) *[]string {
 	calls := &[]string{}
 	bootStorer := boot.bootStorer.(*mock.BoostrapStorerMock)
-	bootStorer.RaiseHighestFinalBlockNonceCalled = func(slot int64, nonce uint64) error {
-		*calls = append(*calls, fmt.Sprintf("raise final nonce of slot %d to %d", slot, nonce))
+	bootStorer.RaiseHighestFinalBlockNonceCalled = func(slot int64, nonce uint64, headerHash []byte) error {
+		*calls = append(*calls, fmt.Sprintf("raise final nonce of slot %d to %d for %s", slot, nonce, headerHash))
 		return nil
 	}
 	bootStorer.SaveLastSlotCalled = func(slot int64) error {
@@ -838,8 +963,8 @@ func recordBootStorerCalls(boot *baseBootstrap) *[]string {
 	return calls
 }
 
-func TestRollBack_ShouldPersistNewHeadAsFinalBlock(t *testing.T) {
-	sim, boot := newSyncSim(t)
+func useBootStorerWithCommittedBlocks(t *testing.T, boot *baseBootstrap) process.BootStorer {
+	t.Helper()
 
 	bootStorer, err := bootstrapStorage.NewBootstrapStorer(boot.marshalizer, mock.NewStorerMock("", 0))
 	require.NoError(t, err)
@@ -851,6 +976,14 @@ func TestRollBack_ShouldPersistNewHeadAsFinalBlock(t *testing.T) {
 		require.NoError(t, err)
 	}
 	boot.bootStorer = bootStorer
+
+	return bootStorer
+}
+
+func TestRollBack_ShouldPersistNewHeadAsFinalBlock(t *testing.T) {
+	sim, boot := newSyncSim(t)
+
+	bootStorer := useBootStorerWithCommittedBlocks(t, boot)
 
 	headBefore, err := bootStorer.Get(9)
 	require.NoError(t, err)
@@ -888,7 +1021,7 @@ func TestRollBack_ShouldNotPersistAFinalBlockAboveTheForkDetector(t *testing.T) 
 	err := boot.rollBack(false)
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"raise final nonce of slot 9 to 3", "save last slot 9"}, *calls,
+	assert.Equal(t, []string{"raise final nonce of slot 9 to 3 for h4", "save last slot 9"}, *calls,
 		"the record is updated before the highest slot is moved to it")
 }
 
@@ -902,7 +1035,7 @@ func TestRollBack_ShouldNotPersistAFinalBlockAboveTheNewHead(t *testing.T) {
 	err := boot.rollBack(true)
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"raise final nonce of slot 9 to 4", "save last slot 9"}, *calls)
+	assert.Equal(t, []string{"raise final nonce of slot 9 to 4 for h4", "save last slot 9"}, *calls)
 }
 
 func TestRollBack_ToGenesisShouldNotRaiseFinalNonceInBootStorage(t *testing.T) {
@@ -938,7 +1071,7 @@ func TestRollBack_RefusedRollBackShouldNotTouchBootStorage(t *testing.T) {
 	err = boot.rollBack(false)
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"raise final nonce of slot 9 to 4", "save last slot 9"}, *calls,
+	assert.Equal(t, []string{"raise final nonce of slot 9 to 4 for h4", "save last slot 9"}, *calls,
 		"an accepted roll back of the same node does reach the boot storage")
 }
 
@@ -946,7 +1079,7 @@ func TestRollBack_BootStorageFailureShouldNotAbortRollBack(t *testing.T) {
 	sim, boot := newSyncSim(t)
 
 	calls := recordBootStorerCalls(boot)
-	boot.bootStorer.(*mock.BoostrapStorerMock).RaiseHighestFinalBlockNonceCalled = func(_ int64, _ uint64) error {
+	boot.bootStorer.(*mock.BoostrapStorerMock).RaiseHighestFinalBlockNonceCalled = func(_ int64, _ uint64, _ []byte) error {
 		return errSimStorage
 	}
 	recorder := observeWarn(t, warnFinalNonceNotSaved)
@@ -967,22 +1100,30 @@ func TestRollBack_BootStorageFailureShouldNotAbortRollBack(t *testing.T) {
 	assert.Equal(t, []string{"save last slot 9"}, *calls, "the highest slot must still be moved")
 }
 
-func restoreForkDetectorFromStorage(t *testing.T, boot *baseBootstrap, headers ...*block.Block) *metaForkDetector {
+func restoreForkDetectorFromStorage(t *testing.T, sim *syncSim, boot *baseBootstrap) *metaForkDetector {
 	t.Helper()
+
+	record, err := boot.bootStorer.Get(boot.bootStorer.GetHighestSlot())
+	require.NoError(t, err)
 
 	forkDetector, err := NewMetaForkDetector(boot.slotManager, &mock.BlackListHandlerStub{}, 0)
 	require.NoError(t, err)
 
 	slotSeconds := int64(boot.slotManager.TimeDuration().Seconds())
-	for _, header := range headers {
+	for nonce := record.HighestFinalBlockNonce; nonce <= record.LastHeader.Nonce; nonce++ {
+		hash := []byte(fmt.Sprintf("h%d", nonce))
+		sim.mut.Lock()
+		header := sim.byHash[string(hash)]
+		sim.mut.Unlock()
+		require.NotNil(t, header)
 		header.Header.Timestamp = tools.SafeU64ToI64(header.GetSlot()) * slotSeconds
-		hash := []byte(fmt.Sprintf("h%d", header.GetNonce()))
 		require.NoError(t, forkDetector.AddHeader(header, hash, process.BHProcessed, nil, nil))
 	}
 
-	if len(headers) == 1 {
+	if record.HighestFinalBlockNonce == record.LastHeader.Nonce {
 		forkDetector.SetFinalToLastCheckpoint()
 	}
+	require.Equal(t, record.HighestFinalBlockNonce, forkDetector.GetHighestFinalBlockNonce())
 
 	return forkDetector
 }
@@ -991,14 +1132,14 @@ func TestRollBack_HeadRestoredAsFinalBlockShouldRefuseAnotherRollBack(t *testing
 	sim, boot := newSyncSim(t)
 
 	sim.byHash["h3"] = newHeader(3, 8, []byte("h2"))
+	useBootStorerWithCommittedBlocks(t, boot)
 
 	require.NoError(t, boot.rollBack(false))
-	head, ok := sim.currentHeader().(*block.Block)
-	require.True(t, ok)
-	require.Equal(t, uint64(4), head.GetNonce())
+	require.Equal(t, uint64(4), sim.currentHeader().GetNonce())
 
-	forkDetector := restoreForkDetectorFromStorage(t, boot, head)
-	require.Equal(t, uint64(4), forkDetector.GetHighestFinalBlockNonce())
+	forkDetector := restoreForkDetectorFromStorage(t, sim, boot)
+	require.Equal(t, uint64(4), forkDetector.GetHighestFinalBlockNonce(),
+		"the record saved by the roll back must restore the head as the final block")
 	boot.forkDetector = forkDetector
 
 	err := boot.rollBack(false)
@@ -1016,16 +1157,16 @@ func TestRollBack_HeadRestoredAsFinalBlockShouldRefuseAnotherRollBack(t *testing
 func TestRollBack_HeadRestoredAboveFinalBlockShouldAllowAnotherRollBack(t *testing.T) {
 	sim, boot := newSyncSim(t)
 
-	previous := newHeader(3, 8, []byte("h2"))
-	sim.byHash["h3"] = previous
+	sim.byHash["h3"] = newHeader(3, 8, []byte("h2"))
+	bootStorer := useBootStorerWithCommittedBlocks(t, boot)
+	require.NoError(t, bootStorer.SaveLastSlot(9))
+	sim.mut.Lock()
+	sim.current, sim.currentHash = sim.byHash["h4"], []byte("h4")
+	sim.mut.Unlock()
 
-	require.NoError(t, boot.rollBack(false))
-	head, ok := sim.currentHeader().(*block.Block)
-	require.True(t, ok)
-	require.Equal(t, uint64(4), head.GetNonce())
-
-	forkDetector := restoreForkDetectorFromStorage(t, boot, previous, head)
-	require.Equal(t, uint64(3), forkDetector.GetHighestFinalBlockNonce())
+	forkDetector := restoreForkDetectorFromStorage(t, sim, boot)
+	require.Equal(t, uint64(3), forkDetector.GetHighestFinalBlockNonce(),
+		"a record left with the final block below the head must restore it there")
 	boot.forkDetector = forkDetector
 
 	err := boot.rollBack(false)
@@ -1035,6 +1176,6 @@ func TestRollBack_HeadRestoredAboveFinalBlockShouldAllowAnotherRollBack(t *testi
 	defer sim.mut.Unlock()
 	assert.Equal(t, uint64(3), sim.current.GetNonce(), "nonce 4 is rolled back")
 	assert.Equal(t, []byte("h3"), sim.currentHash)
-	assert.Equal(t, 2, sim.numReverts)
-	assert.Equal(t, []uint64{4, 3}, sim.checkedStateNonces)
+	assert.Equal(t, 1, sim.numReverts)
+	assert.Equal(t, []uint64{3}, sim.checkedStateNonces)
 }

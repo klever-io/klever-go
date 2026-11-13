@@ -346,7 +346,7 @@ func newStorageBootstrapperAfterRollBack(t *testing.T, raiseFinalNonce bool) (*s
 	}
 
 	if raiseFinalNonce {
-		err = bootStorer.RaiseHighestFinalBlockNonce(9, 4)
+		err = bootStorer.RaiseHighestFinalBlockNonce(9, 4, []byte("hash4"))
 		assert.NoError(t, err)
 	}
 	err = bootStorer.SaveLastSlot(9)

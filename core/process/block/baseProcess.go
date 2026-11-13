@@ -743,6 +743,9 @@ func (bp *baseProcessor) PruneStateOnRollback(currHeader data.HeaderHandler, pre
 	}
 }
 
+// CheckStateAvailable returns ErrStateNotAvailable if the user accounts, kapps or validators trie root of the given
+// header is not in storage. Only the tries are checked: RevertStateToBlock can still fail afterwards in the epoch
+// start trigger or when the proposal parameters are reloaded
 func (bp *baseProcessor) CheckStateAvailable(header data.HeaderHandler) error {
 	stateTries := []struct {
 		identifier state.AccountsDbIdentifier

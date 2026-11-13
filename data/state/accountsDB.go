@@ -911,6 +911,8 @@ func (adb *AccountsDB) recreateTrie(rootHash []byte) error {
 	return nil
 }
 
+// IsRootHashAvailable returns true if the root node of the given root hash is found in the main storer or in a
+// snapshot. Only the root node is checked, the working trie is not replaced and nothing is written
 func (adb *AccountsDB) IsRootHashAvailable(rootHash []byte) bool {
 	adb.mutOp.Lock()
 	defer adb.mutOp.Unlock()

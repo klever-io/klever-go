@@ -369,7 +369,7 @@ type TxVersionCheckerHandler interface {
 // BootStorer is the interface needed by bootstrapper to read/write data in storage
 type BootStorer interface {
 	SaveLastSlot(slot int64) error
-	RaiseHighestFinalBlockNonce(slot int64, nonce uint64) error
+	RaiseHighestFinalBlockNonce(slot int64, nonce uint64, headerHash []byte) error
 	Put(slot int64, bootData *bootstrapStorage.BootstrapData) error
 	Get(slot int64) (*bootstrapStorage.BootstrapData, error)
 	GetHighestSlot() int64

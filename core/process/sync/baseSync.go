@@ -579,7 +579,7 @@ func (boot *baseBootstrap) doJobOnSyncBlockFail(headerHandler data.HeaderHandler
 
 		errNotCritical := boot.rollBack(false)
 		if errNotCritical != nil {
-			log.Warn("rollBack", "error", errNotCritical.Error())
+			log.Log(rollBackErrorLogLevel(errNotCritical), "rollBack", "error", errNotCritical.Error())
 		}
 
 		if isSyncWithErrorsLimitReachedInProperSlot {
@@ -587,6 +587,16 @@ func (boot *baseBootstrap) doJobOnSyncBlockFail(headerHandler data.HeaderHandler
 			boot.removeHeadersHigherThanNonceFromPool(boot.getNonceForCurrentBlock())
 		}
 	}
+}
+
+func rollBackErrorLogLevel(err error) logger.LogLevel {
+	isExpectedRefusal := errors.Is(err, ErrRollBackBehindFinalHeader) || errors.Is(err, process.ErrNilBlockHeader)
+	isLoggedByRollBack := errors.Is(err, process.ErrStateNotAvailable)
+	if isExpectedRefusal || isLoggedByRollBack {
+		return logger.LogDebug
+	}
+
+	return logger.LogWarning
 }
 
 func isBlockBodyRejected(err error) bool {
@@ -830,7 +840,7 @@ func (boot *baseBootstrap) rollBack(revertUsingForkNonce bool) error {
 
 		_, _ = updateMetricsFromStorage(boot.store, boot.uint64Converter, boot.marshalizer, boot.statusHandler, prevHeader.GetNonce())
 
-		boot.saveFinalNonceOnRollBack(prevHeader)
+		boot.saveFinalNonceOnRollBack(prevHeaderHash, prevHeader)
 
 		err = boot.bootStorer.SaveLastSlot(tools.SafeU64ToI64(prevHeader.GetSlot()))
 		if err != nil {
@@ -859,13 +869,13 @@ func (boot *baseBootstrap) rollBack(revertUsingForkNonce bool) error {
 	return nil
 }
 
-func (boot *baseBootstrap) saveFinalNonceOnRollBack(prevHeader data.HeaderHandler) {
+func (boot *baseBootstrap) saveFinalNonceOnRollBack(prevHeaderHash []byte, prevHeader data.HeaderHandler) {
 	if prevHeader.GetNonce() <= boot.chainHandler.GetGenesisHeader().GetNonce() {
 		return
 	}
 
 	finalNonce := tools.MinUint64(boot.forkDetector.GetHighestFinalBlockNonce(), prevHeader.GetNonce())
-	err := boot.bootStorer.RaiseHighestFinalBlockNonce(tools.SafeU64ToI64(prevHeader.GetSlot()), finalNonce)
+	err := boot.bootStorer.RaiseHighestFinalBlockNonce(tools.SafeU64ToI64(prevHeader.GetSlot()), finalNonce, prevHeaderHash)
 	if err != nil {
 		log.Warn("roll back: highest final block nonce not saved in boot storage",
 			"slot", prevHeader.GetSlot(),
@@ -977,7 +987,7 @@ func (boot *baseBootstrap) isForcedRollBackToNonce() bool {
 func (boot *baseBootstrap) rollBackOneBlockForced() {
 	err := boot.rollBack(false)
 	if err != nil {
-		log.Warn("rollBackOneBlockForced", "error", err.Error())
+		log.Log(rollBackErrorLogLevel(err), "rollBackOneBlockForced", "error", err.Error())
 	}
 
 	boot.forkDetector.ResetFork()
@@ -987,7 +997,7 @@ func (boot *baseBootstrap) rollBackOneBlockForced() {
 func (boot *baseBootstrap) rollBackToNonceForced() {
 	err := boot.rollBack(true)
 	if err != nil {
-		log.Warn("rollBackToNonceForced", "error", err.Error())
+		log.Log(rollBackErrorLogLevel(err), "rollBackToNonceForced", "error", err.Error())
 	}
 
 	boot.forkDetector.ResetProbableHighestNonce()
