@@ -16,6 +16,7 @@ type SmartContractProcessorStub struct {
 	LastBlockCalled                       func() data.HeaderHandler
 	IsInterfaceNilCalled                  func() bool
 	SetVMExecutionModeCalled              func(mode vmcommon.ExecutionMode)
+	DiscardTxOutputCalled                 func(txHash []byte)
 	ExecutionMode                         vmcommon.ExecutionMode
 }
 
@@ -78,6 +79,13 @@ func (s *SmartContractProcessorStub) SetVMExecutionMode(mode vmcommon.ExecutionM
 // GetVMExecutionMode gets the execution mode
 func (s *SmartContractProcessorStub) GetVMExecutionMode() vmcommon.ExecutionMode {
 	return s.ExecutionMode
+}
+
+// DiscardTxOutput is the stub implementation for DiscardTxOutput
+func (stub *SmartContractProcessorStub) DiscardTxOutput(txHash []byte) {
+	if stub.DiscardTxOutputCalled != nil {
+		stub.DiscardTxOutputCalled(txHash)
+	}
 }
 
 // NewSmartContractProcessorStub creates a new instance of SmartContractProcessorStub

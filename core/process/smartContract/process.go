@@ -237,6 +237,13 @@ func (sc *scProcessor) GetVMExecutionMode() vmcommon.ExecutionMode {
 	return vm.GetExecutionMode()
 }
 
+// DiscardTxOutput drops the logs and cached VM output of a tx whose local run is reverted
+func (sc *scProcessor) DiscardTxOutput(txHash []byte) {
+	sc.txLogsProcessor.RemoveLog(txHash)
+	// guard only: block processing uses a disabled cache and the simulator never discards
+	sc.vmOutputCacher.Remove(txHash)
+}
+
 func (sc *scProcessor) checkTxValidity(tc data.SmartContractHandler) error {
 	if check.IfNil(tc) {
 		return process.ErrNilTransaction

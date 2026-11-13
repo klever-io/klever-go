@@ -628,6 +628,7 @@ type SmartContractProcessor interface {
 	LastBlock() data.HeaderHandler
 	SetVMExecutionMode(mode vmcommon.ExecutionMode)
 	GetVMExecutionMode() vmcommon.ExecutionMode
+	DiscardTxOutput(txHash []byte)
 	IsInterfaceNil() bool
 }
 
@@ -726,6 +727,7 @@ type TransactionLogProcessor interface {
 	GetLog(txHash []byte) (data.LogHandler, error)
 	SaveLog(txHash []byte, acntSender []byte, tc data.SmartContractHandler, contractID int, vmLogs []*vmcommon.LogEntry) error
 	SaveLogsToStorage() error
+	RemoveLog(txHash []byte)
 	Clean()
 	IsInterfaceNil() bool
 }

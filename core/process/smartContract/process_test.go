@@ -22,6 +22,7 @@ import (
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/block/postprocess"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
+	"github.com/klever-io/klever-go/core/process/transactionLog"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
 	"github.com/klever-io/klever-go/data"
@@ -38,6 +39,7 @@ import (
 	kvmStub "github.com/klever-io/klever-go/kvm/mock/stub"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/storage"
+	"github.com/klever-io/klever-go/storage/lrucache"
 	"github.com/klever-io/klever-go/storage/memorydb"
 	"github.com/klever-io/klever-go/storage/storageUnit"
 	"github.com/klever-io/klever-go/storage/txcache"
@@ -1181,6 +1183,87 @@ func TestScProcessor_DeploySmartContractTimeoutResultAndExecutionTime(t *testing
 			require.Equal(t, tt.fixV7, ctx.GetExecutionTime() > 0)
 		})
 	}
+}
+
+// KLC-2891: DiscardTxOutput drops the logs and cached VM output a successful run left for a tx.
+func TestScProcessor_DiscardTxOutput(t *testing.T) {
+	t.Parallel()
+
+	vm := &contextmock.VMContainerMock{}
+	vmExecutor := &contextmock.VMExecutionHandlerStub{
+		RunSmartContractCreateCalled: func(_ *vmcommon.ContractCreateInput) (*vmcommon.VMOutput, error) {
+			return &vmcommon.VMOutput{}, nil
+		},
+	}
+	vm.GetCalled = func(key []byte) (vmcommon.VMExecutionHandler, error) {
+		return vmExecutor, nil
+	}
+	txLogs, err := transactionLog.NewTxLogProcessor(transactionLog.ArgTxLogProcessor{Marshalizer: marshal.NewProtoMarshalizer()})
+	require.Nil(t, err)
+	vmOutputs, err := lrucache.NewCache(10)
+	require.Nil(t, err)
+
+	arguments := createMockSmartContractProcessorArguments()
+	arguments.VmContainer = vm
+	arguments.ArgsParser = NewArgumentParser()
+	arguments.TxLogsProcessor = txLogs
+	arguments.VMOutputCacher = vmOutputs
+	sc, err := NewSmartContractProcessor(arguments)
+	require.Nil(t, err)
+
+	deploy := func(nonce uint64) []byte {
+		contract := transaction.SmartContract{Type: transaction.SmartContract_SCDeploy}
+		tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), nonce, [][]byte{[]byte("abba@0500@0000")})
+		txHash, errHash := tools.CalculateHash(arguments.Marshalizer, arguments.Hasher, tx.RawData)
+		require.Nil(t, errHash)
+
+		ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
+			OriginalSender: tx.GetSender(),
+			ContractID:     0,
+			ContractType:   tx.RawData.GetContract()[0].Type,
+			Block:          &block.Block{},
+			TxHash:         txHash,
+			TX:             tx,
+			IsScSimulation: true,
+		})
+		tc, errSC := tx.RawData.Contract[0].GetSmartContract()
+		require.Nil(t, errSC)
+
+		code, errDeploy := sc.DeploySmartContract(ctx, tc)
+		require.Nil(t, errDeploy)
+		require.Equal(t, vmcommon.Ok, code)
+
+		require.True(t, hasCurrentLog(txLogs, txHash))
+		require.True(t, vmOutputs.Has(txHash))
+
+		return txHash
+	}
+
+	discarded := deploy(0)
+	kept := deploy(1)
+
+	sc.DiscardTxOutput(discarded)
+
+	require.False(t, hasCurrentLog(txLogs, discarded))
+	require.False(t, vmOutputs.Has(discarded))
+
+	require.True(t, hasCurrentLog(txLogs, kept))
+	require.True(t, vmOutputs.Has(kept))
+
+	// a hash with nothing cached is a no-op
+	sc.DiscardTxOutput([]byte("unknown"))
+	require.Len(t, txLogs.GetAllCurrentLogs(), 1)
+	require.Equal(t, 1, vmOutputs.Len())
+}
+
+func hasCurrentLog(txLogs process.TransactionLogProcessor, txHash []byte) bool {
+	for _, logData := range txLogs.GetAllCurrentLogs() {
+		if logData.TxHash == string(txHash) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestScProcessor_DeploySmartContract(t *testing.T) {

@@ -383,6 +383,11 @@ func (txProc *txProcessor) ProcessTransaction(block *block.Block, txHash []byte,
 			txProc.txFeeHandler.RevertTransactionFee(txHash, 0, kAppFee)
 		}
 
+		// the local SC success is reverted for the leader's failure, so its logs and cached output go too
+		if errors.Is(kAppFeeErr, process.ErrTransactionResultMismatchAcceptLeader) {
+			txProc.scProcessor.DiscardTxOutput(txHash)
+		}
+
 		log.Warn(
 			"ProcessTransaction: ...",
 			"txHash", txHash,

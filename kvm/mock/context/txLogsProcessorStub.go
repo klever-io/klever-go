@@ -7,8 +7,9 @@ import (
 
 // TxLogsProcessorStub -
 type TxLogsProcessorStub struct {
-	GetLogCalled  func(txHash []byte) (data.LogHandler, error)
-	SaveLogCalled func(txHash []byte, sender []byte, tc data.SmartContractHandler, contractID int, vmLogs []*vmcommon.LogEntry) error
+	GetLogCalled    func(txHash []byte) (data.LogHandler, error)
+	SaveLogCalled   func(txHash []byte, sender []byte, tc data.SmartContractHandler, contractID int, vmLogs []*vmcommon.LogEntry) error
+	RemoveLogCalled func(txHash []byte)
 }
 
 // GetLog -
@@ -46,4 +47,11 @@ func (txls *TxLogsProcessorStub) GetAllCurrentLogs() []*data.LogData {
 // SaveLogsToStorage -
 func (txls *TxLogsProcessorStub) SaveLogsToStorage() error {
 	return nil
+}
+
+// RemoveLog -
+func (txls *TxLogsProcessorStub) RemoveLog(txHash []byte) {
+	if txls.RemoveLogCalled != nil {
+		txls.RemoveLogCalled(txHash)
+	}
 }

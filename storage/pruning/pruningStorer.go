@@ -568,6 +568,26 @@ func (ps *PruningStorer) Remove(key []byte) error {
 	return err
 }
 
+// RemoveFromAllActivePersisters removes the key from the cache and from every active persister,
+// since Remove stops at the first persister that reports no error; returns the first error
+func (ps *PruningStorer) RemoveFromAllActivePersisters(key []byte) error {
+	// write lock and cache cleared last, so a concurrent Get cannot re-cache the removed value
+	ps.lock.Lock()
+	defer ps.lock.Unlock()
+
+	var firstErr error
+	for _, pd := range ps.activePersisters {
+		err := pd.persister.Remove(key)
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	ps.cacher.Remove(key)
+
+	return firstErr
+}
+
 // ClearCache cleans up the entire cache
 func (ps *PruningStorer) ClearCache() {
 	ps.cacher.Clear()

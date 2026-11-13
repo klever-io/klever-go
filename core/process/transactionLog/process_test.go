@@ -2,6 +2,8 @@ package transactionLog_test
 
 import (
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/klever-io/klever-go/common/mock"
@@ -10,6 +12,7 @@ import (
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/vmcommon"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -303,4 +306,315 @@ func TestTxLogProcessor_GetLogFromCacheNotInCacheShouldReturnFromStorage(t *test
 
 	_, found := txLogProcessor.GetLogFromCache([]byte("txhash"))
 	require.True(t, found)
+}
+
+// KLC-2891 helpers: a processor whose storer records the keys flushed to it.
+func newRemoveLogProcessor(t *testing.T) (process.TransactionLogProcessor, *[]string) {
+	tlp, putKeys, _ := newRemoveLogProcessorWithStored(t, nil)
+	return tlp, putKeys
+}
+
+// stored seeds the storer, as a log left behind by a rolled-back block would be.
+func newRemoveLogProcessorWithStored(t *testing.T, stored map[string][]byte) (process.TransactionLogProcessor, *[]string, *[]string) {
+	putKeys := make([]string, 0)
+	removedKeys := make([]string, 0)
+	tlp, err := transactionLog.NewTxLogProcessor(transactionLog.ArgTxLogProcessor{
+		Storer: &mock.StorerStub{
+			PutCalled: func(key, data []byte) error {
+				putKeys = append(putKeys, string(key))
+				return nil
+			},
+			GetCalled: func(key []byte) ([]byte, error) {
+				if buff, ok := stored[string(key)]; ok {
+					return buff, nil
+				}
+				return nil, errors.New("not in storage")
+			},
+			RemoveCalled: func(key []byte) error {
+				removedKeys = append(removedKeys, string(key))
+				delete(stored, string(key))
+				return nil
+			},
+		},
+		Marshalizer:          &mock.MarshalizerMock{},
+		SaveInStorageEnabled: true,
+	})
+	require.Nil(t, err)
+
+	return tlp, &putKeys, &removedKeys
+}
+
+func saveLogFor(t *testing.T, tlp process.TransactionLogProcessor, txHash string, address string) {
+	logs := []*vmcommon.LogEntry{{Identifier: []byte(address), Address: []byte(address)}}
+	require.Nil(t, tlp.SaveLog([]byte(txHash), []byte{}, &transaction.SmartContract{Address: []byte(address)}, 0, logs))
+}
+
+func currentLogHashes(tlp process.TransactionLogProcessor) []string {
+	hashes := make([]string, 0)
+	for _, logData := range tlp.GetAllCurrentLogs() {
+		hashes = append(hashes, logData.TxHash)
+	}
+
+	return hashes
+}
+
+func requireLogAddress(t *testing.T, tlp process.TransactionLogProcessor, txHash string, address string) {
+	txLog, err := tlp.GetLog([]byte(txHash))
+	require.Nil(t, err)
+	require.Equal(t, []byte(address), txLog.GetAddress())
+}
+
+// KLC-2891: removing a middle log keeps the indices of the others, and the flush skips it.
+func TestTxLogProcessor_RemoveLogMiddleEntry(t *testing.T) {
+	t.Parallel()
+
+	tlp, putKeys := newRemoveLogProcessor(t)
+	saveLogFor(t, tlp, "tx1", "addr1")
+	saveLogFor(t, tlp, "tx2", "addr2")
+	saveLogFor(t, tlp, "tx3", "addr3")
+
+	tlp.RemoveLog([]byte("tx2"))
+
+	require.Equal(t, []string{"tx1", "tx3"}, currentLogHashes(tlp))
+	requireLogAddress(t, tlp, "tx1", "addr1")
+	requireLogAddress(t, tlp, "tx3", "addr3")
+	_, err := tlp.GetLog([]byte("tx2"))
+	require.Equal(t, process.ErrLogNotFound, err)
+
+	require.Nil(t, tlp.SaveLogsToStorage())
+	require.Equal(t, []string{"tx1", "tx3"}, *putKeys)
+}
+
+func TestTxLogProcessor_RemoveLogMissingHashIsNoOp(t *testing.T) {
+	t.Parallel()
+
+	tlp, _ := newRemoveLogProcessor(t)
+	saveLogFor(t, tlp, "tx1", "addr1")
+	saveLogFor(t, tlp, "tx2", "addr2")
+
+	tlp.RemoveLog([]byte("missing"))
+	tlp.RemoveLog(nil)
+
+	require.Equal(t, []string{"tx1", "tx2"}, currentLogHashes(tlp))
+	requireLogAddress(t, tlp, "tx1", "addr1")
+	requireLogAddress(t, tlp, "tx2", "addr2")
+}
+
+func TestTxLogProcessor_RemoveLogThenSaveAgain(t *testing.T) {
+	t.Parallel()
+
+	tlp, putKeys := newRemoveLogProcessor(t)
+	saveLogFor(t, tlp, "tx1", "addr1")
+	saveLogFor(t, tlp, "tx2", "addr2")
+
+	tlp.RemoveLog([]byte("tx1"))
+	saveLogFor(t, tlp, "tx1", "addr1-new")
+
+	require.Equal(t, []string{"tx2", "tx1"}, currentLogHashes(tlp))
+	requireLogAddress(t, tlp, "tx1", "addr1-new")
+	requireLogAddress(t, tlp, "tx2", "addr2")
+
+	require.Nil(t, tlp.SaveLogsToStorage())
+	require.Equal(t, []string{"tx2", "tx1"}, *putKeys)
+}
+
+// SaveLog appends, so one tx can hold several entries; RemoveLog drops them all.
+func TestTxLogProcessor_RemoveLogDropsEveryEntryOfTheTx(t *testing.T) {
+	t.Parallel()
+
+	tlp, putKeys := newRemoveLogProcessor(t)
+	saveLogFor(t, tlp, "tx1", "addr1")
+	saveLogFor(t, tlp, "tx2", "addr2")
+	saveLogFor(t, tlp, "tx1", "addr1-again")
+
+	tlp.RemoveLog([]byte("tx1"))
+
+	require.Equal(t, []string{"tx2"}, currentLogHashes(tlp))
+	requireLogAddress(t, tlp, "tx2", "addr2")
+
+	require.Nil(t, tlp.SaveLogsToStorage())
+	require.Equal(t, []string{"tx2"}, *putKeys)
+}
+
+// KLC-2891: a replayed tx discarded after a rollback must not surface the log its old block stored.
+func TestTxLogProcessor_RemoveLogHidesAndDeletesStoredLogAtCommit(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{}
+	oldLog, err := marshalizer.Marshal(&transaction.Log{Address: []byte("old")})
+	require.Nil(t, err)
+	stored := map[string][]byte{"tx1": oldLog}
+
+	tlp, putKeys, removedKeys := newRemoveLogProcessorWithStored(t, stored)
+	requireLogAddress(t, tlp, "tx1", "old")
+
+	saveLogFor(t, tlp, "tx1", "replayed")
+	tlp.RemoveLog([]byte("tx1"))
+
+	_, err = tlp.GetLog([]byte("tx1"))
+	require.Equal(t, process.ErrLogNotFound, err)
+	require.Empty(t, *removedKeys, "nothing is deleted before commit")
+
+	require.Nil(t, tlp.SaveLogsToStorage())
+	require.Equal(t, []string{"tx1"}, *removedKeys)
+	require.Empty(t, *putKeys)
+	require.NotContains(t, stored, "tx1")
+}
+
+func TestTxLogProcessor_CleanDropsStagedRemovals(t *testing.T) {
+	t.Parallel()
+
+	tlp, _, removedKeys := newRemoveLogProcessorWithStored(t, nil)
+	tlp.RemoveLog([]byte("tx1"))
+	tlp.Clean()
+
+	require.Nil(t, tlp.SaveLogsToStorage())
+	require.Empty(t, *removedKeys)
+}
+
+func TestTxLogProcessor_SaveLogsToStorageReturnsRemoveError(t *testing.T) {
+	t.Parallel()
+
+	errRemove := errors.New("remove failed")
+	putKeys := make([]string, 0)
+	tlp, err := transactionLog.NewTxLogProcessor(transactionLog.ArgTxLogProcessor{
+		Storer: &mock.StorerStub{
+			PutCalled: func(key, data []byte) error {
+				putKeys = append(putKeys, string(key))
+				return nil
+			},
+			RemoveCalled: func(key []byte) error {
+				return errRemove
+			},
+		},
+		Marshalizer:          &mock.MarshalizerMock{},
+		SaveInStorageEnabled: true,
+	})
+	require.Nil(t, err)
+
+	tlp.RemoveLog([]byte("tx1"))
+	saveLogFor(t, tlp, "tx2", "addr2")
+
+	require.Equal(t, errRemove, tlp.SaveLogsToStorage())
+	require.Equal(t, []string{"tx2"}, putKeys, "a failed remove does not stop the writes")
+}
+
+// One processor shared by concurrent block processing, removals, lookups and flushes; run with -race.
+func TestTxLogProcessor_ConcurrentRemoveLookupAndFlush(t *testing.T) {
+	t.Parallel()
+
+	var mutStored sync.Mutex
+	stored := make(map[string][]byte)
+	tlp, err := transactionLog.NewTxLogProcessor(transactionLog.ArgTxLogProcessor{
+		Storer: &mock.StorerStub{
+			PutCalled: func(key, data []byte) error {
+				mutStored.Lock()
+				stored[string(key)] = data
+				mutStored.Unlock()
+				return nil
+			},
+			GetCalled: func(key []byte) ([]byte, error) {
+				mutStored.Lock()
+				defer mutStored.Unlock()
+				if buff, ok := stored[string(key)]; ok {
+					return buff, nil
+				}
+				return nil, errors.New("not in storage")
+			},
+			RemoveCalled: func(key []byte) error {
+				mutStored.Lock()
+				delete(stored, string(key))
+				mutStored.Unlock()
+				return nil
+			},
+		},
+		Marshalizer:          &mock.MarshalizerMock{},
+		SaveInStorageEnabled: true,
+	})
+	require.Nil(t, err)
+
+	tlp.RemoveLog([]byte("discarded"))
+
+	const workers, rounds = 8, 50
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			<-start
+			for i := 0; i < rounds; i++ {
+				txHash := []byte(fmt.Sprintf("tx-%d-%d", w, i))
+				entries := []*vmcommon.LogEntry{{Identifier: txHash, Address: txHash}}
+				assert.Nil(t, tlp.SaveLog(txHash, []byte{}, &transaction.SmartContract{Address: txHash}, 0, entries))
+				if i%2 == 0 {
+					tlp.RemoveLog(txHash)
+				}
+				_, _ = tlp.GetLog(txHash)
+				_, _ = tlp.GetLog([]byte("discarded"))
+				_ = tlp.GetAllCurrentLogs()
+				assert.Nil(t, tlp.SaveLogsToStorage())
+			}
+		}(w)
+	}
+	close(start)
+	wg.Wait()
+	// a flush may snapshot another worker's log before its RemoveLog; the next flush settles it
+	require.Nil(t, tlp.SaveLogsToStorage())
+
+	_, err = tlp.GetLog([]byte("discarded"))
+	require.Equal(t, process.ErrLogNotFound, err)
+	for w := 0; w < workers; w++ {
+		for i := 0; i < rounds; i++ {
+			txHash := []byte(fmt.Sprintf("tx-%d-%d", w, i))
+			_, err = tlp.GetLog(txHash)
+			if i%2 == 0 {
+				require.Equal(t, process.ErrLogNotFound, err, string(txHash))
+				mutStored.Lock()
+				_, inStorage := stored[string(txHash)]
+				mutStored.Unlock()
+				require.False(t, inStorage, string(txHash))
+			} else {
+				require.Nil(t, err, string(txHash))
+			}
+		}
+	}
+}
+
+type multiEpochStorerStub struct {
+	*mock.StorerStub
+	removeFromAllCalled func(key []byte) error
+}
+
+func (s *multiEpochStorerStub) RemoveFromAllActivePersisters(key []byte) error {
+	return s.removeFromAllCalled(key)
+}
+
+// An epoch-pruned storer must drop the log from every epoch, not only the newest.
+func TestTxLogProcessor_SaveLogsToStorageRemovesFromAllEpochs(t *testing.T) {
+	t.Parallel()
+
+	removedFromAll := make([]string, 0)
+	tlp, err := transactionLog.NewTxLogProcessor(transactionLog.ArgTxLogProcessor{
+		Storer: &multiEpochStorerStub{
+			StorerStub: &mock.StorerStub{
+				RemoveCalled: func(key []byte) error {
+					require.Fail(t, "single-epoch Remove must not be used")
+					return nil
+				},
+			},
+			removeFromAllCalled: func(key []byte) error {
+				removedFromAll = append(removedFromAll, string(key))
+				return nil
+			},
+		},
+		Marshalizer:          &mock.MarshalizerMock{},
+		SaveInStorageEnabled: true,
+	})
+	require.Nil(t, err)
+
+	tlp.RemoveLog([]byte("tx1"))
+
+	require.Nil(t, tlp.SaveLogsToStorage())
+	require.Equal(t, []string{"tx1"}, removedFromAll)
 }

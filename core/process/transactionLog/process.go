@@ -21,6 +21,11 @@ var _ process.TransactionLogProcessor = (*txLogProcessor)(nil)
 
 var log = logger.GetOrCreate("process/transactionLog")
 
+// multiEpochRemover is implemented by storers that keep one persister per epoch
+type multiEpochRemover interface {
+	RemoveFromAllActivePersisters(key []byte) error
+}
+
 // ArgTxLogProcessor defines the arguments needed for transaction logs processor
 type ArgTxLogProcessor struct {
 	Storer               storage.Storer
@@ -31,9 +36,11 @@ type ArgTxLogProcessor struct {
 type txLogProcessor struct {
 	logs        []*data.LogData
 	logsIndices map[string]int
-	mut         sync.RWMutex
-	storer      storage.Storer
-	marshalizer marshal.Marshalizer
+	// discarded txs whose stored log (e.g. from a rolled-back block) is deleted at commit
+	pendingRemovals map[string]struct{}
+	mut             sync.RWMutex
+	storer          storage.Storer
+	marshalizer     marshal.Marshalizer
 }
 
 // NewTxLogProcessor creates a transaction log processor capable of parsing logs from the VM
@@ -54,11 +61,12 @@ func NewTxLogProcessor(args ArgTxLogProcessor) (*txLogProcessor, error) {
 	}
 
 	return &txLogProcessor{
-		storer:      storer,
-		marshalizer: args.Marshalizer,
-		logs:        make([]*data.LogData, 0),
-		logsIndices: make(map[string]int),
-		mut:         sync.RWMutex{},
+		storer:          storer,
+		marshalizer:     args.Marshalizer,
+		logs:            make([]*data.LogData, 0),
+		logsIndices:     make(map[string]int),
+		pendingRemovals: make(map[string]struct{}),
+		mut:             sync.RWMutex{},
 	}, nil
 }
 
@@ -70,6 +78,10 @@ func (tlp *txLogProcessor) GetLog(txHash []byte) (data.LogHandler, error) {
 	index, ok := tlp.logsIndices[string(txHash)]
 	if ok {
 		return tlp.logs[index], nil
+	}
+	// in-process callers only; the API reads the storer directly
+	if _, removed := tlp.pendingRemovals[string(txHash)]; removed {
+		return nil, process.ErrLogNotFound
 	}
 
 	txLogBuff, err := tlp.storer.Get(txHash)
@@ -127,6 +139,7 @@ func (tlp *txLogProcessor) Clean() {
 	tlp.mut.Lock()
 	tlp.logsIndices = make(map[string]int)
 	tlp.logs = make([]*data.LogData, 0)
+	tlp.pendingRemovals = make(map[string]struct{})
 	tlp.mut.Unlock()
 }
 
@@ -167,12 +180,29 @@ func (tlp *txLogProcessor) SaveLog(txHash []byte, acntSender []byte, tc data.Sma
 	return nil
 }
 
-// SaveLogsToStorage persists the logs cached for the current block. CommitBlock calls
-// it once the block has passed validation. A failed log does not stop the rest; the
-// first error is returned.
+// SaveLogsToStorage deletes the stored logs of discarded txs and persists the logs cached
+// for the current block. CommitBlock calls it once the block has passed validation. A
+// failed remove or write does not stop the rest; the first error is returned.
 func (tlp *txLogProcessor) SaveLogsToStorage() error {
+	// snapshot under the lock and do the I/O after; block processing is sequential
+	tlp.mut.RLock()
+	removals := make([][]byte, 0, len(tlp.pendingRemovals))
+	for key := range tlp.pendingRemovals {
+		removals = append(removals, []byte(key))
+	}
+	logs := make([]*data.LogData, 0, len(tlp.logs))
+	logs = append(logs, tlp.logs...)
+	tlp.mut.RUnlock()
+
 	var firstErr error
-	for _, logData := range tlp.GetAllCurrentLogs() {
+	// removing a missing key is not an error, so any error here is a storage failure
+	for _, key := range removals {
+		if err := tlp.removeStoredLog(key); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	for _, logData := range logs {
 		buff, err := tlp.marshalizer.Marshal(logData.LogHandler)
 		if err == nil {
 			err = tlp.storer.Put([]byte(logData.TxHash), buff)
@@ -185,6 +215,45 @@ func (tlp *txLogProcessor) SaveLogsToStorage() error {
 	return firstErr
 }
 
+// removeStoredLog deletes the log from every epoch; a pruning storer's Remove only reaches the newest
+func (tlp *txLogProcessor) removeStoredLog(key []byte) error {
+	if remover, ok := tlp.storer.(multiEpochRemover); ok {
+		return remover.RemoveFromAllActivePersisters(key)
+	}
+
+	return tlp.storer.Remove(key)
+}
+
+// RemoveLog drops every cached log of a tx and stages the removal of its stored log,
+// applied by SaveLogsToStorage at commit; an empty hash is a no-op
+func (tlp *txLogProcessor) RemoveLog(txHash []byte) {
+	if len(txHash) == 0 {
+		return
+	}
+	key := string(txHash)
+
+	tlp.mut.Lock()
+	defer tlp.mut.Unlock()
+
+	tlp.pendingRemovals[key] = struct{}{}
+	if _, ok := tlp.logsIndices[key]; !ok {
+		return
+	}
+
+	kept := make([]*data.LogData, 0, len(tlp.logs))
+	indices := make(map[string]int, len(tlp.logsIndices))
+	for _, logData := range tlp.logs {
+		if logData.TxHash == key {
+			continue
+		}
+		kept = append(kept, logData)
+		indices[logData.TxHash] = len(kept) - 1
+	}
+
+	tlp.logs = kept
+	tlp.logsIndices = indices
+}
+
 func (tlp *txLogProcessor) saveLogToCache(txHash []byte, log *transaction.Log) {
 	tlp.mut.Lock()
 	tlp.logs = append(tlp.logs, &data.LogData{
@@ -192,6 +261,7 @@ func (tlp *txLogProcessor) saveLogToCache(txHash []byte, log *transaction.Log) {
 		LogHandler: log,
 	})
 	tlp.logsIndices[string(txHash)] = len(tlp.logs) - 1
+	delete(tlp.pendingRemovals, string(txHash))
 	tlp.mut.Unlock()
 }
 

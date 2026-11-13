@@ -37,6 +37,11 @@ func (tlp *TxLogProcessor) Clean() {
 	// no-op: SaveLog discards every log, so there is nothing to clean
 }
 
+// RemoveLog does nothing
+func (tlp *TxLogProcessor) RemoveLog(_ []byte) {
+	// no-op: SaveLog discards every log, so there is nothing to remove
+}
+
 // IsInterfaceNil returns true if there is no value under the interface
 func (tlp *TxLogProcessor) IsInterfaceNil() bool {
 	return tlp == nil

@@ -293,6 +293,63 @@ func TestPruningStorer_RemoveShouldWork(t *testing.T) {
 	assert.Nil(t, res)
 }
 
+// Remove stops at the newest epoch; RemoveFromAllActivePersisters also clears the older one.
+func TestPruningStorer_RemoveFromAllActivePersistersClearsOlderEpochs(t *testing.T) {
+	t.Parallel()
+
+	args := getDefaultArgs()
+	ps, _ := pruning.NewPruningStorer(args)
+
+	testKey, testVal := []byte("key"), []byte("value")
+	require.Nil(t, ps.Put(testKey, testVal))
+	require.Nil(t, ps.ChangeEpochSimple(1))
+	require.Equal(t, []uint32{1, 0}, ps.GetActivePersistersEpochs())
+
+	require.Nil(t, ps.Remove(testKey))
+	res, err := ps.SearchFirst(testKey)
+	require.Nil(t, err, "Remove only reaches the newest epoch")
+	require.Equal(t, testVal, res)
+
+	require.Nil(t, ps.RemoveFromAllActivePersisters(testKey))
+	_, err = ps.SearchFirst(testKey)
+	require.ErrorIs(t, err, storage.ErrKeyNotFound)
+}
+
+// A Get racing the removal must not put the removed value back in the cache.
+func TestPruningStorer_RemoveFromAllActivePersistersRacingGet(t *testing.T) {
+	t.Parallel()
+
+	args := getDefaultArgs()
+	ps, _ := pruning.NewPruningStorer(args)
+
+	for i := 0; i < 2000; i++ {
+		testKey := []byte(fmt.Sprintf("key%d", i))
+		require.Nil(t, ps.Put(testKey, []byte("value")))
+		ps.ClearCache()
+
+		stop := make(chan struct{})
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_, _ = ps.Get(testKey)
+				}
+			}
+		}()
+
+		require.Nil(t, ps.RemoveFromAllActivePersisters(testKey))
+		close(stop)
+		<-done
+
+		_, err := ps.Get(testKey)
+		require.NotNil(t, err, "iteration %d: removed value came back from the cache", i)
+	}
+}
+
 func TestPruningStorer_DestroyUnitShouldWork(t *testing.T) {
 	t.Parallel()
 

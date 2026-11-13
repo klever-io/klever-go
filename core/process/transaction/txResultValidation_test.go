@@ -845,6 +845,8 @@ func (m *mockSmartContractProcessor) LastBlock() data.HeaderHandler {
 	return nil
 }
 
+func (m *mockSmartContractProcessor) DiscardTxOutput(_ []byte) {}
+
 func (m *mockSmartContractProcessor) IsInterfaceNil() bool {
 	return m == nil
 }
