@@ -7,7 +7,7 @@ on:
         description: Custom GO Version
         required: false
         type: string
-        default: "1.22"
+        default: "1.25.14"
       verbose:
         description: Verbose mode
         required: false
