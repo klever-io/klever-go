@@ -675,10 +675,12 @@ func mirrorFailureFields(err error) []interface{} {
 func loggableText(text string, maxLength int) string {
 	if len(text) > maxLength {
 		// Step the cut back to a rune start so it does not split a sequence into U+FFFD in
-		// front of the marker. Invalid bytes inside the head are left to the Map pass below,
-		// which renders them as U+FFFD exactly as it does for text under the bound.
+		// front of the marker — at most UTFMax-1 steps, so a run of stray continuation bytes
+		// cannot walk the cut back through the head. Invalid bytes inside the head are left
+		// to the Map pass below, which renders them as U+FFFD exactly as it does for text
+		// under the bound.
 		cut := maxLength
-		for cut > 0 && !utf8.RuneStart(text[cut]) {
+		for steps := 0; steps < utf8.UTFMax-1 && cut > 0 && !utf8.RuneStart(text[cut]); steps++ {
 			cut--
 		}
 		text = text[:cut] + fmt.Sprintf("… (%d bytes)", len(text))

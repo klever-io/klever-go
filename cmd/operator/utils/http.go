@@ -150,7 +150,7 @@ func checkStatus(method, url string, r *http.Response) error {
 	snippet, readErr := io.ReadAll(io.LimitReader(r.Body, maxErrorBody+1))
 	truncated := len(snippet) > maxErrorBody
 	if truncated {
-		// A multi-byte rune the cut splits is invalid UTF-8, and sanitizeServerText drops
+		// A multi-byte rune the cut splits is invalid UTF-8, and sanitizeServerBytes drops
 		// invalid bytes, so no U+FFFD precedes the marker.
 		snippet = snippet[:maxErrorBody]
 	}
@@ -164,30 +164,27 @@ func checkStatus(method, url string, r *http.Response) error {
 		}
 	}
 	if readErr != nil {
-		statusErr.ReadErr = sanitizeServerText(readErr.Error())
+		statusErr.ReadErr = sanitizeServerBytes([]byte(readErr.Error()))
 	}
 
 	return statusErr
 }
 
-// sanitizeServerText makes server-supplied text safe to print as one terminal line, and
-// keeps it bounded. Every whitespace run — newlines of a stack trace, tabs, the Unicode
+// sanitizeServerBytes makes server-supplied text safe to print as one terminal line, and
+// does not grow it. Every whitespace run — newlines of a stack trace, tabs, the Unicode
 // line and paragraph separators — becomes one space, so the lines stay readable and
 // padding cannot stretch the text. The other control characters (escape sequences) and
 // the format characters (category Cf: bidi overrides, zero-width joiners, which reorder or
 // hide what follows — a reason that reads backwards could disguise a fee or an address)
-// are dropped. Invisible code points outside Cf (combining graphemes, variation selectors,
-// Hangul fillers) are not chased. So is every invalid UTF-8 byte: rendering each one as the
-// 3-byte U+FFFD would triple a body that was capped before sanitising. A U+FFFD the server
-// itself sent is kept.
-func sanitizeServerText(s string) string {
-	return sanitizeServerBytes([]byte(s))
-}
-
-// sanitizeServerBytes is sanitizeServerText over the bytes io.ReadAll returned: on the node
-// this runs on every failed mirror post, so the body is decoded straight from that buffer
-// into one Builder, with no intermediate string copy and no per-word slice. The ReadAll
-// buffer and the Builder are the two allocations left.
+// are dropped, and so is every invalid UTF-8 byte: rendering each one as the 3-byte U+FFFD
+// would triple a body that was capped before sanitising. A U+FFFD the server itself sent
+// is kept. Invisible code points outside Cf (combining graphemes, variation selectors,
+// Hangul fillers) are not chased.
+//
+// It takes the bytes io.ReadAll returned: on the node this runs on every failed mirror
+// post, so the body is decoded straight from that buffer into one Builder, with no
+// intermediate string copy and no per-word slice. The ReadAll buffer and the Builder are
+// the two allocations left.
 func sanitizeServerBytes(s []byte) string {
 	var b strings.Builder
 	b.Grow(len(s))
