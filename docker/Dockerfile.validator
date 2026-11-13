@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.25-trixie AS builder
+FROM golang:1.25.14-trixie AS builder
 
 # NOSONAR
 COPY . /go/src/github.com/klever-io/klever-go
