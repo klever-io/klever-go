@@ -1,6 +1,6 @@
 # Build environment for the Anthropic OSS Scanner (https://red.anthropic.com/oss-scanner).
 # The build context is the repository checkout; the scan itself runs without network access.
-FROM golang:1.25-trixie
+FROM golang:1.25.14-trixie
 
 ENV DEBIAN_FRONTEND=noninteractive \
     CGO_ENABLED=1 \

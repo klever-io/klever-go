@@ -1,6 +1,6 @@
 module github.com/klever-io/klever-go
 
-go 1.25.7
+go 1.25.14
 
 require (
 	github.com/ElrondNetwork/concurrent-map v0.1.3

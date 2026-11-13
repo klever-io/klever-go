@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       go_version:
-        description: Custom GO Version
+        description: Custom Go version (empty uses the version in go.mod)
         required: false
         type: string
-        default: "1.22"
+        default: ""
       verbose:
         description: Verbose mode
         required: false
