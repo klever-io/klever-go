@@ -289,6 +289,28 @@ func TestNewNetworkMessenger_SeedNodeUsesNullConnMgr(t *testing.T) {
 	}
 }
 
+func TestNewNetworkMessenger_ConnectionManagerValidationSkippedForSeeds(t *testing.T) {
+	invalid := config.ConnectionManagerConfig{LowWater: 300, HighWater: 300}
+
+	t.Run("seed ignores p2p.connectionManager", func(t *testing.T) {
+		arg := createMockNetworkArgs()
+		arg.IsSeedNode = true
+		arg.P2pConfig.ConnectionManager = invalid
+
+		mes, err := libp2p.NewNetworkMessenger(arg)
+		require.NoError(t, err)
+		defer func() { _ = mes.Close() }()
+	})
+	t.Run("regular node still rejects it", func(t *testing.T) {
+		arg := createMockNetworkArgs()
+		arg.P2pConfig.ConnectionManager = invalid
+
+		mes, err := libp2p.NewNetworkMessenger(arg)
+		require.Error(t, err)
+		require.True(t, check.IfNil(mes))
+	})
+}
+
 func TestNewNetworkMessenger_RegularNodeUsesBasicConnMgrWithDefaults(t *testing.T) {
 	// Every regular node, NilListSharder included, runs a BasicConnMgr with klever-go's watermarks
 	// (not libp2p's 160/192), so idle unknown peers cannot hold the inbound ResourceManager slots.

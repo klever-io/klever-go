@@ -2,6 +2,7 @@ package libp2p_test
 
 import (
 	"context"
+	"sort"
 	"testing"
 	"time"
 
@@ -387,18 +388,24 @@ func TestNetworkMessenger_TrimEvictsUnprotectedPeersBelowOldLowWater(t *testing.
 	require.True(t, ok)
 	require.Zero(t, cm.GetInfo().GracePeriod)
 
+	// Order matters: with a zero grace period BasicConnMgr's background loop trims as soon as the
+	// count reaches highWater, and validators (tagged -100) would be closed first. So connect the
+	// validators (staying below highWater), protect them, and only then add the unprotected peers.
 	validators := make(map[peer.ID]struct{})
 	var all []host.Host
-	for i := 0; i < numValidators+numUnprotected; i++ {
+	connect := func(isValidator bool) {
 		h := newLocalPeerHost(t)
 		connectToMessenger(t, h, mes) // inbound for the messenger
-		if i < numValidators {
+		if isValidator {
 			validators[h.ID()] = struct{}{}
 			cm.TagPeer(h.ID(), "test-low-value", -100)
 		}
 		all = append(all, h)
 	}
-	require.Greater(t, cm.GetInfo().ConnCount, highWater)
+	for i := 0; i < numValidators; i++ {
+		connect(true)
+	}
+	require.Less(t, cm.GetInfo().ConnCount, highWater)
 
 	require.NoError(t, mes.SetPeerShardResolver(&mock.PeerShardResolverStub{
 		GetPeerInfoCalled: func(pid core.PeerID) core.P2PPeerInfo {
@@ -412,8 +419,11 @@ func TestNetworkMessenger_TrimEvictsUnprotectedPeersBelowOldLowWater(t *testing.
 	res, ok := mes.RunPeerProtectorPass()
 	require.True(t, ok, "regular nodes must run a peer protector")
 	assert.Equal(t, numValidators, res.Validators)
-	assert.Equal(t, numUnprotected, res.Unknown)
 
+	for i := 0; i < numUnprotected; i++ {
+		connect(false)
+	}
+	// A background trim may already have run; that is the behaviour under test.
 	cm.TrimOpenConns(context.Background())
 
 	countUnprotectedConnected := func() int {
@@ -466,7 +476,17 @@ func TestNetworkMessenger_InboundCapClosesPeersTheGracePeriodShields(t *testing.
 		h := newLocalPeerHost(t)
 		connectToMessenger(t, h, mes) // inbound for the messenger
 		peersInConnectOrder = append(peersInConnectOrder, h)
-		time.Sleep(5 * time.Millisecond) // distinct Opened timestamps
+	}
+
+	// Opened timestamps as the messenger sees the inbound connections.
+	opened := make([]time.Time, len(peersInConnectOrder))
+	for i, h := range peersInConnectOrder {
+		for _, c := range mes.Host().Network().ConnsToPeer(h.ID()) {
+			if c.Stat().Direction == network.DirInbound {
+				opened[i] = c.Stat().Opened
+			}
+		}
+		require.False(t, opened[i].IsZero(), "peer %d has no inbound connection", i)
 	}
 
 	isConnected := func(h host.Host) bool {
@@ -499,8 +519,19 @@ func TestNetworkMessenger_InboundCapClosesPeersTheGracePeriodShields(t *testing.
 	assert.Equal(t, numPeers-maxUnprotected, res.Closed)
 
 	require.Eventually(t, func() bool { return countConnected() == maxUnprotected }, 5*time.Second, 10*time.Millisecond)
+	// Newest first are closed, so the maxUnprotected oldest by Opened survive. Ties make the exact
+	// survivor ambiguous, so only require: every peer older than the cutoff is kept, every peer
+	// newer is closed, and the survivors are a subset of those not newer than the cutoff.
+	sorted := append([]time.Time(nil), opened...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Before(sorted[j]) })
+	cutoff := sorted[maxUnprotected-1]
 	for i, h := range peersInConnectOrder {
-		assert.Equal(t, i < maxUnprotected, isConnected(h), "peer %d: the oldest peers are kept, the newest closed", i)
+		switch {
+		case opened[i].Before(cutoff):
+			assert.True(t, isConnected(h), "peer %d opened before the cutoff must be kept", i)
+		case opened[i].After(cutoff):
+			assert.False(t, isConnected(h), "peer %d opened after the cutoff must be closed", i)
+		}
 	}
 }
 
