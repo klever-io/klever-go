@@ -17,6 +17,13 @@ type RateChange struct {
 	Validator uint32
 }
 
+// ElectionParams holds the epoch-start randomness and the election limits the end-of-epoch economics applies
+type ElectionParams struct {
+	Randomness     []byte
+	MinNodes       uint32
+	NodesToShuffle uint32
+}
+
 type ValidatorsKapp interface {
 	SetKAppController(controller KAppController) error
 	Register(sender []byte, tc *transaction.CreateValidatorContract) (transaction.Transaction_TXResultCode, error)
@@ -24,7 +31,7 @@ type ValidatorsKapp interface {
 	Delegate(sender []byte, blockTime int64, blockEpoch uint32, tc *transaction.DelegateContract) (transaction.Transaction_TXResultCode, [][]byte, error)
 	Undelegate(blockEpoch uint32, validator []byte, sender []byte, tc *transaction.UndelegateContract) (transaction.Transaction_TXResultCode, error)
 	Unjail(sender []byte, tc *transaction.UnjailContract) (transaction.Transaction_TXResultCode, error)
-	ProcessEconomicsEndOfEpoch(currentEpoch uint32, validatorInfos []*state.ValidatorInfo) error
+	ProcessEconomicsEndOfEpoch(currentEpoch uint32, validatorInfos []*state.ValidatorInfo, election ElectionParams) error
 	SaveUpdatesForNodesMap(nodeOwners [][]byte, peerType string) (bool, error)
 	GetValidatorsInfo(validators [][]byte) ([]ValidatorAccountInfoHandler, error)
 	DecreaseTempRating(validator []byte, isProposer bool) error

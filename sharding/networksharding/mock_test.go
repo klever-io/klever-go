@@ -158,6 +158,10 @@ func (ncs *nodesCoordinatorStub) SetEpochValidatorsInfo(_ uint32, _ []*state.Val
 	return nil
 }
 
+func (ncs *nodesCoordinatorStub) ElectionLimits(_ uint32) (uint32, uint32) {
+	return 0, 0
+}
+
 // IsInterfaceNil -
 func (ncs *nodesCoordinatorStub) IsInterfaceNil() bool {
 	return ncs == nil

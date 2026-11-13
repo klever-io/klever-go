@@ -14,6 +14,7 @@ import (
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/block/bootstrapStorage"
 	"github.com/klever-io/klever-go/data"
@@ -1379,7 +1380,15 @@ func (mp *metaProcessor) indexBlock(
 }
 
 func (mp *metaProcessor) processEconomicsEndOfEpoch(validatorInfos []*state.ValidatorInfo, headerHandler data.HeaderHandler) error {
-	err := mp.kAppController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(mp.epochStartTrigger.Epoch(), validatorInfos)
+	epoch := headerHandler.GetEpoch()
+	minNodes, nodesToShuffle := mp.nodesCoordinator.ElectionLimits(epoch)
+	election := kapp.ElectionParams{
+		Randomness:     headerHandler.GetPrevRandSeed(),
+		MinNodes:       minNodes,
+		NodesToShuffle: nodesToShuffle,
+	}
+
+	err := mp.kAppController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(epoch, validatorInfos, election)
 	if err != nil {
 		return err
 	}

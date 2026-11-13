@@ -20,6 +20,7 @@ import (
 	"github.com/klever-io/klever-go/core"
 	consensusMock "github.com/klever-io/klever-go/core/consensus/mock"
 	"github.com/klever-io/klever-go/core/fork"
+	"github.com/klever-io/klever-go/core/kapp"
 	kappcontroller "github.com/klever-io/klever-go/core/kapp/kappController"
 	"github.com/klever-io/klever-go/core/process"
 	blproc "github.com/klever-io/klever-go/core/process/block"
@@ -41,6 +42,7 @@ import (
 	"github.com/klever-io/klever-go/eventNotifier/notifier"
 	"github.com/klever-io/klever-go/kapps"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
+	"github.com/klever-io/klever-go/kvm/mock/stub"
 	"github.com/klever-io/klever-go/sharding"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/memorydb"
@@ -1076,6 +1078,68 @@ func TestMetaProcessor_ApplyEpochStartSideEffects(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMetaProcessor_ProcessEconomicsEndOfEpochPassesElectionLimitsAndPrevRandSeed(t *testing.T) {
+	t.Parallel()
+
+	headerEpoch := uint32(7)
+	header := &block.Block{
+		Header: &block.BlockHeader{
+			Epoch:        headerEpoch,
+			RandSeed:     []byte("rand-seed"),
+			PrevRandSeed: []byte("prev-rand-seed"),
+		},
+	}
+
+	limitsEpochs := make([]uint32, 0)
+	arguments := createMockMetaArguments()
+	arguments.NodesCoordinator = &mock.NodesCoordinatorMock{
+		ElectionLimitsCalled: func(epoch uint32) (uint32, uint32) {
+			limitsEpochs = append(limitsEpochs, epoch)
+			return 21, 6
+		},
+	}
+	arguments.EpochStartTrigger = &mock.EpochStartTriggerStub{
+		EpochCalled: func() uint32 { return headerEpoch - 1 },
+	}
+
+	errEconomics := errors.New("economics error")
+	validatorInfos := []*state.ValidatorInfo{{PublicKey: []byte("pk")}}
+	var economicsCalls int
+	var economicsEpoch uint32
+	var economicsInfos []*state.ValidatorInfo
+	var election kapp.ElectionParams
+	validatorsKApp := &mock.ValidatorsKAppStub{
+		ProcessEconomicsEndOfEpochCalled: func(currentEpoch uint32, infos []*state.ValidatorInfo, params kapp.ElectionParams) error {
+			economicsCalls++
+			economicsEpoch = currentEpoch
+			economicsInfos = infos
+			election = params
+			return errEconomics
+		},
+	}
+	arguments.KAppController = &stub.KAppControllerStub{
+		GetValidatorsKAppCalled: func() kapp.ValidatorsKapp {
+			return validatorsKApp
+		},
+	}
+
+	mpp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
+	mp := blproc.NewMetaProcessorForTests(mpp)
+
+	err = mp.ProcessEconomicsEndOfEpoch(validatorInfos, header)
+	require.ErrorIs(t, err, errEconomics)
+
+	assert.Equal(t, []uint32{header.GetEpoch()}, limitsEpochs)
+	require.Equal(t, 1, economicsCalls)
+	assert.Equal(t, header.GetEpoch(), economicsEpoch)
+	assert.Equal(t, validatorInfos, economicsInfos)
+	assert.Equal(t, header.GetPrevRandSeed(), election.Randomness)
+	assert.NotEqual(t, header.GetRandSeed(), election.Randomness)
+	assert.Equal(t, uint32(21), election.MinNodes)
+	assert.Equal(t, uint32(6), election.NodesToShuffle)
 }
 
 // UpdateProposalsAndParameters used to fire from inside processProposalsEndOfEpoch,

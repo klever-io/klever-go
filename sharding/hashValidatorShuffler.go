@@ -6,7 +6,9 @@ import (
 	"sync"
 
 	"github.com/klever-io/klever-go/config"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
+	"github.com/klever-io/klever-go/tools/check"
 )
 
 var _ NodesShuffler = (*randHashShuffler)(nil)
@@ -15,6 +17,7 @@ var _ NodesShuffler = (*randHashShuffler)(nil)
 type NodesShufflerArgs struct {
 	Nodes                uint32
 	MaxNodesEnableConfig []config.MaxNodesChangeConfig
+	ForkController       core.ForkController
 }
 
 type shuffleNodesArg struct {
@@ -22,8 +25,9 @@ type shuffleNodesArg struct {
 	eligible   []Validator
 	randomness []byte
 	// distributor             ValidatorsDistributor
-	nodes          uint32
-	maxNodesToSwap uint32
+	nodes           uint32
+	maxNodesToSwap  uint32
+	countDepartures bool
 }
 
 type randHashShuffler struct {
@@ -31,6 +35,7 @@ type randHashShuffler struct {
 	activeNodesConfig     config.MaxNodesChangeConfig
 	availableNodesConfigs []config.MaxNodesChangeConfig
 	mutShufflerParams     sync.RWMutex
+	forkController        core.ForkController
 }
 
 // NewHashValidatorsShuffler creates a validator shuffler that uses a hash between validator key and a given
@@ -38,6 +43,9 @@ type randHashShuffler struct {
 func NewHashValidatorsShuffler(args *NodesShufflerArgs) (*randHashShuffler, error) {
 	if args == nil {
 		return nil, ErrNilNodeShufflerArguments
+	}
+	if check.IfNil(args.ForkController) {
+		return nil, ErrNilForkController
 	}
 
 	var configs []config.MaxNodesChangeConfig
@@ -49,6 +57,7 @@ func NewHashValidatorsShuffler(args *NodesShufflerArgs) (*randHashShuffler, erro
 
 	rxs := &randHashShuffler{
 		availableNodesConfigs: configs,
+		forkController:        args.ForkController,
 	}
 
 	rxs.UpdateParams(args.Nodes)
@@ -82,13 +91,41 @@ func (rhs *randHashShuffler) UpdateNodeLists(args ArgsUpdateNodes) (*ResUpdateNo
 	maxNodesToSwap := rhs.activeNodesConfig.NodesToShuffle
 	rhs.mutShufflerParams.RUnlock()
 
+	countDepartures := rhs.forkController.FixAuditChangesV7InEpoch(args.Epoch)
+
 	return shuffleNodes(shuffleNodesArg{
-		elected:        args.Elected,
-		eligible:       args.Eligible,
-		randomness:     args.Rand,
-		nodes:          nodes,
-		maxNodesToSwap: maxNodesToSwap,
+		elected:         args.Elected,
+		eligible:        args.Eligible,
+		randomness:      args.Rand,
+		nodes:           nodes,
+		maxNodesToSwap:  maxNodesToSwap,
+		countDepartures: countDepartures,
 	})
+}
+
+// ElectionLimits returns the minimum number of nodes and the nodes to shuffle for the given epoch without changing the active config
+func (rhs *randHashShuffler) ElectionLimits(epoch uint32) (uint32, uint32) {
+	rhs.mutShufflerParams.RLock()
+	defer rhs.mutShufflerParams.RUnlock()
+
+	if selected, found := rhs.nodesConfigForEpoch(epoch); found {
+		return rhs.nodes, selected.NodesToShuffle
+	}
+
+	return rhs.nodes, rhs.nodes
+}
+
+func (rhs *randHashShuffler) nodesConfigForEpoch(epoch uint32) (config.MaxNodesChangeConfig, bool) {
+	var selected config.MaxNodesChangeConfig
+	found := false
+	for _, maxNodesConfig := range rhs.availableNodesConfigs {
+		if epoch >= maxNodesConfig.EpochEnable {
+			selected = maxNodesConfig
+			found = true
+		}
+	}
+
+	return selected, found
 }
 
 // IsInterfaceNil verifies if the underlying object is nil
@@ -113,6 +150,11 @@ func shuffleNodes(arg shuffleNodesArg) (*ResUpdateNodes, error) {
 	if numToRemove > len(arg.elected) {
 		numDeparted := max(int(arg.nodes)-len(arg.elected), 0)
 		numToRemove = min(max(numToRemove-numDeparted, 0), len(arg.elected))
+	}
+
+	if arg.countDepartures {
+		numDeparted := max(int(arg.nodes)-len(arg.elected), 0)
+		numToRemove = min(numToRemove, max(int(arg.maxNodesToSwap)-numDeparted, 0))
 	}
 
 	//* Here we take out a number of validators(numToRemove) randomically and return the ones that
@@ -172,23 +214,36 @@ func shuffleOutNodes(
 // public keys of validators and sorting the validators depending on
 // the hash result.
 func shuffleList(validators []Validator, randomness []byte) []Validator {
-	keys := make([]string, len(validators))
-	mapValidators := make(map[string]Validator)
-	var concat []byte
+	return shuffleBy(validators, Validator.PubKey, randomness)
+}
+
+// ShufflePublicKeys orders pubKeys the way shuffleList orders validators: by sha256(pubKey ++ randomness), ascending.
+// The validators KApp orders its stake demotions with it so they follow the shuffler's order.
+// The caller's slices are not modified.
+func ShufflePublicKeys(pubKeys [][]byte, randomness []byte) [][]byte {
+	return shuffleBy(pubKeys, func(pubKey []byte) []byte { return pubKey }, randomness)
+}
+
+func shuffleBy[T any](items []T, key func(T) []byte, randomness []byte) []T {
+	hashes := make([]string, len(items))
+	itemsByHash := make(map[string]T, len(items))
 
 	hasher := &sha256.Sha256{}
-	for i, v := range validators {
-		concat = append(v.PubKey(), randomness...)
+	for i, item := range items {
+		itemKey := key(item)
+		input := make([]byte, len(itemKey), len(itemKey)+len(randomness))
+		copy(input, itemKey)
+		input = append(input, randomness...)
 
-		keys[i] = string(hasher.Compute(string(concat)))
-		mapValidators[keys[i]] = v
+		hashes[i] = string(hasher.Compute(string(input)))
+		itemsByHash[hashes[i]] = item
 	}
 
-	sort.Strings(keys)
+	sort.Strings(hashes)
 
-	result := make([]Validator, len(validators))
-	for i := 0; i < len(validators); i++ {
-		result[i] = mapValidators[keys[i]]
+	result := make([]T, len(items))
+	for i, hash := range hashes {
+		result[i] = itemsByHash[hash]
 	}
 
 	return result
@@ -288,10 +343,8 @@ func (rhs *randHashShuffler) UpdateShufflerConfig(epoch uint32) {
 	rhs.mutShufflerParams.Lock()
 	defer rhs.mutShufflerParams.Unlock()
 	rhs.activeNodesConfig.NodesToShuffle = rhs.nodes
-	for _, maxNodesConfig := range rhs.availableNodesConfigs {
-		if epoch >= maxNodesConfig.EpochEnable {
-			rhs.activeNodesConfig = maxNodesConfig
-		}
+	if selected, found := rhs.nodesConfigForEpoch(epoch); found {
+		rhs.activeNodesConfig = selected
 	}
 
 	log.Debug("randHashShuffler: UpdateShufflerConfig",

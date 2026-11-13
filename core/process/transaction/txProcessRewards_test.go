@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/klever-io/klever-go/config"
+	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
@@ -151,7 +152,7 @@ func TestRewards_ValidatorRewards_BeforeFixDelegationSameEpochFork(t *testing.T)
 	err = c.AddFeesToPeer(peerAddressB, rewardsB)
 	require.Nil(t, err)
 
-	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo)
+	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo, kapp.ElectionParams{})
 	require.Nil(t, err)
 
 	assert.Equal(t, rewardsA/2, c.GetAllowance(userA))
@@ -222,7 +223,7 @@ func TestRewards_ValidatorRewards_AfterFixDelegationSameEpochFork(t *testing.T) 
 	err = c.AddFeesToPeer(peerAddressB, rewardsB)
 	require.Nil(t, err)
 
-	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo)
+	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo, kapp.ElectionParams{})
 	require.Nil(t, err)
 
 	// V1: rewards go to user allowance
@@ -275,7 +276,7 @@ func TestRewards_ValidatorRewards_V2_EpochRewards(t *testing.T) {
 	err = c.AddFeesToPeer(peerAddressB, rewardsB)
 	require.Nil(t, err)
 
-	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo)
+	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo, kapp.ElectionParams{})
 	require.Nil(t, err)
 
 	// V2: rewards go to pending rewards (NOT to user allowance)
@@ -334,7 +335,7 @@ func TestRewards_ValidatorRewards_RemainFees(t *testing.T) {
 
 	validatorInfo := []*state.ValidatorInfo{{OwnerAddress: validatorA, PublicKey: peerAddressA}}
 
-	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo)
+	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo, kapp.ElectionParams{})
 	require.Nil(t, err)
 
 	assert.Equal(t, int64(33), c.GetAllowance(userA))
@@ -402,7 +403,7 @@ func Test_ValidatorRewards_Comission_20(t *testing.T) {
 	require.NoError(t, c.AddFeesToPeer(peerAddressA, rewardsA))
 
 	validatorInfo := []*state.ValidatorInfo{{OwnerAddress: validatorA, PublicKey: peerAddressA}}
-	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo)
+	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo, kapp.ElectionParams{})
 	require.Equal(c.t, nil, err)
 
 	expectedValidatorReward := int64(2000)
@@ -414,7 +415,7 @@ func Test_ValidatorRewards_Comission_20(t *testing.T) {
 
 	require.NoError(t, c.AddFeesToPeer(peerAddressA, rewardsB))
 
-	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(4, validatorInfo)
+	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(4, validatorInfo, kapp.ElectionParams{})
 	require.Equal(c.t, nil, err)
 
 	assert.Equal(t, expectedValidatorReward, c.GetAllowance(testReferralAddress))     // validatorA receives 0 because can't get fraction of klv
@@ -480,7 +481,7 @@ func Test_ValidatorRewards_Comission_2000(t *testing.T) {
 	require.NoError(t, c.AddFeesToPeer(peerAddressA, rewardsA))
 
 	validatorInfo := []*state.ValidatorInfo{{OwnerAddress: validatorA, PublicKey: peerAddressA}}
-	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo)
+	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo, kapp.ElectionParams{})
 	require.Equal(c.t, nil, err)
 
 	expectedValidatorReward := int64(200000)
@@ -531,7 +532,7 @@ func TestRewards_ValidatorRewards_V2_RemainFees(t *testing.T) {
 
 	validatorInfo := []*state.ValidatorInfo{{OwnerAddress: validatorA, PublicKey: peerAddressA}}
 
-	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo)
+	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo, kapp.ElectionParams{})
 	require.Nil(t, err)
 
 	// V2: rewards go to pending rewards (NOT to user allowance)
@@ -604,7 +605,7 @@ func Test_ValidatorRewards_V2_Commission_20(t *testing.T) {
 	require.NoError(t, c.AddFeesToPeer(peerAddressA, rewardsA))
 
 	validatorInfo := []*state.ValidatorInfo{{OwnerAddress: validatorA, PublicKey: peerAddressA}}
-	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo)
+	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo, kapp.ElectionParams{})
 	require.Equal(c.t, nil, err)
 
 	expectedValidatorReward := int64(2000)
@@ -621,7 +622,7 @@ func Test_ValidatorRewards_V2_Commission_20(t *testing.T) {
 	rewardsB := int64(100)
 	require.NoError(t, c.AddFeesToPeer(peerAddressA, rewardsB))
 
-	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(4, validatorInfo)
+	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(4, validatorInfo, kapp.ElectionParams{})
 	require.Equal(c.t, nil, err)
 
 	// V2: rewards accumulate in pending rewards
@@ -687,7 +688,7 @@ func Test_ValidatorRewards_V2_Commission_2000(t *testing.T) {
 	require.NoError(t, c.AddFeesToPeer(peerAddressA, rewardsA))
 
 	validatorInfo := []*state.ValidatorInfo{{OwnerAddress: validatorA, PublicKey: peerAddressA}}
-	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo)
+	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo, kapp.ElectionParams{})
 	require.Equal(c.t, nil, err)
 
 	expectedValidatorReward := int64(200000)

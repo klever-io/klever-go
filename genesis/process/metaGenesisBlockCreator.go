@@ -236,7 +236,7 @@ RemaindersAccLoop:
 	}
 
 	// initial update list
-	err = arg.KAppController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(0, validatorsInfo)
+	err = arg.KAppController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(0, validatorsInfo, kapp.ElectionParams{})
 
 	return len(initialAccounts), txHashes, err
 }

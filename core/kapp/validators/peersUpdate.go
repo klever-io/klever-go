@@ -328,17 +328,17 @@ func (v *validatorsKApp) DecreaseTempRating(validator []byte, isProposer bool) e
 	return v.accountsCacher.SaveAll()
 }
 
-func (v *validatorsKApp) ProcessEconomicsEndOfEpoch(currentEpoch uint32, validatorInfos []*state.ValidatorInfo) error {
+func (v *validatorsKApp) ProcessEconomicsEndOfEpoch(currentEpoch uint32, validatorInfos []*state.ValidatorInfo, election kapp.ElectionParams) error {
 	err := v.accountsCacher.SaveAll()
 	if err != nil {
 		return err
 	}
 
 	if !v.forkController.EpochRewardsV2() {
-		return v.ProcessEconomicsEndOfEpochV1(currentEpoch, validatorInfos)
+		return v.ProcessEconomicsEndOfEpochV1(currentEpoch, validatorInfos, election)
 	}
 
-	return v.ProcessEconomicsEndOfEpochV2(currentEpoch, validatorInfos)
+	return v.ProcessEconomicsEndOfEpochV2(currentEpoch, validatorInfos, election)
 }
 
 // getValidatorParams returns the minimum self-delegated and total-delegated amounts from proposal controller.
@@ -373,13 +373,199 @@ func (v *validatorsKApp) updatePeerListStatus(val *ValidatorData, peerAcc state.
 		return
 	}
 
-	if val.SelfStake < minSelfDelegated {
-		peerAcc.SetList(state.List_inactive)
-	} else if totalDelegated < minTotalDelegated {
-		peerAcc.SetList(state.List_waiting)
-	} else if peerAcc.GetList() != state.List_elected {
+	if list, below := belowMinimumList(val, minSelfDelegated, minTotalDelegated, totalDelegated); below {
+		peerAcc.SetList(list)
+		return
+	}
+
+	if peerAcc.GetList() != state.List_elected {
 		peerAcc.SetList(state.List_eligible)
 	}
+}
+
+func belowMinimumList(val *ValidatorData, minSelfDelegated, minTotalDelegated, totalDelegated int64) (state.List, bool) {
+	if val.SelfStake < minSelfDelegated {
+		return state.List_inactive, true
+	}
+
+	if totalDelegated < minTotalDelegated {
+		return state.List_waiting, true
+	}
+
+	return 0, false
+}
+
+type electedDemotion struct {
+	ownerAddress []byte
+	list         state.List
+}
+
+type electionTracker struct {
+	params     kapp.ElectionParams
+	keys       [][]byte
+	seen       map[string]struct{}
+	candidates map[string]electedDemotion
+}
+
+func (v *validatorsKApp) newElectionTracker(currentEpoch uint32, election kapp.ElectionParams) *electionTracker {
+	if election.MinNodes == 0 || !v.forkController.FixAuditChangesV7InEpoch(currentEpoch) {
+		return nil
+	}
+
+	return &electionTracker{
+		params:     election,
+		seen:       make(map[string]struct{}),
+		candidates: make(map[string]electedDemotion),
+	}
+}
+
+func (et *electionTracker) track(key []byte) {
+	if _, ok := et.seen[string(key)]; ok {
+		return
+	}
+
+	et.seen[string(key)] = struct{}{}
+	et.keys = append(et.keys, key)
+}
+
+func (v *validatorsKApp) updatePeerListStatusForElection(
+	tracker *electionTracker,
+	ownerAddress []byte,
+	val *ValidatorData,
+	peerAcc state.PeerAccountHandler,
+	minSelfDelegated, minTotalDelegated, totalDelegated int64,
+) {
+	if tracker == nil {
+		v.updatePeerListStatus(val, peerAcc, minSelfDelegated, minTotalDelegated, totalDelegated)
+		return
+	}
+
+	key := val.BlsPubKey
+	tracker.track(key)
+
+	if !val.Jailed && peerAcc.GetList() == state.List_elected {
+		if demotedList, below := belowMinimumList(val, minSelfDelegated, minTotalDelegated, totalDelegated); below {
+			tracker.candidates[string(key)] = electedDemotion{
+				ownerAddress: ownerAddress,
+				list:         demotedList,
+			}
+			return
+		}
+	}
+
+	delete(tracker.candidates, string(key))
+	v.updatePeerListStatus(val, peerAcc, minSelfDelegated, minTotalDelegated, totalDelegated)
+}
+
+func (v *validatorsKApp) isReplacementAfterReset(peerAcc state.PeerAccountHandler, previousLists []string) bool {
+	if len(previousLists) == 0 {
+		return false
+	}
+
+	for _, previousList := range previousLists {
+		if v.jailedAtReset(peerAcc, previousList) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (v *validatorsKApp) demoteElectedBelowMinimum(
+	app state.KAppAccountHandler,
+	tracker *electionTracker,
+	validatorInfos []*state.ValidatorInfo,
+	minSelfDelegated, minTotalDelegated int64,
+) error {
+	if tracker == nil {
+		return nil
+	}
+
+	numElected, numEligible, candidateKeys, err := v.countSeats(tracker, validatorInfos)
+	if err != nil {
+		return err
+	}
+
+	minNodes := int64(tracker.params.MinNodes)
+	vacated := max(minNodes-numElected, 0)
+	spare := numElected + numEligible - minNodes
+	budget := min(int64(len(candidateKeys)), max(spare, 0), max(int64(tracker.params.NodesToShuffle)-vacated, 0))
+
+	ordered := sharding.ShufflePublicKeys(candidateKeys, tracker.params.Randomness)
+	if err = v.applyDemotions(app, tracker, ordered[:budget]); err != nil {
+		return err
+	}
+
+	if kept := int64(len(candidateKeys)) - budget; kept > 0 {
+		log.Warn("elected validators below the delegation minimum keep their seats",
+			"kept", kept,
+			"minSelfDelegated", minSelfDelegated,
+			"minTotalDelegated", minTotalDelegated)
+	}
+
+	return nil
+}
+
+func (v *validatorsKApp) countSeats(
+	tracker *electionTracker,
+	validatorInfos []*state.ValidatorInfo,
+) (numElected, numEligible int64, candidateKeys [][]byte, err error) {
+	previousLists := make(map[string][]string, len(validatorInfos))
+	for _, info := range validatorInfos {
+		if info.IsPubKeyRevoked {
+			continue
+		}
+		previousLists[string(info.PublicKey)] = append(previousLists[string(info.PublicKey)], info.List)
+	}
+
+	candidateKeys = make([][]byte, 0, len(tracker.candidates))
+	for _, key := range tracker.keys {
+		peerAcc, errLoad := v.loadPeerAccount(key)
+		if errLoad != nil {
+			return 0, 0, nil, errLoad
+		}
+
+		switch peerAcc.GetList() {
+		case state.List_elected:
+			numElected++
+		case state.List_eligible:
+			if v.isReplacementAfterReset(peerAcc, previousLists[string(key)]) {
+				numEligible++
+			}
+		}
+
+		if _, ok := tracker.candidates[string(key)]; ok {
+			candidateKeys = append(candidateKeys, key)
+		}
+	}
+
+	return numElected, numEligible, candidateKeys, nil
+}
+
+func (v *validatorsKApp) applyDemotions(app state.KAppAccountHandler, tracker *electionTracker, ordered [][]byte) error {
+	for _, key := range ordered {
+		demotion := tracker.candidates[string(key)]
+
+		peerAcc, err := v.loadPeerAccount(key)
+		if err != nil {
+			return err
+		}
+		peerAcc.SetList(demotion.list)
+		if err = v.accountsCacher.UpdatePeer(peerAcc); err != nil {
+			return err
+		}
+
+		val, err := v.getValidator(app, demotion.ownerAddress)
+		if err != nil {
+			return err
+		}
+		val.Waiting = demotion.list == state.List_waiting
+		if err = v.setValidator(app, demotion.ownerAddress, val); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // bucketProcessingResultV1 holds the results of processing validator buckets in V1.
@@ -513,6 +699,7 @@ func (v *validatorsKApp) processValidatorEpochV1(
 	currentEpoch uint32,
 	minSelfDelegated, minTotalDelegated int64,
 	totalDelegations map[string]int64,
+	tracker *electionTracker,
 ) error {
 	addr := validatorInfo.GetOwnerAddress()
 
@@ -543,7 +730,7 @@ func (v *validatorsKApp) processValidatorEpochV1(
 		return err
 	}
 
-	v.updatePeerListStatus(val, peerAcc, minSelfDelegated, minTotalDelegated, totalDelegated)
+	v.updatePeerListStatusForElection(tracker, addr, val, peerAcc, minSelfDelegated, minTotalDelegated, totalDelegated)
 
 	return v.finalizeValidatorEpoch(app, addr, val, peerAcc)
 }
@@ -666,6 +853,7 @@ func (v *validatorsKApp) processValidatorEpochV2(
 	currentEpoch uint32,
 	minSelfDelegated, minTotalDelegated int64,
 	totalDelegations map[string]int64,
+	tracker *electionTracker,
 ) error {
 	addr := validatorInfo.GetOwnerAddress()
 
@@ -700,7 +888,7 @@ func (v *validatorsKApp) processValidatorEpochV2(
 		return err
 	}
 
-	v.updatePeerListStatus(val, peerAcc, minSelfDelegated, minTotalDelegated, totalDelegated)
+	v.updatePeerListStatusForElection(tracker, addr, val, peerAcc, minSelfDelegated, minTotalDelegated, totalDelegated)
 
 	return v.finalizeValidatorEpoch(app, addr, val, peerAcc)
 }
@@ -733,7 +921,7 @@ func (v *validatorsKApp) finalizeValidatorEpoch(app state.KAppAccountHandler, ad
 	return v.setValidator(app, addr, val)
 }
 
-func (v *validatorsKApp) ProcessEconomicsEndOfEpochV1(currentEpoch uint32, validatorInfos []*state.ValidatorInfo) error {
+func (v *validatorsKApp) ProcessEconomicsEndOfEpochV1(currentEpoch uint32, validatorInfos []*state.ValidatorInfo, election kapp.ElectionParams) error {
 	totalDelegations := make(map[string]int64)
 	minSelfDelegated, minTotalDelegated := v.getValidatorParams()
 
@@ -742,10 +930,15 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpochV1(currentEpoch uint32, valid
 		return err
 	}
 
+	tracker := v.newElectionTracker(currentEpoch, election)
 	for _, validatorInfo := range validatorInfos {
-		if err := v.processValidatorEpochV1(app, validatorInfo, currentEpoch, minSelfDelegated, minTotalDelegated, totalDelegations); err != nil {
+		if err := v.processValidatorEpochV1(app, validatorInfo, currentEpoch, minSelfDelegated, minTotalDelegated, totalDelegations, tracker); err != nil {
 			return err
 		}
+	}
+
+	if err = v.demoteElectedBelowMinimum(app, tracker, validatorInfos, minSelfDelegated, minTotalDelegated); err != nil {
+		return err
 	}
 
 	if err = v.saveKApp(app); err != nil {
@@ -759,7 +952,7 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpochV1(currentEpoch uint32, valid
 	return v.accountsCacher.SaveAll()
 }
 
-func (v *validatorsKApp) ProcessEconomicsEndOfEpochV2(currentEpoch uint32, validatorInfos []*state.ValidatorInfo) error {
+func (v *validatorsKApp) ProcessEconomicsEndOfEpochV2(currentEpoch uint32, validatorInfos []*state.ValidatorInfo, election kapp.ElectionParams) error {
 	minSelfDelegated, minTotalDelegated := v.getValidatorParams()
 
 	app, err := v.getKApp()
@@ -769,10 +962,15 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpochV2(currentEpoch uint32, valid
 
 	totalDelegations := make(map[string]int64)
 
+	tracker := v.newElectionTracker(currentEpoch, election)
 	for _, validatorInfo := range validatorInfos {
-		if err := v.processValidatorEpochV2(app, validatorInfo, currentEpoch, minSelfDelegated, minTotalDelegated, totalDelegations); err != nil {
+		if err := v.processValidatorEpochV2(app, validatorInfo, currentEpoch, minSelfDelegated, minTotalDelegated, totalDelegations, tracker); err != nil {
 			return err
 		}
+	}
+
+	if err = v.demoteElectedBelowMinimum(app, tracker, validatorInfos, minSelfDelegated, minTotalDelegated); err != nil {
+		return err
 	}
 
 	if err = v.savePendingRewardsV2(app, totalDelegations); err != nil {

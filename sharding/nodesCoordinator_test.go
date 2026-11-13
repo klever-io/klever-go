@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
 	"github.com/klever-io/klever-go/data/block"
@@ -59,6 +60,7 @@ func createArguments() ArgNodesCoordinator {
 	shufflerArgs := &NodesShufflerArgs{
 		Nodes:                10,
 		MaxNodesEnableConfig: nil,
+		ForkController:       &forkControllerStub{},
 	}
 	nodeShuffler, _ := NewHashValidatorsShuffler(shufflerArgs)
 
@@ -184,6 +186,7 @@ func TestNodesCoordinator_NewNodesCoordinatorTooFewNodesShouldErr(t *testing.T) 
 	shufflerArgs := &NodesShufflerArgs{
 		Nodes:                10,
 		MaxNodesEnableConfig: nil,
+		ForkController:       &forkControllerStub{},
 	}
 	nodeShuffler, err := NewHashValidatorsShuffler(shufflerArgs)
 	require.Nil(t, err)
@@ -230,6 +233,7 @@ func TestNodesCoordinator_ComputeValidatorsGroup1ValidatorShouldReturnSame(t *te
 	shufflerArgs := &NodesShufflerArgs{
 		Nodes:                10,
 		MaxNodesEnableConfig: nil,
+		ForkController:       &forkControllerStub{},
 	}
 	nodeShuffler, err := NewHashValidatorsShuffler(shufflerArgs)
 	require.Nil(t, err)
@@ -265,6 +269,7 @@ func TestNodesCoordinator_ComputeValidatorsGroup25of400(t *testing.T) {
 	shufflerArgs := &NodesShufflerArgs{
 		Nodes:                nodes,
 		MaxNodesEnableConfig: nil,
+		ForkController:       &forkControllerStub{},
 	}
 	nodeShuffler, err := NewHashValidatorsShuffler(shufflerArgs)
 	require.Nil(t, err)
@@ -300,6 +305,7 @@ func TestNodesCoordinator_ComputeValidatorsGroupBiggerThanElected(t *testing.T) 
 	shufflerArgs := &NodesShufflerArgs{
 		Nodes:                nodes,
 		MaxNodesEnableConfig: nil,
+		ForkController:       &forkControllerStub{},
 	}
 	nodeShuffler, err := NewHashValidatorsShuffler(shufflerArgs)
 	require.Nil(t, err)
@@ -367,6 +373,7 @@ func TestIndexHashedNodesCoordinator_GetValidatorWithPublicKeyShouldWork(t *test
 	shufflerArgs := &NodesShufflerArgs{
 		Nodes:                10,
 		MaxNodesEnableConfig: nil,
+		ForkController:       &forkControllerStub{},
 	}
 	nodeShuffler, err := NewHashValidatorsShuffler(shufflerArgs)
 	require.Nil(t, err)
@@ -499,6 +506,7 @@ func TestNodesCoordinator_EpochStart_ElectedSortedAscendingByIndex(t *testing.T)
 	shufflerArgs := &NodesShufflerArgs{
 		Nodes:                2,
 		MaxNodesEnableConfig: nil,
+		ForkController:       &forkControllerStub{},
 	}
 	nodeShuffler, err := NewHashValidatorsShuffler(shufflerArgs)
 	require.Nil(t, err)
@@ -1446,6 +1454,30 @@ func TestNodesCoordinator_EligibleAndWaitingGettersReturnTheirOwnLists(t *testin
 	}
 }
 
+func TestNodesCoordinator_ElectionLimitsDelegatesToShuffler(t *testing.T) {
+	t.Parallel()
+
+	arguments := createArguments()
+	nodeShuffler, err := NewHashValidatorsShuffler(&NodesShufflerArgs{
+		Nodes: 21,
+		MaxNodesEnableConfig: []config.MaxNodesChangeConfig{
+			{EpochEnable: 0, NodesToShuffle: 4},
+			{EpochEnable: 256, NodesToShuffle: 6},
+		},
+		ForkController: &forkControllerStub{},
+	})
+	require.Nil(t, err)
+	arguments.Shuffler = nodeShuffler
+	ihgs, err := NewNodesCoordinator(arguments)
+	require.Nil(t, err)
+
+	for epoch, expectedNodesToShuffle := range map[uint32]uint32{0: 4, 255: 4, 256: 6, 6000: 6} {
+		minNodes, nodesToShuffle := ihgs.ElectionLimits(epoch)
+		assert.Equal(t, uint32(21), minNodes, "epoch %d", epoch)
+		assert.Equal(t, expectedNodesToShuffle, nodesToShuffle, "epoch %d", epoch)
+	}
+}
+
 func TestNodesCoordinator_EpochStartPrepareStoresLeavingList(t *testing.T) {
 	t.Parallel()
 
@@ -1455,6 +1487,7 @@ func TestNodesCoordinator_EpochStartPrepareStoresLeavingList(t *testing.T) {
 	nodeShuffler, err := NewHashValidatorsShuffler(&NodesShufflerArgs{
 		Nodes:                6,
 		MaxNodesEnableConfig: nil,
+		ForkController:       &forkControllerStub{},
 	})
 	require.Nil(t, err)
 	arguments.Shuffler = nodeShuffler

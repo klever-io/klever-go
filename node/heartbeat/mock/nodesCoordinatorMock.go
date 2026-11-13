@@ -172,6 +172,10 @@ func (ncm *NodesCoordinatorMock) GetChance(uint32) uint32 {
 	return 1
 }
 
+func (ncm *NodesCoordinatorMock) ElectionLimits(_ uint32) (uint32, uint32) {
+	return 0, 0
+}
+
 // IsInterfaceNil returns true if there is no value under the interface
 func (ncm *NodesCoordinatorMock) IsInterfaceNil() bool {
 	return ncm == nil

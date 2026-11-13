@@ -14,6 +14,7 @@ type ValidatorsKAppStub struct {
 	ClaimPendingRewardsCalled                func(address []byte) (int64, error)
 	GetPendingRewardsCalled                  func(address []byte) (int64, error)
 	GetPendingRewardsTotalCalled             func() (int64, error)
+	ProcessEconomicsEndOfEpochCalled         func(currentEpoch uint32, validatorInfos []*state.ValidatorInfo, election kapp.ElectionParams) error
 }
 
 // SetKAppController sets the KApp controller.
@@ -55,7 +56,10 @@ func (v *ValidatorsKAppStub) Unjail(sender []byte, tc *transaction.UnjailContrac
 }
 
 // ProcessEconomicsEndOfEpoch processes the economics at the end of the epoch.
-func (v *ValidatorsKAppStub) ProcessEconomicsEndOfEpoch(currentEpoch uint32, validatorInfos []*state.ValidatorInfo) error {
+func (v *ValidatorsKAppStub) ProcessEconomicsEndOfEpoch(currentEpoch uint32, validatorInfos []*state.ValidatorInfo, election kapp.ElectionParams) error {
+	if v.ProcessEconomicsEndOfEpochCalled != nil {
+		return v.ProcessEconomicsEndOfEpochCalled(currentEpoch, validatorInfos, election)
+	}
 	// Stub implementation
 	return nil
 }

@@ -104,6 +104,11 @@ func (n *nodesCoordinator) GetNumTotalEligible() uint64 {
 	return 0
 }
 
+// ElectionLimits -
+func (n *nodesCoordinator) ElectionLimits(_ uint32) (uint32, uint32) {
+	return 0, 0
+}
+
 // IsInterfaceNil -
 func (n *nodesCoordinator) IsInterfaceNil() bool {
 	return n == nil

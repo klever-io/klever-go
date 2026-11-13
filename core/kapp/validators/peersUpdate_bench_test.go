@@ -10,6 +10,7 @@ import (
 
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process/rating"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
 	"github.com/klever-io/klever-go/data/state"
@@ -52,7 +53,7 @@ func BenchmarkProcessEconomicsEndOfEpoch_Production(b *testing.B) {
 				peerAcc.AddToAccumulatedFees(1000000)
 			}
 
-			err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+			err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos, kapp.ElectionParams{})
 			if err != nil {
 				b.Fatalf("ProcessEconomicsEndOfEpoch failed: %v", err)
 			}
@@ -75,7 +76,7 @@ func BenchmarkProcessEconomicsEndOfEpoch_Production(b *testing.B) {
 				peerAcc.AddToAccumulatedFees(1000000)
 			}
 
-			err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+			err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos, kapp.ElectionParams{})
 			if err != nil {
 				b.Fatalf("ProcessEconomicsEndOfEpoch failed: %v", err)
 			}

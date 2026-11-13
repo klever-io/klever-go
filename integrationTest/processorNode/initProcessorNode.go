@@ -95,6 +95,7 @@ func CreateNodesWithNodesCoordinatorAndHeaderSigVerifier(
 	shufflerArgs := &sharding.NodesShufflerArgs{
 		Nodes:                uint32(numOfNodes), // #nosec G115
 		MaxNodesEnableConfig: []config.MaxNodesChangeConfig{{}},
+		ForkController:       &integrationTestsMock.ForkControllerStub{},
 	}
 
 	nodeShuffler, err := sharding.NewHashValidatorsShuffler(shufflerArgs)
@@ -394,6 +395,7 @@ func CreateNodesWithTxSetup(numOfNodes int, numConsensusSize int, mainConfig con
 	shufflerArgs := &sharding.NodesShufflerArgs{
 		Nodes:                uint32(numOfNodes), // #nosec G115
 		MaxNodesEnableConfig: []config.MaxNodesChangeConfig{{}},
+		ForkController:       &integrationTestsMock.ForkControllerStub{},
 	}
 
 	nodeShuffler, err := sharding.NewHashValidatorsShuffler(shufflerArgs)

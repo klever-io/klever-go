@@ -450,16 +450,6 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		return err
 	}
 
-	argsNodesShuffler := &sharding.NodesShufflerArgs{
-		Nodes:                genesisNodesConfig.MinNumberOfNodes(),
-		MaxNodesEnableConfig: cfg.MaxNodesChangeEnableEpoch,
-	}
-
-	nodesShuffler, err := sharding.NewHashValidatorsShuffler(argsNodesShuffler)
-	if err != nil {
-		return err
-	}
-
 	bootstrapDataProvider, err := storageFactory.NewBootstrapDataProvider(coreComponents.InternalMarshalizer)
 	if err != nil {
 		return err
@@ -520,6 +510,17 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		versionsCache,
 		forkController,
 	)
+	if err != nil {
+		return err
+	}
+
+	argsNodesShuffler := &sharding.NodesShufflerArgs{
+		Nodes:                genesisNodesConfig.MinNumberOfNodes(),
+		MaxNodesEnableConfig: cfg.MaxNodesChangeEnableEpoch,
+		ForkController:       forkController,
+	}
+
+	nodesShuffler, err := sharding.NewHashValidatorsShuffler(argsNodesShuffler)
 	if err != nil {
 		return err
 	}

@@ -28,6 +28,7 @@ type NodesCoordinatorStub struct {
 	GetOwnPublicKeyCalled               func() []byte
 	GetSavedStateKeyCalled              func() []byte
 	LoadStateCalled                     func(key []byte) error
+	ElectionLimitsCalled                func(epoch uint32) (uint32, uint32)
 }
 
 // GetChance -
@@ -154,6 +155,13 @@ func (ncm *NodesCoordinatorStub) SetEpochValidatorsInfo(epoch uint32, validators
 		return ncm.SetEpochValidatorsInfoCalled(epoch, validatorsInfo)
 	}
 	return nil
+}
+
+func (ncm *NodesCoordinatorStub) ElectionLimits(epoch uint32) (uint32, uint32) {
+	if ncm.ElectionLimitsCalled != nil {
+		return ncm.ElectionLimitsCalled(epoch)
+	}
+	return 0, 0
 }
 
 // IsInterfaceNil -

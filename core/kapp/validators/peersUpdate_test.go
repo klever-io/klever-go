@@ -10,6 +10,7 @@ import (
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process"
@@ -1717,7 +1718,7 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
 				peerAcc.AddToAccumulatedFees(1000000)
 
-				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos, kapp.ElectionParams{})
 				assert.NoError(t, err)
 
 				// Verify rewards distribution
@@ -1780,7 +1781,7 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 				kappStorage(storageData, v)
 				// No fees accumulated
 
-				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos, kapp.ElectionParams{})
 				assert.NoError(t, err)
 
 				// Verify no rewards distributed
@@ -1850,7 +1851,7 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
 				peerAcc.AddToAccumulatedFees(1000000)
 
-				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos, kapp.ElectionParams{})
 				assert.NoError(t, err)
 
 				validatorReward := getRewards(v, validatorAddress, tc.epochRewardsV2)
@@ -1940,7 +1941,7 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
 				peerAcc.AddToAccumulatedFees(1000001) // Odd number to create remaining fees
 
-				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos, kapp.ElectionParams{})
 				assert.NoError(t, err)
 
 				validatorReward := getRewards(v, validatorAddress, tc.epochRewardsV2)
@@ -2043,7 +2044,7 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 				peerAcc2.AddToAccumulatedFees(2000000)
 				peerAcc2.SetList(state.List_waiting)
 
-				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos, kapp.ElectionParams{})
 				assert.NoError(t, err)
 
 				validator1Reward := getRewards(v, validatorAddress, tc.epochRewardsV2)
@@ -2115,7 +2116,7 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
 				peerAcc.AddToAccumulatedFees(500000)
 
-				err := v.ProcessEconomicsEndOfEpoch(10, validatorInfos)
+				err := v.ProcessEconomicsEndOfEpoch(10, validatorInfos, kapp.ElectionParams{})
 				assert.NoError(t, err)
 
 				rewardAfterFirst := getRewards(v, validatorAddress, tc.epochRewardsV2)
@@ -2125,7 +2126,7 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 				peerAcc, _ = v.accountsCacher.LoadPeer(blsPubKey)
 				peerAcc.AddToAccumulatedFees(500000)
 
-				err = v.ProcessEconomicsEndOfEpoch(11, validatorInfos)
+				err = v.ProcessEconomicsEndOfEpoch(11, validatorInfos, kapp.ElectionParams{})
 				assert.NoError(t, err)
 
 				rewardAfterSecond := getRewards(v, validatorAddress, tc.epochRewardsV2)
@@ -2149,7 +2150,7 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 		peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
 		peerAcc.AddToAccumulatedFees(1000000)
 
-		err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+		err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos, kapp.ElectionParams{})
 		assert.NoError(t, err)
 
 		// V2 specific: Verify rewards are in KApp trie, NOT in user account
@@ -2247,7 +2248,7 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
 				peerAcc.AddToAccumulatedFees(1000000)
 
-				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos, kapp.ElectionParams{})
 				assert.NoError(t, err)
 
 				// Verify undelegated buckets are removed (same for V1 and V2)
@@ -2338,7 +2339,7 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
 				peerAcc.AddToAccumulatedFees(1000000)
 
-				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos, kapp.ElectionParams{})
 				assert.NoError(t, err)
 
 				// Verify bucket1 (same epoch delegate/undelegate) is removed
@@ -2389,7 +2390,7 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 				peerAcc.AddToAccumulatedFees(1000000)
 				peerAcc.SetList(state.List_jailed) // Peer is jailed
 
-				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos, kapp.ElectionParams{})
 				assert.NoError(t, err)
 
 				// Verify validator is marked as jailed
@@ -2443,7 +2444,7 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 
 				kappStorage(storageData, v)
 
-				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos, kapp.ElectionParams{})
 				assert.NoError(t, err)
 
 				// Verify validator becomes inactive
@@ -2495,7 +2496,7 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
 				peerAcc.SetList(state.List_waiting) // Start as waiting
 
-				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos, kapp.ElectionParams{})
 				assert.NoError(t, err)
 
 				// Verify validator becomes eligible
@@ -2551,7 +2552,7 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
 				peerAcc.SetList(state.List_eligible) // Peer is NOT jailed
 
-				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos, kapp.ElectionParams{})
 				assert.NoError(t, err)
 
 				// Verify validator is unjailed
@@ -2608,7 +2609,7 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
 				peerAcc.SetList(state.List_jailed) // Peer is also jailed
 
-				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos, kapp.ElectionParams{})
 				assert.NoError(t, err)
 
 				// Verify validator remains jailed
@@ -2684,4 +2685,760 @@ func TestV2CommissionBigIntHandlesOverflow(t *testing.T) {
 		require.Equal(t, accumulatedFees, sumOf(local),
 			"distribution must telescope to accumulatedFees through the delegator-share path")
 	})
+}
+
+type electionTestValidator struct {
+	name       string
+	list       state.List
+	selfStake  int64
+	delegated  int64
+	tempRating uint32
+	jailed     bool
+}
+
+const (
+	electionTestEpoch          = uint32(10)
+	electionTestMinSelf        = int64(100000)
+	electionTestMinTotal       = int64(500000)
+	electionTestMinNodes       = uint32(5)
+	electionTestNodesToShuffle = uint32(2)
+	electionTestGoodRating     = uint32(5000000)
+	electionTestLowRating      = uint32(500000)
+)
+
+var electionTestRewardsModes = []struct {
+	name           string
+	epochRewardsV2 bool
+}{
+	{name: "V1", epochRewardsV2: false},
+	{name: "V2", epochRewardsV2: true},
+}
+
+func electionTestParams() kapp.ElectionParams {
+	return kapp.ElectionParams{
+		Randomness:     []byte("prev-rand-seed"),
+		MinNodes:       electionTestMinNodes,
+		NodesToShuffle: electionTestNodesToShuffle,
+	}
+}
+
+func electionTestOwner(name string) []byte {
+	return []byte("owner-" + name)
+}
+
+func electionTestKey(name string) []byte {
+	return []byte("bls-" + name)
+}
+
+func electedBelowTotal(name string) electionTestValidator {
+	return electionTestValidator{name: name, list: state.List_elected, selfStake: 200000, delegated: 300000, tempRating: electionTestGoodRating}
+}
+
+func electedBelowSelf(name string) electionTestValidator {
+	return electionTestValidator{name: name, list: state.List_elected, selfStake: 50000, delegated: 600000, tempRating: electionTestGoodRating}
+}
+
+func electedQualified(name string) electionTestValidator {
+	return electionTestValidator{name: name, list: state.List_elected, selfStake: 200000, delegated: 600000, tempRating: electionTestGoodRating}
+}
+
+func waitingQualified(name string) electionTestValidator {
+	return electionTestValidator{name: name, list: state.List_waiting, selfStake: 200000, delegated: 600000, tempRating: electionTestGoodRating}
+}
+
+func namedValidators(prefix string, count int, build func(string) electionTestValidator) []electionTestValidator {
+	validators := make([]electionTestValidator, count)
+	for i := range validators {
+		validators[i] = build(fmt.Sprintf("%s%d", prefix, i))
+	}
+	return validators
+}
+
+func electionTestNames(validators []electionTestValidator) []string {
+	names := make([]string, len(validators))
+	for i, val := range validators {
+		names[i] = val.name
+	}
+	return names
+}
+
+func electionTestShuffledNames(names []string, randomness []byte) []string {
+	keys := make([][]byte, len(names))
+	nameByKey := make(map[string]string, len(names))
+	for i, name := range names {
+		keys[i] = electionTestKey(name)
+		nameByKey[string(keys[i])] = name
+	}
+
+	shuffled := sharding.ShufflePublicKeys(keys, randomness)
+	result := make([]string, len(shuffled))
+	for i, key := range shuffled {
+		result[i] = nameByKey[string(key)]
+	}
+	return result
+}
+
+func setupElectionTest(t *testing.T, epochRewardsV2 bool, validators []electionTestValidator) (*validatorsKApp, []*state.ValidatorInfo) {
+	v := setupValidatorsKApp(t)
+	addFunctionalCacher(t, v)
+	v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = epochRewardsV2
+
+	proposalController := &mock.ProposalControllerStub{
+		GetParameterIntCalled: func(param kapps.EnumParameter) int64 {
+			switch param {
+			case kapps.EnumParameter_MinSelfDelegatedAmount:
+				return electionTestMinSelf
+			case kapps.EnumParameter_MinTotalDelegatedAmount:
+				return electionTestMinTotal
+			default:
+				return 0
+			}
+		},
+	}
+	v.KAppController = &stub.KAppControllerStub{
+		GetProposalControllerCalled: func() kapps.ActiveProposalController {
+			return proposalController
+		},
+	}
+
+	rawData := make(map[string][]byte)
+	validatorInfos := make([]*state.ValidatorInfo, 0, len(validators))
+	for _, val := range validators {
+		owner := electionTestOwner(val.name)
+		key := electionTestKey(val.name)
+
+		buckets, err := v.marshalizer.Marshal(&PeerData{
+			Buckets: map[string]*PeerBucket{
+				"bucket": {
+					DelegatedEpoch:   5,
+					UndelegatedEpoch: math.MaxUint32,
+					Value:            val.delegated,
+					Address:          owner,
+				},
+			},
+		})
+		require.NoError(t, err)
+		rawData[string(v.validatorBucketsKey(owner))] = buckets
+
+		data := &ValidatorData{
+			BlsPubKey:      key,
+			RewardsAddress: owner,
+			SelfStake:      val.selfStake,
+			JailedEpoch:    math.MaxUint32,
+		}
+		peerList := val.list
+		if val.jailed {
+			data.Jailed = true
+			data.JailedEpoch = electionTestEpoch - 1
+			peerList = state.List_jailed
+		}
+		encoded, err := v.marshalizer.Marshal(data)
+		require.NoError(t, err)
+		rawData[string(v.validatorKey(owner))] = encoded
+
+		peerAcc, err := v.accountsCacher.LoadPeer(key)
+		require.NoError(t, err)
+		peerAcc.SetListAndIndex(peerList, 0)
+		peerAcc.SetTempRating(val.tempRating)
+
+		validatorInfos = append(validatorInfos, &state.ValidatorInfo{
+			PublicKey:    key,
+			OwnerAddress: owner,
+			List:         val.list.String(),
+			TempRating:   val.tempRating,
+		})
+	}
+
+	loadKApp := func(_ []byte) (state.KAppAccountHandler, error) {
+		return &mock.KAppAccountHandlerStub{
+			GetStorageCalled: func(key []byte) []byte {
+				return rawData[string(key)]
+			},
+			SetStorageCalled: func(key []byte, value []byte) error {
+				rawData[string(key)] = value
+				return nil
+			},
+		}, nil
+	}
+	cacher := v.accountsCacher.(*mock.AccountsCacherStub)
+	cacher.LoadKAppCalled = loadKApp
+	cacher.LoadKAppUncachedCalled = loadKApp
+
+	return v, validatorInfos
+}
+
+func electionTestList(t *testing.T, v *validatorsKApp, name string) state.List {
+	peerAcc, err := v.accountsCacher.GetExistingPeer(electionTestKey(name))
+	require.NoError(t, err)
+	return peerAcc.GetList()
+}
+
+func electionTestData(t *testing.T, v *validatorsKApp, name string) *ValidatorData {
+	app, err := v.getKApp()
+	require.NoError(t, err)
+	data, err := v.getValidator(app, electionTestOwner(name))
+	require.NoError(t, err)
+	return data
+}
+
+func electionTestNotElected(t *testing.T, v *validatorsKApp, names []string) []string {
+	result := make([]string, 0)
+	for _, name := range names {
+		if electionTestList(t, v, name) != state.List_elected {
+			result = append(result, name)
+		}
+	}
+	return result
+}
+
+func TestProcessEconomicsEndOfEpoch_ElectedBelowMinimumDemotedBeforeElectionRuleEpoch(t *testing.T) {
+	t.Parallel()
+
+	activation := electionTestEpoch + 1
+	gates := []struct {
+		name  string
+		setup func(fc *mock.ForkControllerStub)
+	}{
+		{name: "gate disabled", setup: func(fc *mock.ForkControllerStub) { fc.FixAuditChangesV7Value = false }},
+		{name: "activation after current epoch", setup: func(fc *mock.ForkControllerStub) {
+			fc.FixAuditChangesV7Value = true
+			fc.FixAuditChangesV7Epoch = &activation
+		}},
+	}
+
+	for _, mode := range electionTestRewardsModes {
+		for _, gate := range gates {
+			t.Run(mode.name+" "+gate.name, func(t *testing.T) {
+				elected := namedValidators("e", 5, electedBelowTotal)
+				waiting := namedValidators("w", 3, waitingQualified)
+				v, infos := setupElectionTest(t, mode.epochRewardsV2, append(elected, waiting...))
+				gate.setup(v.forkController.(*mock.ForkControllerStub))
+
+				require.NoError(t, v.ProcessEconomicsEndOfEpoch(electionTestEpoch, infos, electionTestParams()))
+
+				for _, name := range electionTestNames(elected) {
+					assert.Equal(t, state.List_waiting, electionTestList(t, v, name), name)
+					assert.True(t, electionTestData(t, v, name).Waiting, name)
+				}
+				for _, name := range electionTestNames(waiting) {
+					assert.Equal(t, state.List_eligible, electionTestList(t, v, name), name)
+				}
+			})
+		}
+	}
+}
+
+func TestProcessEconomicsEndOfEpoch_ElectedBelowMinimumDemotedWithoutMinNodes(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range electionTestRewardsModes {
+		t.Run(mode.name, func(t *testing.T) {
+			elected := namedValidators("e", 5, electedBelowTotal)
+			v, infos := setupElectionTest(t, mode.epochRewardsV2, elected)
+			v.forkController.(*mock.ForkControllerStub).FixAuditChangesV7Value = true
+
+			params := electionTestParams()
+			params.MinNodes = 0
+			require.NoError(t, v.ProcessEconomicsEndOfEpoch(electionTestEpoch, infos, params))
+
+			for _, name := range electionTestNames(elected) {
+				assert.Equal(t, state.List_waiting, electionTestList(t, v, name), name)
+				assert.True(t, electionTestData(t, v, name).Waiting, name)
+			}
+		})
+	}
+}
+
+func TestProcessEconomicsEndOfEpoch_ElectedBelowMinimumKeepsSeatWithoutReplacement(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range electionTestRewardsModes {
+		t.Run(mode.name, func(t *testing.T) {
+			elected := namedValidators("e", 5, electedBelowTotal)
+			waitingBelowSelf := electionTestValidator{name: "ws", list: state.List_waiting, selfStake: 50000, delegated: 600000, tempRating: electionTestGoodRating}
+			eligibleBelowTotal := electionTestValidator{name: "et", list: state.List_eligible, selfStake: 200000, delegated: 300000, tempRating: electionTestGoodRating}
+			v, infos := setupElectionTest(t, mode.epochRewardsV2, append(elected, waitingBelowSelf, eligibleBelowTotal))
+			fc := v.forkController.(*mock.ForkControllerStub)
+			activation := electionTestEpoch
+			fc.FixAuditChangesV7Epoch = &activation
+
+			require.NoError(t, v.ProcessEconomicsEndOfEpoch(electionTestEpoch, infos, electionTestParams()))
+
+			for _, name := range electionTestNames(elected) {
+				assert.Equal(t, state.List_elected, electionTestList(t, v, name), name)
+				assert.False(t, electionTestData(t, v, name).Waiting, name)
+			}
+			assert.Equal(t, state.List_inactive, electionTestList(t, v, "ws"))
+			assert.Equal(t, state.List_waiting, electionTestList(t, v, "et"))
+			assert.True(t, electionTestData(t, v, "et").Waiting)
+		})
+	}
+}
+
+func TestProcessEconomicsEndOfEpoch_ElectedDemotionsCappedByNodesToShuffle(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range electionTestRewardsModes {
+		t.Run(mode.name, func(t *testing.T) {
+			elected := namedValidators("e", 5, electedBelowTotal)
+			waiting := namedValidators("w", 4, waitingQualified)
+			v, infos := setupElectionTest(t, mode.epochRewardsV2, append(elected, waiting...))
+
+			params := electionTestParams()
+			require.NoError(t, v.ProcessEconomicsEndOfEpoch(electionTestEpoch, infos, params))
+
+			electedNames := electionTestNames(elected)
+			expected := electionTestShuffledNames(electedNames, params.Randomness)[:electionTestNodesToShuffle]
+			require.NotElementsMatch(t, electedNames[:electionTestNodesToShuffle], expected)
+			require.NotElementsMatch(t, electedNames[len(electedNames)-int(electionTestNodesToShuffle):], expected)
+
+			demoted := electionTestNotElected(t, v, electedNames)
+			assert.ElementsMatch(t, expected, demoted)
+			for _, name := range demoted {
+				assert.Equal(t, state.List_waiting, electionTestList(t, v, name), name)
+				assert.True(t, electionTestData(t, v, name).Waiting, name)
+			}
+			for _, name := range electionTestNames(waiting) {
+				assert.Equal(t, state.List_eligible, electionTestList(t, v, name), name)
+			}
+		})
+	}
+}
+
+func TestProcessEconomicsEndOfEpoch_ElectedDemotionsCappedBySpareReplacements(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range electionTestRewardsModes {
+		t.Run(mode.name, func(t *testing.T) {
+			elected := namedValidators("e", 5, electedBelowTotal)
+			v, infos := setupElectionTest(t, mode.epochRewardsV2, append(elected, waitingQualified("w0")))
+
+			params := electionTestParams()
+			require.NoError(t, v.ProcessEconomicsEndOfEpoch(electionTestEpoch, infos, params))
+
+			electedNames := electionTestNames(elected)
+			expected := electionTestShuffledNames(electedNames, params.Randomness)[:1]
+			assert.Equal(t, expected, electionTestNotElected(t, v, electedNames))
+			assert.Equal(t, state.List_eligible, electionTestList(t, v, "w0"))
+		})
+	}
+}
+
+func TestProcessEconomicsEndOfEpoch_JailedElectedSeatReducesDemotions(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range electionTestRewardsModes {
+		t.Run(mode.name, func(t *testing.T) {
+			jailed := electedBelowTotal("j0")
+			jailed.jailed = true
+			elected := namedValidators("e", 4, electedBelowTotal)
+			waiting := namedValidators("w", 4, waitingQualified)
+			validators := append([]electionTestValidator{jailed}, elected...)
+			v, infos := setupElectionTest(t, mode.epochRewardsV2, append(validators, waiting...))
+
+			params := electionTestParams()
+			require.NoError(t, v.ProcessEconomicsEndOfEpoch(electionTestEpoch, infos, params))
+
+			electedNames := electionTestNames(elected)
+			expected := electionTestShuffledNames(electedNames, params.Randomness)[:1]
+			assert.Equal(t, expected, electionTestNotElected(t, v, electedNames))
+			assert.Equal(t, state.List_jailed, electionTestList(t, v, "j0"))
+		})
+	}
+}
+
+func TestProcessEconomicsEndOfEpoch_DemotedElectedGetsListForMissedMinimum(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range electionTestRewardsModes {
+		t.Run(mode.name, func(t *testing.T) {
+			validators := []electionTestValidator{electedBelowSelf("s0"), electedBelowTotal("t0")}
+			validators = append(validators, namedValidators("q", 3, electedQualified)...)
+			validators = append(validators, namedValidators("w", 5, waitingQualified)...)
+			v, infos := setupElectionTest(t, mode.epochRewardsV2, validators)
+
+			require.NoError(t, v.ProcessEconomicsEndOfEpoch(electionTestEpoch, infos, electionTestParams()))
+
+			assert.Equal(t, state.List_inactive, electionTestList(t, v, "s0"))
+			belowSelf := electionTestData(t, v, "s0")
+			assert.False(t, belowSelf.Waiting)
+			assert.False(t, belowSelf.SelfStaked)
+
+			assert.Equal(t, state.List_waiting, electionTestList(t, v, "t0"))
+			belowTotal := electionTestData(t, v, "t0")
+			assert.True(t, belowTotal.Waiting)
+			assert.True(t, belowTotal.SelfStaked)
+
+			for _, name := range []string{"q0", "q1", "q2"} {
+				assert.Equal(t, state.List_elected, electionTestList(t, v, name), name)
+			}
+		})
+	}
+}
+
+func TestProcessEconomicsEndOfEpoch_ElectedMeetingMinimumsStayElected(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range electionTestRewardsModes {
+		t.Run(mode.name, func(t *testing.T) {
+			elected := namedValidators("q", 5, electedQualified)
+			waiting := namedValidators("w", 3, waitingQualified)
+			v, infos := setupElectionTest(t, mode.epochRewardsV2, append(elected, waiting...))
+
+			require.NoError(t, v.ProcessEconomicsEndOfEpoch(electionTestEpoch, infos, electionTestParams()))
+
+			for _, name := range electionTestNames(elected) {
+				assert.Equal(t, state.List_elected, electionTestList(t, v, name), name)
+				assert.False(t, electionTestData(t, v, name).Waiting, name)
+			}
+			for _, name := range electionTestNames(waiting) {
+				assert.Equal(t, state.List_eligible, electionTestList(t, v, name), name)
+			}
+		})
+	}
+}
+
+func TestProcessEconomicsEndOfEpoch_LowRatedWaitingNotCountedAsReplacement(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range electionTestRewardsModes {
+		t.Run(mode.name, func(t *testing.T) {
+			elected := namedValidators("e", 5, electedBelowTotal)
+			lowRated := namedValidators("l", 2, waitingQualified)
+			for i := range lowRated {
+				lowRated[i].tempRating = electionTestLowRating
+			}
+			validators := append(elected, lowRated...)
+			v, infos := setupElectionTest(t, mode.epochRewardsV2, append(validators, waitingQualified("w0")))
+
+			params := electionTestParams()
+			require.NoError(t, v.ProcessEconomicsEndOfEpoch(electionTestEpoch, infos, params))
+
+			electedNames := electionTestNames(elected)
+			expected := electionTestShuffledNames(electedNames, params.Randomness)[:1]
+			assert.Equal(t, expected, electionTestNotElected(t, v, electedNames))
+		})
+	}
+}
+
+func TestProcessEconomicsEndOfEpoch_RepeatedValidatorInfoCountedOnce(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range electionTestRewardsModes {
+		t.Run(mode.name, func(t *testing.T) {
+			elected := namedValidators("e", 5, electedBelowTotal)
+			v, infos := setupElectionTest(t, mode.epochRewardsV2, append(elected, waitingQualified("w0")))
+			infos = append(infos, infos...)
+
+			params := electionTestParams()
+			require.NoError(t, v.ProcessEconomicsEndOfEpoch(electionTestEpoch, infos, params))
+
+			electedNames := electionTestNames(elected)
+			expected := electionTestShuffledNames(electedNames, params.Randomness)[:1]
+			assert.Equal(t, expected, electionTestNotElected(t, v, electedNames))
+		})
+	}
+}
+
+func TestProcessEconomicsEndOfEpoch_RevokedKeyEntryNotCounted(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range electionTestRewardsModes {
+		for _, owner := range []string{"e0", "w0"} {
+			t.Run(mode.name+" "+owner, func(t *testing.T) {
+				elected := namedValidators("e", 5, electedBelowTotal)
+				validators := append(elected, waitingQualified("w0"))
+				params := electionTestParams()
+
+				baseline, baselineInfos := setupElectionTest(t, mode.epochRewardsV2, validators)
+				require.NoError(t, baseline.ProcessEconomicsEndOfEpoch(electionTestEpoch, baselineInfos, params))
+
+				v, infos := setupElectionTest(t, mode.epochRewardsV2, validators)
+				revokedName := owner + "-revoked"
+				revokedAcc, err := v.accountsCacher.LoadPeer(electionTestKey(revokedName))
+				require.NoError(t, err)
+				revokedAcc.SetListAndIndex(state.List_elected, 0)
+				revokedAcc.SetTempRating(electionTestGoodRating)
+				infos = append(infos, &state.ValidatorInfo{
+					PublicKey:       electionTestKey(revokedName),
+					OwnerAddress:    electionTestOwner(owner),
+					List:            state.List_elected.String(),
+					TempRating:      electionTestGoodRating,
+					IsPubKeyRevoked: true,
+				})
+
+				require.NoError(t, v.ProcessEconomicsEndOfEpoch(electionTestEpoch, infos, params))
+
+				electedNames := electionTestNames(elected)
+				expected := electionTestShuffledNames(electedNames, params.Randomness)[:1]
+				require.Equal(t, expected, electionTestNotElected(t, baseline, electedNames))
+				assert.Equal(t, expected, electionTestNotElected(t, v, electedNames))
+				assert.Equal(t, state.List_eligible, electionTestList(t, v, "w0"))
+
+				assert.Equal(t, state.List_elected, electionTestList(t, v, revokedName))
+				revokedAfter, err := v.accountsCacher.GetExistingPeer(electionTestKey(revokedName))
+				require.NoError(t, err)
+				assert.Equal(t, electionTestGoodRating, revokedAfter.GetTempRating())
+			})
+		}
+	}
+}
+
+func runElectionEpochBoundary(
+	t *testing.T,
+	epochRewardsV2 bool,
+	validators []electionTestValidator,
+	nodesToShuffle uint32,
+	electionRuleActive bool,
+) (int, *sharding.ResUpdateNodes, error) {
+	v, infos := setupElectionTest(t, epochRewardsV2, validators)
+	v.forkController.(*mock.ForkControllerStub).FixAuditChangesV7Value = electionRuleActive
+
+	params := electionTestParams()
+	params.NodesToShuffle = nodesToShuffle
+
+	return processElectionEpochBoundary(t, v, electionTestEpoch, infos, params)
+}
+
+func processElectionEpochBoundary(
+	t *testing.T,
+	v *validatorsKApp,
+	epoch uint32,
+	infos []*state.ValidatorInfo,
+	params kapp.ElectionParams,
+) (int, *sharding.ResUpdateNodes, error) {
+	require.NoError(t, v.ProcessEconomicsEndOfEpoch(epoch, infos, params))
+
+	updated, err := v.ResetValidatorStatisticsAtNewEpoch(infos)
+	require.NoError(t, err)
+
+	elected := make([]sharding.Validator, 0)
+	eligible := make([]sharding.Validator, 0)
+	for _, info := range updated {
+		val, err := sharding.NewValidator(info.OwnerAddress, info.PublicKey, sharding.DefaultSelectionChances, info.Index)
+		require.NoError(t, err)
+
+		switch info.List {
+		case string(core.ElectedList):
+			elected = append(elected, val)
+		case string(core.EligibleList):
+			eligible = append(eligible, val)
+		}
+	}
+
+	shuffler, err := sharding.NewHashValidatorsShuffler(&sharding.NodesShufflerArgs{
+		Nodes:                params.MinNodes,
+		MaxNodesEnableConfig: []config.MaxNodesChangeConfig{{EpochEnable: 0, NodesToShuffle: params.NodesToShuffle}},
+		ForkController:       v.forkController,
+	})
+	require.NoError(t, err)
+
+	res, err := shuffler.UpdateNodeLists(sharding.ArgsUpdateNodes{
+		Elected:  elected,
+		Eligible: eligible,
+		Rand:     params.Randomness,
+		Epoch:    epoch,
+	})
+
+	return len(elected) + len(eligible), res, err
+}
+
+func TestEpochBoundaryKeepsElectedAndEligibleAtMinNodes(t *testing.T) {
+	t.Parallel()
+
+	lowRatedWaiting := func(name string) electionTestValidator {
+		val := waitingQualified(name)
+		val.tempRating = electionTestLowRating
+		return val
+	}
+	jailedElected := func(name string) electionTestValidator {
+		val := electedBelowTotal(name)
+		val.jailed = true
+		return val
+	}
+	concat := func(groups ...[]electionTestValidator) []electionTestValidator {
+		result := make([]electionTestValidator, 0)
+		for _, group := range groups {
+			result = append(result, group...)
+		}
+		return result
+	}
+
+	scenarios := []struct {
+		name           string
+		validators     []electionTestValidator
+		nodesToShuffle uint32
+	}{
+		{
+			name:           "all elected below a minimum without replacements",
+			validators:     namedValidators("e", 5, electedBelowTotal),
+			nodesToShuffle: electionTestNodesToShuffle,
+		},
+		{
+			name:           "all elected below a minimum with one replacement",
+			validators:     concat(namedValidators("e", 5, electedBelowTotal), []electionTestValidator{waitingQualified("w0")}),
+			nodesToShuffle: electionTestNodesToShuffle,
+		},
+		{
+			name: "low rated waiting validators meeting the minimums",
+			validators: concat(
+				namedValidators("e", 5, electedBelowTotal),
+				namedValidators("l", 2, lowRatedWaiting),
+				[]electionTestValidator{waitingQualified("w0")},
+			),
+			nodesToShuffle: electionTestNodesToShuffle,
+		},
+		{
+			name: "one jailed elected and several below a minimum",
+			validators: concat(
+				[]electionTestValidator{jailedElected("j0")},
+				namedValidators("e", 4, electedBelowTotal),
+				namedValidators("w", 4, waitingQualified),
+			),
+			nodesToShuffle: electionTestNodesToShuffle,
+		},
+		{
+			name: "one jailed elected seat takes the only replacement",
+			validators: concat(
+				[]electionTestValidator{jailedElected("j0")},
+				namedValidators("e", 4, electedBelowTotal),
+				[]electionTestValidator{waitingQualified("w0")},
+			),
+			nodesToShuffle: electionTestNodesToShuffle,
+		},
+		{
+			name: "mixed elected and waiting validators",
+			validators: concat(
+				[]electionTestValidator{electedBelowSelf("s0")},
+				namedValidators("t", 2, electedBelowTotal),
+				namedValidators("q", 2, electedQualified),
+				[]electionTestValidator{
+					waitingQualified("w0"),
+					lowRatedWaiting("l0"),
+					{name: "ws", list: state.List_waiting, selfStake: 50000, delegated: 600000, tempRating: electionTestGoodRating},
+					{name: "et", list: state.List_eligible, selfStake: 200000, delegated: 300000, tempRating: electionTestGoodRating},
+				},
+			),
+			nodesToShuffle: 3,
+		},
+	}
+
+	for _, mode := range electionTestRewardsModes {
+		for _, scenario := range scenarios {
+			t.Run(mode.name+" "+scenario.name, func(t *testing.T) {
+				previouslyElected := make([]string, 0)
+				for _, val := range scenario.validators {
+					if val.list == state.List_elected {
+						previouslyElected = append(previouslyElected, string(electionTestKey(val.name)))
+					}
+				}
+
+				listedWithRule, res, err := runElectionEpochBoundary(t, mode.epochRewardsV2, scenario.validators, scenario.nodesToShuffle, true)
+				require.NoError(t, err)
+				assert.GreaterOrEqual(t, listedWithRule, int(electionTestMinNodes))
+				require.Len(t, res.Elected, int(electionTestMinNodes))
+
+				newElected := make(map[string]struct{}, len(res.Elected))
+				for _, val := range res.Elected {
+					newElected[string(val.PubKey())] = struct{}{}
+				}
+				numGone := 0
+				for _, key := range previouslyElected {
+					if _, ok := newElected[key]; !ok {
+						numGone++
+					}
+				}
+				assert.LessOrEqual(t, numGone, int(scenario.nodesToShuffle))
+
+				numListed, _, err := runElectionEpochBoundary(t, mode.epochRewardsV2, scenario.validators, scenario.nodesToShuffle, false)
+				assert.ErrorIs(t, err, sharding.ErrSmallElectedListSize)
+				assert.Less(t, numListed, int(electionTestMinNodes))
+			})
+		}
+	}
+}
+
+func TestEpochBoundaryReplacesKeptElectedOnceAnOutsideValidatorQualifies(t *testing.T) {
+	t.Parallel()
+
+	keysOf := func(names []string) []string {
+		keys := make([]string, len(names))
+		for i, name := range names {
+			keys[i] = string(electionTestKey(name))
+		}
+		return keys
+	}
+	electedKeys := func(res *sharding.ResUpdateNodes) []string {
+		keys := make([]string, len(res.Elected))
+		for i, val := range res.Elected {
+			keys[i] = string(val.PubKey())
+		}
+		return keys
+	}
+	applyNodesConfig := func(t *testing.T, v *validatorsKApp, res *sharding.ResUpdateNodes) {
+		for list, validators := range map[state.List][]sharding.Validator{state.List_elected: res.Elected, state.List_eligible: res.Eligible} {
+			for _, val := range validators {
+				peerAcc, err := v.loadPeerAccount(val.PubKey())
+				require.NoError(t, err)
+				peerAcc.SetList(list)
+				require.NoError(t, v.accountsCacher.UpdatePeer(peerAcc))
+			}
+		}
+	}
+	currentInfos := func(t *testing.T, v *validatorsKApp, infos []*state.ValidatorInfo) []*state.ValidatorInfo {
+		current := make([]*state.ValidatorInfo, len(infos))
+		for i, info := range infos {
+			peerAcc, err := v.loadPeerAccount(info.PublicKey)
+			require.NoError(t, err)
+			current[i] = &state.ValidatorInfo{
+				PublicKey:    info.PublicKey,
+				OwnerAddress: info.OwnerAddress,
+				List:         peerAcc.GetList().String(),
+				TempRating:   peerAcc.GetTempRating(),
+			}
+		}
+		return current
+	}
+
+	for _, mode := range electionTestRewardsModes {
+		t.Run(mode.name, func(t *testing.T) {
+			elected := namedValidators("e", int(electionTestMinNodes), electedBelowSelf)
+			outside := electionTestValidator{name: "o0", list: state.List_eligible, selfStake: 50000, delegated: 600000, tempRating: electionTestGoodRating}
+			v, infos := setupElectionTest(t, mode.epochRewardsV2, append(elected, outside))
+			v.forkController.(*mock.ForkControllerStub).FixAuditChangesV7Value = true
+			params := electionTestParams()
+			electedNames := electionTestNames(elected)
+
+			_, res, err := processElectionEpochBoundary(t, v, electionTestEpoch, infos, params)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, keysOf(electedNames), electedKeys(res))
+			assert.Equal(t, state.List_inactive, electionTestList(t, v, outside.name))
+
+			applyNodesConfig(t, v, res)
+			app, err := v.getKApp()
+			require.NoError(t, err)
+			data, err := v.getValidator(app, electionTestOwner(outside.name))
+			require.NoError(t, err)
+			data.SelfStake = electionTestMinSelf
+			require.NoError(t, v.setValidator(app, electionTestOwner(outside.name), data))
+
+			_, res, err = processElectionEpochBoundary(t, v, electionTestEpoch+1, currentInfos(t, v, infos), params)
+			require.NoError(t, err)
+			replaced := electionTestShuffledNames(electedNames, params.Randomness)[0]
+			stayed := make([]string, 0, len(electedNames))
+			for _, name := range electedNames {
+				if name != replaced {
+					stayed = append(stayed, name)
+				}
+			}
+			expectedElected := append(stayed, outside.name)
+			assert.ElementsMatch(t, keysOf(expectedElected), electedKeys(res))
+			assert.Equal(t, state.List_inactive, electionTestList(t, v, replaced))
+
+			applyNodesConfig(t, v, res)
+			_, res, err = processElectionEpochBoundary(t, v, electionTestEpoch+2, currentInfos(t, v, infos), params)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, keysOf(expectedElected), electedKeys(res))
+		})
+	}
 }

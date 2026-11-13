@@ -904,6 +904,11 @@ func (ihgs *indexHashedNodesCoordinator) IsInterfaceNil() bool {
 	return ihgs == nil
 }
 
+// ElectionLimits returns the minimum number of nodes and the nodes to shuffle that apply to the given epoch
+func (ihgs *indexHashedNodesCoordinator) ElectionLimits(epoch uint32) (uint32, uint32) {
+	return ihgs.shuffler.ElectionLimits(epoch)
+}
+
 // GetOwnPublicKey will return current node public key  for block sign
 func (ihgs *indexHashedNodesCoordinator) GetOwnPublicKey() []byte {
 	return ihgs.selfPubKey

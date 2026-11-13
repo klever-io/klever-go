@@ -59,6 +59,10 @@ func (m *MetaProcessorForTests) GetActiveParameters() map[int32]*kapps.Parameter
 	return m.proposalController.Get().GetActiveParameters()
 }
 
+func (m *MetaProcessorForTests) ProcessEconomicsEndOfEpoch(validatorInfos []*state.ValidatorInfo, headerHandler data.HeaderHandler) error {
+	return m.processEconomicsEndOfEpoch(validatorInfos, headerHandler)
+}
+
 // UpdateState exposes the updateState method for testing
 func (m *MetaProcessorForTests) UpdateState(lastMetaBlock data.HeaderHandler) {
 	m.updateState(lastMetaBlock)

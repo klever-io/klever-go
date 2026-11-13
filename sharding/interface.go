@@ -39,6 +39,7 @@ type NodesCoordinator interface {
 	SetEpochValidatorsInfo(epoch uint32, validatorsInfo []*state.ValidatorInfo) error
 	CheckValidatorSlot(epoch uint32, slotIndex int64, pubkey []byte) bool
 	GetConsensusValidatorsPublicKeys(randomness []byte, slot uint64, epoch uint32) ([]string, error)
+	ElectionLimits(epoch uint32) (minNodes uint32, nodesToShuffle uint32)
 	IsInterfaceNil() bool
 }
 
@@ -89,6 +90,7 @@ type ResUpdateNodes struct {
 type NodesShuffler interface {
 	UpdateParams(nodesMeta uint32)
 	UpdateNodeLists(args ArgsUpdateNodes) (*ResUpdateNodes, error)
+	ElectionLimits(epoch uint32) (minNodes uint32, nodesToShuffle uint32)
 	IsInterfaceNil() bool
 }
 

@@ -72,6 +72,10 @@ func (lnc *legacyNodesCoordinator) GetConsensusValidatorsPublicKeys([]byte, uint
 	return nil, nil
 }
 
+func (lnc *legacyNodesCoordinator) ElectionLimits(uint32) (uint32, uint32) {
+	return 0, 0
+}
+
 func (lnc *legacyNodesCoordinator) IsInterfaceNil() bool {
 	return lnc == nil
 }

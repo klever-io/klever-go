@@ -86,6 +86,9 @@ var ErrNilOrEmptyDestinationForDistribute = errors.New("nil or empty destination
 // ErrNilNodeShufflerArguments signals that a nil argument pointer was provided for creating the nodes shuffler instance
 var ErrNilNodeShufflerArguments = errors.New("nil arguments for the creation of a node shuffler")
 
+// ErrNilForkController signals that a nil fork controller was provided
+var ErrNilForkController = errors.New("nil fork controller")
+
 // ErrValidatorListNotFound signals that the validator list has not been found
 var ErrValidatorListNotFound = errors.New("validator list not found")
 

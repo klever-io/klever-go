@@ -1152,24 +1152,28 @@ func (v *validatorsKApp) jailValidatorIfBadRating(peerAcc state.PeerAccountHandl
 	peerAcc.SetListAndIndex(state.List_jailed, peerAcc.GetIndex())
 }
 
+func (v *validatorsKApp) jailedAtReset(peerAcc state.PeerAccountHandler, previousList string) bool {
+	if previousList == string(core.ElectedList) || previousList == string(core.EligibleList) {
+		return false
+	}
+
+	if previousList == string(core.JailedList) && peerAcc.GetList() != state.List_jailed {
+		return true
+	}
+
+	return v.isValidatorWithLowRating(peerAcc)
+}
+
 func (v *validatorsKApp) setToJailedIfNeeded(
 	peerAcc state.PeerAccountHandler,
 	validator *state.ValidatorInfo,
 ) {
-	if validator.List == string(core.ElectedList) || validator.List == string(core.EligibleList) {
+	if !v.jailedAtReset(peerAcc, validator.List) {
 		return
 	}
 
-	if validator.List == string(core.JailedList) && peerAcc.GetList() != state.List_jailed {
-		log.Trace("setToJailedIfNeeded", "pubKey", validator.PublicKey)
-		peerAcc.SetListAndIndex(state.List_jailed, validator.Index)
-		return
-	}
-
-	if v.isValidatorWithLowRating(peerAcc) {
-		log.Trace("setToJailedIfNeeded isValidatorWithLowRating", "pubKey", validator.PublicKey)
-		peerAcc.SetListAndIndex(state.List_jailed, validator.Index)
-	}
+	log.Trace("setToJailedIfNeeded", "pubKey", validator.PublicKey)
+	peerAcc.SetListAndIndex(state.List_jailed, validator.Index)
 }
 
 func (v *validatorsKApp) saveUpdatesForList(

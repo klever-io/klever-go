@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
@@ -283,7 +284,7 @@ func pendingAfterEpoch(t *testing.T, v *validatorsKApp, owner, currentKey []byte
 	err := v.ProcessEconomicsEndOfEpoch(10, []*state.ValidatorInfo{{
 		OwnerAddress: owner,
 		PublicKey:    currentKey,
-	}})
+	}}, kapp.ElectionParams{})
 	require.NoError(t, err)
 
 	app, err := v.getKApp()

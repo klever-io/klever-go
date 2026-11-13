@@ -30,6 +30,7 @@ type NodesCoordinatorMock struct {
 	ConsensusGroupSizeCalled                    func() int
 	LoadValidatorsCalled                        func(validators []*state.ValidatorInfo) error
 	SetEpochValidatorsInfoCalled                func(epoch uint32, validatorsInfo []*state.ValidatorInfo) error
+	ElectionLimitsCalled                        func(epoch uint32) (uint32, uint32)
 }
 
 // NewNodesCoordinatorMock -
@@ -299,6 +300,14 @@ func (ncm *NodesCoordinatorMock) SetEpochValidatorsInfo(epoch uint32, validators
 	}
 
 	return nil
+}
+
+func (ncm *NodesCoordinatorMock) ElectionLimits(epoch uint32) (uint32, uint32) {
+	if ncm.ElectionLimitsCalled != nil {
+		return ncm.ElectionLimitsCalled(epoch)
+	}
+
+	return 0, 0
 }
 
 // IsInterfaceNil -

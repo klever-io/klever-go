@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/klever-io/klever-go/config"
+	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -490,10 +492,23 @@ func TestNewHashValidatorsShuffler(t *testing.T) {
 	shufflerArgs := &NodesShufflerArgs{
 		Nodes:                elected,
 		MaxNodesEnableConfig: nil,
+		ForkController:       &forkControllerStub{},
 	}
 	shuffler, err := NewHashValidatorsShuffler(shufflerArgs)
 	assert.Nil(t, err)
 	assert.NotNil(t, shuffler)
+}
+
+func TestNewHashValidatorsShuffler_NilForkControllerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	shufflerArgs := &NodesShufflerArgs{
+		Nodes:                elected,
+		MaxNodesEnableConfig: nil,
+	}
+	shuffler, err := NewHashValidatorsShuffler(shufflerArgs)
+	assert.Equal(t, ErrNilForkController, err)
+	assert.True(t, check.IfNil(shuffler))
 }
 
 func TestRandHashShuffler_UpdateNodeLists(t *testing.T) {
@@ -502,6 +517,7 @@ func TestRandHashShuffler_UpdateNodeLists(t *testing.T) {
 	shufflerArgs := &NodesShufflerArgs{
 		Nodes:                10,
 		MaxNodesEnableConfig: nil,
+		ForkController:       &forkControllerStub{},
 	}
 
 	shuffler, err := NewHashValidatorsShuffler(shufflerArgs)
@@ -571,12 +587,40 @@ func TestRandHashShuffler_ShuffleOutNodes_WithZeroValidatorsShuffledOut(t *testi
 	assert.Equal(t, validatorsNumber, len(remaining))
 }
 
+type forkControllerStub struct {
+	core.ForkController
+	FixAuditChangesV7Value bool
+	FixAuditChangesV7Epoch *uint32
+}
+
+func (f *forkControllerStub) FixAuditChangesV7InEpoch(epoch uint32) bool {
+	if f.FixAuditChangesV7Epoch == nil {
+		return f.FixAuditChangesV7Value
+	}
+
+	return epoch >= *f.FixAuditChangesV7Epoch
+}
+
+func (f *forkControllerStub) IsInterfaceNil() bool {
+	return f == nil
+}
+
 func createShufflerWithNodesToShuffle(t *testing.T, nodes uint32, nodesToShuffle uint32) *randHashShuffler {
+	return createShufflerWithForkController(t, nodes, nodesToShuffle, &forkControllerStub{})
+}
+
+func createShufflerWithForkController(
+	t *testing.T,
+	nodes uint32,
+	nodesToShuffle uint32,
+	forkController core.ForkController,
+) *randHashShuffler {
 	shufflerArgs := &NodesShufflerArgs{
 		Nodes: nodes,
 		MaxNodesEnableConfig: []config.MaxNodesChangeConfig{
 			{EpochEnable: 0, NodesToShuffle: nodesToShuffle},
 		},
+		ForkController: forkController,
 	}
 
 	shuffler, err := NewHashValidatorsShuffler(shufflerArgs)
@@ -760,4 +804,328 @@ func TestRandHashShuffler_UpdateNodeLists_ScarceEligibleCountsDeparturesAgainstS
 	survivors, rotatedOut := countRotation(electedList, res)
 	assert.Equal(t, 1, survivors)
 	assert.Equal(t, 2, rotatedOut)
+}
+
+func updateNodeListsWithDepartureCounting(
+	t *testing.T,
+	nodes uint32,
+	nodesToShuffle uint32,
+	numElected int,
+	numEligible int,
+	countDepartures bool,
+) ([]Validator, *ResUpdateNodes) {
+	shuffler := createShufflerWithForkController(t, nodes, nodesToShuffle, &forkControllerStub{FixAuditChangesV7Value: countDepartures})
+
+	electedList := generateValidatorList(numElected)
+	eligibleList := generateValidatorList(numEligible)
+
+	var res *ResUpdateNodes
+	var err error
+	require.NotPanics(t, func() {
+		res, err = shuffler.UpdateNodeLists(ArgsUpdateNodes{
+			Elected:  electedList,
+			Eligible: eligibleList,
+			Rand:     generateRandomByteArray(32),
+		})
+	})
+	require.Nil(t, err)
+	require.Equal(t, numElected+numEligible, len(res.Elected)+len(res.Eligible))
+	for _, count := range countPubKeys(res.Elected, res.Eligible) {
+		require.Equal(t, 1, count)
+	}
+
+	return electedList, res
+}
+
+func TestRandHashShuffler_UpdateNodeLists_DeparturesDoNotCountAgainstNodesToShuffleBeforeFork(t *testing.T) {
+	t.Parallel()
+
+	electedList, res := updateNodeListsWithDepartureCounting(t, 21, 6, 19, 109, false)
+
+	assert.Equal(t, 21, len(res.Elected))
+	survivors, rotatedOut := countRotation(electedList, res)
+	assert.Equal(t, 13, survivors)
+	assert.Equal(t, 6, rotatedOut)
+	assert.Equal(t, 8, len(res.Elected)-survivors)
+}
+
+func TestRandHashShuffler_UpdateNodeLists_DeparturesCountAgainstNodesToShuffle(t *testing.T) {
+	t.Parallel()
+
+	electedList, res := updateNodeListsWithDepartureCounting(t, 21, 6, 19, 109, true)
+
+	assert.Equal(t, 21, len(res.Elected))
+	survivors, rotatedOut := countRotation(electedList, res)
+	assert.Equal(t, 15, survivors)
+	assert.Equal(t, 4, rotatedOut)
+	assert.Equal(t, 6, len(res.Elected)-survivors)
+}
+
+func TestRandHashShuffler_UpdateNodeLists_DeparturesAtOrAboveNodesToShuffleOnlyRefillSeats(t *testing.T) {
+	t.Parallel()
+
+	for _, numElected := range []int{15, 14, 0} {
+		electedList, res := updateNodeListsWithDepartureCounting(t, 21, 6, numElected, 109, true)
+
+		assert.Equal(t, 21, len(res.Elected))
+		survivors, rotatedOut := countRotation(electedList, res)
+		assert.Equal(t, numElected, survivors)
+		assert.Equal(t, 0, rotatedOut)
+	}
+}
+
+func TestRandHashShuffler_UpdateNodeLists_NoDeparturesRotatesFullNodesToShuffleAfterFork(t *testing.T) {
+	t.Parallel()
+
+	electedList, res := updateNodeListsWithDepartureCounting(t, 21, 6, 21, 109, true)
+
+	assert.Equal(t, 21, len(res.Elected))
+	survivors, rotatedOut := countRotation(electedList, res)
+	assert.Equal(t, 15, survivors)
+	assert.Equal(t, 6, rotatedOut)
+}
+
+func TestRandHashShuffler_UpdateNodeLists_NodesToShuffleAboveNodesRotatesAllOutAfterFork(t *testing.T) {
+	t.Parallel()
+
+	for _, numElected := range []int{21, 19} {
+		electedList, res := updateNodeListsWithDepartureCounting(t, 21, 40, numElected, 30, true)
+
+		assert.Equal(t, 21, len(res.Elected))
+		survivors, rotatedOut := countRotation(electedList, res)
+		assert.Equal(t, 0, survivors)
+		assert.Equal(t, numElected, rotatedOut)
+	}
+}
+
+func TestRandHashShuffler_UpdateNodeLists_NodesToShuffleJustAboveNodesSubtractsDeparturesOnce(t *testing.T) {
+	t.Parallel()
+
+	electedList, res := updateNodeListsWithDepartureCounting(t, 21, 22, 19, 30, true)
+
+	assert.Equal(t, 21, len(res.Elected))
+	survivors, rotatedOut := countRotation(electedList, res)
+	assert.Equal(t, 0, survivors)
+	assert.Equal(t, 19, rotatedOut)
+}
+
+func TestRandHashShuffler_UpdateNodeLists_ScarceEligibleKeepsRotationAfterFork(t *testing.T) {
+	t.Parallel()
+
+	electedList, res := updateNodeListsWithDepartureCounting(t, 5, 10, 3, 6, true)
+
+	assert.Equal(t, 5, len(res.Elected))
+	survivors, rotatedOut := countRotation(electedList, res)
+	assert.Equal(t, 1, survivors)
+	assert.Equal(t, 2, rotatedOut)
+}
+
+func TestRandHashShuffler_UpdateNodeLists_DepartureCountingFollowsPreparedEpoch(t *testing.T) {
+	t.Parallel()
+
+	activationEpoch := uint32(10)
+	shuffler := createShufflerWithForkController(t, 21, 6, &forkControllerStub{FixAuditChangesV7Epoch: &activationEpoch})
+
+	for epoch, expectedRotatedOut := range map[uint32]int{9: 6, 10: 4, 11: 4} {
+		electedList := generateValidatorList(19)
+		res, err := shuffler.UpdateNodeLists(ArgsUpdateNodes{
+			Elected:  electedList,
+			Eligible: generateValidatorList(109),
+			Rand:     generateRandomByteArray(32),
+			Epoch:    epoch,
+		})
+		require.Nil(t, err)
+
+		_, rotatedOut := countRotation(electedList, res)
+		assert.Equal(t, expectedRotatedOut, rotatedOut, "epoch %d", epoch)
+	}
+}
+
+func createShufflerWithConfigs(t *testing.T, nodes uint32, configs []config.MaxNodesChangeConfig) *randHashShuffler {
+	shuffler, err := NewHashValidatorsShuffler(&NodesShufflerArgs{
+		Nodes:                nodes,
+		MaxNodesEnableConfig: configs,
+		ForkController:       &forkControllerStub{},
+	})
+	require.Nil(t, err)
+
+	return shuffler
+}
+
+func TestRandHashShuffler_ElectionLimitsFollowsConfigSwitchEpoch(t *testing.T) {
+	t.Parallel()
+
+	shuffler := createShufflerWithConfigs(t, 21, []config.MaxNodesChangeConfig{
+		{EpochEnable: 256, NodesToShuffle: 6},
+		{EpochEnable: 0, NodesToShuffle: 4},
+	})
+
+	for _, epoch := range []uint32{0, 255, 256, 6000} {
+		expectedNodesToShuffle := uint32(4)
+		if epoch >= 256 {
+			expectedNodesToShuffle = 6
+		}
+
+		minNodes, nodesToShuffle := shuffler.ElectionLimits(epoch)
+		assert.Equal(t, uint32(21), minNodes, "epoch %d", epoch)
+		assert.Equal(t, expectedNodesToShuffle, nodesToShuffle, "epoch %d", epoch)
+
+		shuffler.UpdateShufflerConfig(epoch)
+		assert.Equal(t, shuffler.activeNodesConfig.NodesToShuffle, nodesToShuffle, "epoch %d", epoch)
+	}
+}
+
+func TestRandHashShuffler_ElectionLimitsReturnsNodesWhenNoConfigApplies(t *testing.T) {
+	t.Parallel()
+
+	withoutConfigs := createShufflerWithConfigs(t, 21, nil)
+	minNodes, nodesToShuffle := withoutConfigs.ElectionLimits(5)
+	assert.Equal(t, uint32(21), minNodes)
+	assert.Equal(t, uint32(21), nodesToShuffle)
+
+	withLaterConfig := createShufflerWithConfigs(t, 21, []config.MaxNodesChangeConfig{
+		{EpochEnable: 10, NodesToShuffle: 6},
+	})
+	minNodes, nodesToShuffle = withLaterConfig.ElectionLimits(9)
+	assert.Equal(t, uint32(21), minNodes)
+	assert.Equal(t, uint32(21), nodesToShuffle)
+
+	withLaterConfig.UpdateShufflerConfig(9)
+	assert.Equal(t, withLaterConfig.activeNodesConfig.NodesToShuffle, nodesToShuffle)
+}
+
+func TestRandHashShuffler_ElectionLimitsLeavesActiveConfigUnchanged(t *testing.T) {
+	t.Parallel()
+
+	shuffler := createShufflerWithConfigs(t, 21, []config.MaxNodesChangeConfig{
+		{EpochEnable: 0, NodesToShuffle: 4},
+		{EpochEnable: 256, NodesToShuffle: 6},
+	})
+	shuffler.UpdateShufflerConfig(0)
+	activeBefore := shuffler.activeNodesConfig
+
+	_, nodesToShuffle := shuffler.ElectionLimits(6000)
+	assert.Equal(t, uint32(6), nodesToShuffle)
+	assert.Equal(t, activeBefore, shuffler.activeNodesConfig)
+	assert.Equal(t, uint32(21), shuffler.nodes)
+}
+
+func TestRandHashShuffler_UpdateShufflerConfigCopiesTheSelectedConfig(t *testing.T) {
+	t.Parallel()
+
+	shuffler := createShufflerWithConfigs(t, 21, []config.MaxNodesChangeConfig{
+		{EpochEnable: 256, NodesToShuffle: 6},
+		{EpochEnable: 10, NodesToShuffle: 4},
+	})
+
+	shuffler.UpdateShufflerConfig(300)
+	assert.Equal(t, config.MaxNodesChangeConfig{EpochEnable: 256, NodesToShuffle: 6}, shuffler.activeNodesConfig)
+
+	shuffler.UpdateShufflerConfig(100)
+	assert.Equal(t, config.MaxNodesChangeConfig{EpochEnable: 10, NodesToShuffle: 4}, shuffler.activeNodesConfig)
+
+	shuffler.UpdateShufflerConfig(5)
+	assert.Equal(t, config.MaxNodesChangeConfig{EpochEnable: 10, NodesToShuffle: 21}, shuffler.activeNodesConfig)
+}
+
+func pubKeysOf(validators []Validator) [][]byte {
+	pubKeys := make([][]byte, len(validators))
+	for i, v := range validators {
+		pubKeys[i] = v.PubKey()
+	}
+
+	return pubKeys
+}
+
+var goldenShuffleRandomness = []byte("klc-2827-golden-randomness")
+
+var goldenShuffleOrder = []struct {
+	pubKey string
+	index  uint32
+}{
+	{pubKey: "golden-pk-5", index: 5},
+	{pubKey: "golden-pk-3", index: 8},
+	{pubKey: "golden-pk-3", index: 8},
+	{pubKey: "golden-pk-1", index: 1},
+	{pubKey: "golden-pk-4", index: 4},
+	{pubKey: "golden-pk-2", index: 2},
+	{pubKey: "golden-pk-7", index: 7},
+	{pubKey: "golden-pk-0", index: 0},
+	{pubKey: "golden-pk-6", index: 6},
+}
+
+func goldenShuffleValidators(t *testing.T) []Validator {
+	validators := make([]Validator, 0, 9)
+	for i := 0; i < 8; i++ {
+		v, err := NewValidator([]byte(fmt.Sprintf("owner-%d", i)), []byte(fmt.Sprintf("golden-pk-%d", i)), DefaultSelectionChances, uint32(i))
+		require.Nil(t, err)
+		validators = append(validators, v)
+	}
+
+	duplicate, err := NewValidator([]byte("owner-8"), []byte("golden-pk-3"), DefaultSelectionChances, 8)
+	require.Nil(t, err)
+
+	return append(validators, duplicate)
+}
+
+func Test_shuffleListKeepsHistoricalOrder(t *testing.T) {
+	t.Parallel()
+
+	shuffled := shuffleList(goldenShuffleValidators(t), goldenShuffleRandomness)
+
+	require.Len(t, shuffled, len(goldenShuffleOrder))
+	for i, expected := range goldenShuffleOrder {
+		assert.Equal(t, expected.pubKey, string(shuffled[i].PubKey()), i)
+		assert.Equal(t, expected.index, shuffled[i].Index(), i)
+	}
+}
+
+func TestShufflePublicKeys_KeepsHistoricalOrder(t *testing.T) {
+	t.Parallel()
+
+	pubKeys := pubKeysOf(goldenShuffleValidators(t))
+	original := make([][]byte, len(pubKeys))
+	for i, pubKey := range pubKeys {
+		original[i] = append([]byte(nil), pubKey...)
+	}
+
+	shuffled := ShufflePublicKeys(pubKeys, goldenShuffleRandomness)
+
+	require.Len(t, shuffled, len(goldenShuffleOrder))
+	for i, expected := range goldenShuffleOrder {
+		assert.Equal(t, expected.pubKey, string(shuffled[i]), i)
+	}
+	assert.Equal(t, original, pubKeys)
+}
+
+func TestShufflePublicKeys_EmptyInputReturnsEmptyList(t *testing.T) {
+	t.Parallel()
+
+	randomness := generateRandomByteArray(32)
+	assert.Equal(t, 0, len(shuffleList(nil, randomness)))
+	assert.NotNil(t, ShufflePublicKeys(nil, randomness))
+	assert.Equal(t, 0, len(ShufflePublicKeys(nil, randomness)))
+	assert.Equal(t, 0, len(ShufflePublicKeys([][]byte{}, randomness)))
+}
+
+func TestShufflePublicKeys_LeavesInputBackingArraysUntouched(t *testing.T) {
+	t.Parallel()
+
+	randomness := generateRandomByteArray(32)
+	backing := make([][]byte, 4)
+	pubKeys := make([][]byte, 4)
+	tails := make([][]byte, 4)
+	for i := range pubKeys {
+		backing[i] = make([]byte, 64)
+		copy(backing[i], generateRandomByteArray(32))
+		pubKeys[i] = backing[i][:32]
+		tails[i] = append([]byte{}, backing[i][32:]...)
+	}
+
+	first := ShufflePublicKeys(pubKeys, randomness)
+	require.Equal(t, 4, len(first))
+	for i := range backing {
+		assert.Equal(t, tails[i], backing[i][32:])
+	}
+	assert.Equal(t, first, ShufflePublicKeys(pubKeys, randomness))
 }
