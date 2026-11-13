@@ -10,6 +10,7 @@ import (
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/data/vm"
@@ -65,45 +66,10 @@ func (host *vmHost) doRunSmartContractCreate(input *vmcommon.ContractCreateInput
 
 	// perform transfer value from sender to new contract
 	// execution already ordered by the caller
-	for _, kda := range input.KDATransfers {
-		if kda.IsExecuted() {
-			log.Warn("doRunSmartContractCreate skip executed transfers", "assetID", string(kda.KDATokenName), "amount", kda.KDAValue.Int64())
-			continue
-		}
-
-		// Reject oversized/invalid transfer values instead of letting
-		// Int64() silently narrow them: otherwise a value such as 2^64+500 would wrap to a small
-		// amount on the ledger while the original oversized value still reaches the new contract as
-		// call value, fabricating unpaid call value on the deploy path.
-		amount, err := host.validatedCreateTransferValue(kda.KDAValue)
-		if err != nil {
-			log.Trace("doRunSmartContractCreate invalid transfer value", "error", err,
-				"assetID", string(kda.KDATokenName), "value", kda.KDAValue)
-			vmOutput = output.CreateVMOutputInCaseOfError(err)
-			return vmOutput
-		}
-
-		accKapp := blockchain.GetKAppController().GetAccountsKApp()
-		resultCode, err := accKapp.Transfer(transaction.TXContract_SmartContractType, input.CallerAddr, &transaction.TransferContract{
-			ToAddress:    address,
-			AssetID:      kda.KDATokenName,
-			Amount:       amount,
-			KDARoyalties: kda.KDARoyalties,
-			KLVRoyalties: kda.KLVRoyalties,
-		})
-		if err == nil && resultCode != transaction.Transaction_Ok {
-			err = fmt.Errorf("transfer failed with result code: %d", resultCode)
-		}
-		if err != nil {
-			log.Trace("doRunSmartContractCreate during transfer", "error", err,
-				"assetID", string(kda.KDATokenName), "amount", kda.KDAValue.Int64(),
-				"kdaRoyalties", kda.KDARoyalties, "klvRoyalties", kda.KLVRoyalties)
-			vmOutput = output.CreateVMOutputInCaseOfError(err)
-			return vmOutput
-		}
-
-		// mark as executed
-		kda.SetExecuted()
+	accKapp := func() kapp.AccountsKapp { return blockchain.GetKAppController().GetAccountsKApp() }
+	if err = payCreateTransfers(host.ForkController(), accKapp, input.CallerAddr, address, input.KDATransfers); err != nil {
+		vmOutput = output.CreateVMOutputInCaseOfError(err)
+		return vmOutput
 	}
 
 	vmOutput, err = host.performCodeDeploymentAtContractCreate(codeDeployInput)
@@ -121,8 +87,151 @@ func (host *vmHost) doRunSmartContractCreate(input *vmcommon.ContractCreateInput
 	return vmOutput
 }
 
-func (host *vmHost) validatedCreateTransferValue(value *big.Int) (int64, error) {
-	if host.ForkController().FixAuditChangesV3() {
+// payCreateTransfers pays the pending KDA transfers of a deploy from caller to the new contract,
+// in the order the caller gave them, and marks each one executed once it is paid. From
+// FixAuditChangesV7 they settle as one accounts TransferBatch, which checks all of them before
+// moving any: a transfer that fails its checks leaves no other transfer of the deploy paid.
+// Before the fork each transfer is paid before the next one is read. accKapp is only called once
+// there is a transfer to pay.
+func payCreateTransfers(
+	forks core.ForkController,
+	accKapp func() kapp.AccountsKapp,
+	caller, contract []byte,
+	transfers []*vmcommon.KDATransfer,
+) error {
+	if forks.FixAuditChangesV7() {
+		return payCreateTransfersAtOnce(forks, accKapp, caller, contract, transfers)
+	}
+
+	for _, kda := range transfers {
+		if kda.IsExecuted() {
+			logSkippedCreateTransfer(kda)
+			continue
+		}
+
+		contractTransfer, err := createTransferContract(forks, contract, kda)
+		if err != nil {
+			return err
+		}
+
+		resultCode, err := accKapp().Transfer(transaction.TXContract_SmartContractType, caller, contractTransfer)
+		if err = createTransferError(kda, resultCode, err); err != nil {
+			return err
+		}
+
+		// mark as executed
+		kda.SetExecuted()
+	}
+
+	return nil
+}
+
+// payCreateTransfersAtOnce is payCreateTransfers from FixAuditChangesV7. An invalid value is
+// reported after the transfers before it are checked, which is the error the legacy loop reports,
+// since it pays those transfers before it reads the invalid value.
+func payCreateTransfersAtOnce(
+	forks core.ForkController,
+	accKapp func() kapp.AccountsKapp,
+	caller, contract []byte,
+	transfers []*vmcommon.KDATransfer,
+) error {
+	pending := make([]*vmcommon.KDATransfer, 0, len(transfers))
+	contracts := make([]*transaction.TransferContract, 0, len(transfers))
+
+	for _, kda := range transfers {
+		if kda.IsExecuted() {
+			logSkippedCreateTransfer(kda)
+			continue
+		}
+
+		contractTransfer, err := createTransferContract(forks, contract, kda)
+		if err != nil {
+			if len(contracts) > 0 {
+				resultCode, errChecks := accKapp().ValidateTransfers(transaction.TXContract_SmartContractType, caller, contracts)
+				if errChecks = createTransferError(nil, resultCode, errChecks); errChecks != nil {
+					return errChecks
+				}
+			}
+			return err
+		}
+
+		pending = append(pending, kda)
+		contracts = append(contracts, contractTransfer)
+	}
+
+	if len(contracts) == 0 {
+		return nil
+	}
+
+	resultCode, err := accKapp().TransferBatch(transaction.TXContract_SmartContractType, caller, contracts)
+	if err = createTransferError(nil, resultCode, err); err != nil {
+		return err
+	}
+
+	// If moving value fails after earlier transfers were applied, none is marked executed, where the
+	// legacy loop marked the ones it paid. That is safe only because the error fails the deploy and
+	// the transaction is reset: nothing reads IsExecuted after a failed deploy.
+	for _, kda := range pending {
+		// mark as executed
+		kda.SetExecuted()
+	}
+
+	return nil
+}
+
+// createTransferContract builds the account transfer that pays kda to the new contract.
+//
+// It rejects oversized or invalid transfer values instead of letting Int64() silently narrow
+// them: otherwise a value such as 2^64+500 would wrap to a small amount on the ledger while the
+// original oversized value still reaches the new contract as call value, fabricating unpaid call
+// value on the deploy path.
+func createTransferContract(forks core.ForkController, contract []byte, kda *vmcommon.KDATransfer) (*transaction.TransferContract, error) {
+	amount, err := validatedCreateTransferValue(forks, kda.KDAValue)
+	if err != nil {
+		log.Trace("doRunSmartContractCreate invalid transfer value", "error", err,
+			"assetID", string(kda.KDATokenName), "value", kda.KDAValue)
+		return nil, err
+	}
+
+	return &transaction.TransferContract{
+		ToAddress:    contract,
+		AssetID:      kda.KDATokenName,
+		Amount:       amount,
+		KDARoyalties: kda.KDARoyalties,
+		KLVRoyalties: kda.KLVRoyalties,
+	}, nil
+}
+
+// createTransferError is the error a deploy reports for a failed transfer: err, or the result code
+// when the transfer failed without one. kda is the transfer that failed, or nil for a batch.
+func createTransferError(kda *vmcommon.KDATransfer, resultCode transaction.Transaction_TXResultCode, err error) error {
+	if err == nil && resultCode != transaction.Transaction_Ok {
+		err = fmt.Errorf("transfer failed with result code: %d", resultCode)
+	}
+	if err == nil {
+		return nil
+	}
+
+	if kda == nil {
+		log.Trace("doRunSmartContractCreate during transfer batch", "error", err)
+		return err
+	}
+	log.Trace("doRunSmartContractCreate during transfer", "error", err,
+		"assetID", string(kda.KDATokenName), "amount", kda.KDAValue.Int64(),
+		"kdaRoyalties", kda.KDARoyalties, "klvRoyalties", kda.KLVRoyalties)
+
+	return err
+}
+
+// logSkippedCreateTransfer logs a deploy transfer skipped because it was already executed.
+func logSkippedCreateTransfer(kda *vmcommon.KDATransfer) {
+	log.Warn("doRunSmartContractCreate skip executed transfers", "assetID", string(kda.KDATokenName), "amount", kda.KDAValue.Int64())
+}
+
+// validatedCreateTransferValue returns a deploy transfer value as int64. From FixAuditChangesV3 it
+// refuses a nil, negative or oversized value; before it, nil is zero and Int64 narrows the rest.
+func validatedCreateTransferValue(forks core.ForkController, value *big.Int) (int64, error) {
+	if forks.FixAuditChangesV3() {
 		if value == nil || value.Sign() < 0 || !value.IsInt64() {
 			return 0, common.ErrInvalidValue
 		}

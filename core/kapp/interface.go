@@ -105,6 +105,8 @@ type AccountsKapp interface {
 	SetAccountsCacher(cacher state.AccountsCacher) error
 	GetAccountsCacher() state.AccountsCacher
 	Transfer(cType transaction.TXContract_ContractType, sender []byte, tc *transaction.TransferContract) (transaction.Transaction_TXResultCode, error)
+	TransferBatch(cType transaction.TXContract_ContractType, sender []byte, tcs []*transaction.TransferContract) (transaction.Transaction_TXResultCode, error)
+	ValidateTransfers(cType transaction.TXContract_ContractType, sender []byte, tcs []*transaction.TransferContract) (transaction.Transaction_TXResultCode, error)
 	Freeze(sender []byte, tc *transaction.FreezeContract) (transaction.Transaction_TXResultCode, error)
 	Unfreeze(sender []byte, tc *transaction.UnfreezeContract) (transaction.Transaction_TXResultCode, error)
 	Delegate(sender []byte, tc *transaction.DelegateContract) (transaction.Transaction_TXResultCode, error)

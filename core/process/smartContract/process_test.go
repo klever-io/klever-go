@@ -2134,7 +2134,9 @@ func newNFTAccountsKappForCallValue(
 	}
 
 	src := &commommock.UserAccountHandlerStub{
-		AddressBytesCalled:   func() []byte { return sender },
+		AddressBytesCalled: func() []byte { return sender },
+		// The V7 plan reads the holder record before anything moves.
+		RetrieveValueCalled:  func([]byte) ([]byte, error) { return commommock.NFTHolderRecord(1), nil },
 		SubInternalKDACalled: take,
 		SubFromBalanceWithNonceCalled: func(value int64, _, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
 			t.Fatalf("balance path called for true NFT with value %d", value)

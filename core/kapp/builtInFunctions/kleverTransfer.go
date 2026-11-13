@@ -14,6 +14,8 @@ import (
 	"github.com/klever-io/klever-go/vmcommon"
 )
 
+const kdaTransferErrorMessage = "KDA Transfer error"
+
 type kdaTransfer struct {
 	baseAlwaysActiveHandler
 	kappController kapp.KAppController
@@ -108,26 +110,177 @@ func (e *kdaTransfer) performKDATransfer(
 ) error {
 	// Using Kapps, transfer the KDA without transfer fixed/percentage royalties
 	// royalties are only processed if the contract is a TXContract_TransferContractType
-	resultCode, err := e.kappController.GetAccountsKApp().Transfer(
+	return kdaTransferError(e.kappController.GetAccountsKApp().Transfer(
 		transaction.TXContract_TransferContractType,
 		callerAddr,
 		contract,
-	)
+	))
+}
+
+// newTransferContract builds the account transfer that settles one KDA transfer of the call
+func newTransferContract(recipient []byte, kdaTransfer *vmcommon.KDATransfer, value int64) *transaction.TransferContract {
+	return &transaction.TransferContract{
+		ToAddress:    recipient,
+		AssetID:      GetTokenIdentifier(kdaTransfer),
+		Amount:       value,
+		KDARoyalties: 0, // No royalties for SC transfers
+		KLVRoyalties: 0, // No royalties for SC transfers
+	}
+}
+
+// transferAll settles every pending transfer as one accounts TransferBatch, so a transfer that fails
+// its checks leaves every other transfer of the call unapplied. Transfers are marked executed and
+// added to vmOutput only once the whole batch has settled.
+//
+// If moving value fails after earlier transfers of the batch were applied, none of them is marked
+// executed, where the legacy loop marked the ones it paid. That is safe only because the error
+// aborts and resets the whole transaction: nothing retries the builtin or reads IsExecuted after
+// it fails.
+//
+// An invalid value is reported after the transfers before it are checked, which is the error the
+// legacy loop reports, since it settles those transfers before it reads the invalid value.
+func (e *kdaTransfer) transferAll(vmInput *vmcommon.ContractCallInput, vmOutput *vmcommon.VMOutput) error {
+	pending, contracts, err := e.pendingTransferContracts(vmInput)
 	if err != nil {
-		log.Trace("KDA Transfer error", "resultCode", resultCode, "err", err.Error())
 		return err
 	}
 
-	if resultCode != transaction.Transaction_Ok {
-		err = fmt.Errorf("KDA Transfer error: %s", resultCode.String())
-		log.Trace("KDA Transfer error", "resultCode", resultCode, "err", err.Error())
-		return err
+	if toSettle := contractsToSettle(contracts); len(toSettle) > 0 {
+		if err := kdaTransferError(e.kappController.GetAccountsKApp().TransferBatch(
+			transaction.TXContract_TransferContractType,
+			vmInput.CallerAddr,
+			toSettle,
+		)); err != nil {
+			return err
+		}
+	}
+
+	for i, kdaTransfer := range pending {
+		// mark as executed to avoid double spending
+		kdaTransfer.SetExecuted()
+		e.logTransfer(vmOutput, vmInput.CallerAddr, contracts[i])
 	}
 
 	return nil
 }
 
-// ProcessBuiltinFunction resolves KDA transfer function calls
+// pendingTransferContracts returns the pending transfers of the call and the account transfer that
+// settles each of them. On an invalid value it reports the error the legacy loop would: that of an
+// earlier transfer failing its checks, or else the value error.
+func (e *kdaTransfer) pendingTransferContracts(vmInput *vmcommon.ContractCallInput) ([]*vmcommon.KDATransfer, []*transaction.TransferContract, error) {
+	pending := make([]*vmcommon.KDATransfer, 0, len(vmInput.KDATransfers))
+	contracts := make([]*transaction.TransferContract, 0, len(vmInput.KDATransfers))
+
+	for _, kdaTransfer := range vmInput.KDATransfers {
+		if kdaTransfer.IsExecuted() {
+			continue
+		}
+
+		value, err := e.extractTransferValue(kdaTransfer)
+		if err != nil {
+			return nil, nil, e.validateBeforeValueError(vmInput.CallerAddr, contracts, err)
+		}
+
+		pending = append(pending, kdaTransfer)
+		contracts = append(contracts, newTransferContract(vmInput.RecipientAddr, kdaTransfer, value))
+	}
+
+	return pending, contracts, nil
+}
+
+// validateBeforeValueError returns the error of the first of contracts that fails its checks, or
+// valueErr when they all pass
+func (e *kdaTransfer) validateBeforeValueError(callerAddr []byte, contracts []*transaction.TransferContract, valueErr error) error {
+	toSettle := contractsToSettle(contracts)
+	if len(toSettle) == 0 {
+		return valueErr
+	}
+
+	if err := kdaTransferError(e.kappController.GetAccountsKApp().ValidateTransfers(
+		transaction.TXContract_TransferContractType,
+		callerAddr,
+		toSettle,
+	)); err != nil {
+		return err
+	}
+
+	return valueErr
+}
+
+// contractsToSettle drops the zero-value transfers, which move nothing
+func contractsToSettle(contracts []*transaction.TransferContract) []*transaction.TransferContract {
+	toSettle := make([]*transaction.TransferContract, 0, len(contracts))
+	for _, contract := range contracts {
+		if contract.Amount > 0 {
+			toSettle = append(toSettle, contract)
+		}
+	}
+
+	return toSettle
+}
+
+// transferEach is the loop used before FixAuditChangesV7: each transfer settles before the next one
+// is read.
+func (e *kdaTransfer) transferEach(vmInput *vmcommon.ContractCallInput, vmOutput *vmcommon.VMOutput) error {
+	for _, kdaTransfer := range vmInput.KDATransfers {
+		// Check if the transfer was already executed
+		if kdaTransfer.IsExecuted() {
+			continue
+		}
+
+		if err := e.settleTransfer(vmInput, vmOutput, kdaTransfer); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// logTransfer adds the transfer log of contract to vmOutput. From FixAuditChangesV6 a zero-value
+// transfer leaves no transfer log: it moved nothing, and the log would name any asset id or NFT
+// nonce as transferred, held or not (KLC-2830).
+func (e *kdaTransfer) logTransfer(vmOutput *vmcommon.VMOutput, callerAddr []byte, contract *transaction.TransferContract) {
+	if contract.Amount == 0 && e.forkController.FixAuditChangesV6() {
+		return
+	}
+
+	addTransferEntryInVMOutput(vmOutput, callerAddr, contract)
+}
+
+// addTransferEntryInVMOutput adds the transfer log of contract, sent by callerAddr, to vmOutput.
+func addTransferEntryInVMOutput(vmOutput *vmcommon.VMOutput, callerAddr []byte, contract *transaction.TransferContract) {
+	addKDAEntryInVMOutput(
+		vmOutput,
+		[]byte(core.BuiltInFunctionTransfer),
+		contract.AssetID,
+		0,
+		big.NewInt(contract.Amount),
+		callerAddr,
+		contract.ToAddress,
+	)
+}
+
+// kdaTransferError turns the outcome of an accounts transfer into the error the builtin reports
+func kdaTransferError(resultCode transaction.Transaction_TXResultCode, err error) error {
+	if err == nil && resultCode != transaction.Transaction_Ok {
+		err = fmt.Errorf("%s: %s", kdaTransferErrorMessage, resultCode.String())
+	}
+
+	if err != nil {
+		log.Trace(kdaTransferErrorMessage, "resultCode", resultCode, "err", err.Error())
+	}
+
+	return err
+}
+
+// ProcessBuiltinFunction resolves KDA transfer function calls.
+//
+// Each transfer settles straight into the accounts cacher, and nothing inside the builtin undoes
+// one (there is no sub-transaction rollback, see BlockChainHookImpl.TransferValueOnly). Once
+// FixAuditChangesV7 is active the pending transfers settle as one accounts TransferBatch, which
+// checks all of them before moving any: a transfer that fails its checks leaves no other transfer
+// of the call applied. Failures the checks cannot foresee (a receiver balance overflow) are still
+// contained by the invariant that every VM error aborts the transaction.
 func (e *kdaTransfer) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
 	e.mutExecution.RLock()
 	defer e.mutExecution.RUnlock()
@@ -159,15 +312,13 @@ func (e *kdaTransfer) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInput
 		return nil, err
 	}
 
-	for _, kdaTransfer := range vmInput.KDATransfers {
-		// Check if the transfer was already executed
-		if kdaTransfer.IsExecuted() {
-			continue
-		}
+	transfer := e.transferEach
+	if e.forkController.FixAuditChangesV7() {
+		transfer = e.transferAll
+	}
 
-		if err := e.settleTransfer(vmInput, vmOutput, kdaTransfer); err != nil {
-			return nil, err
-		}
+	if err := transfer(vmInput, vmOutput); err != nil {
+		return nil, err
 	}
 
 	return vmOutput, nil
@@ -185,13 +336,7 @@ func (e *kdaTransfer) settleTransfer(
 		return err
 	}
 
-	contract := &transaction.TransferContract{
-		ToAddress:    vmInput.RecipientAddr,
-		AssetID:      GetTokenIdentifier(kdaTransfer),
-		Amount:       value,
-		KDARoyalties: 0, // No royalties for SC transfers
-		KLVRoyalties: 0, // No royalties for SC transfers
-	}
+	contract := newTransferContract(vmInput.RecipientAddr, kdaTransfer, value)
 
 	if value > 0 {
 		if err := e.performKDATransfer(vmInput.CallerAddr, contract); err != nil {
@@ -201,22 +346,7 @@ func (e *kdaTransfer) settleTransfer(
 
 	// mark as executed to avoid double spending
 	kdaTransfer.SetExecuted()
-
-	// From FixAuditChangesV6 a zero-value transfer leaves no transfer log: it moved nothing, and
-	// the log would name any asset id or NFT nonce as transferred, held or not (KLC-2830).
-	if value == 0 && e.forkController.FixAuditChangesV6() {
-		return nil
-	}
-
-	addKDAEntryInVMOutput(
-		vmOutput,
-		[]byte(core.BuiltInFunctionTransfer),
-		contract.AssetID,
-		0,
-		big.NewInt(contract.Amount),
-		vmInput.CallerAddr,
-		contract.ToAddress,
-	)
+	e.logTransfer(vmOutput, vmInput.CallerAddr, contract)
 
 	return nil
 }

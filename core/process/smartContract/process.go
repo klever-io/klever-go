@@ -771,26 +771,56 @@ func (sc *scProcessor) printScDeployed(sender []byte, vmOutput *vmcommon.VMOutpu
 	return deployedSC
 }
 
-// deposit call values into contract account
+// processSCPayment deposits the call value of tc, one transfer per asset in DeterministicMap order,
+// from the sender into the contract. From FixAuditChangesV7 the transfers settle as one accounts
+// TransferBatch, which checks all of them before moving any: an asset that fails its checks leaves
+// no other asset of the call value paid. Before the fork each asset is paid before the next one is
+// checked.
 func (sc *scProcessor) processSCPayment(tc data.SmartContractHandler, acntSnd state.UserAccountHandler) error {
 	accKapp := sc.blockChainHook.GetKAppController().GetAccountsKApp()
-	dMap := types.NewDeterministicMap(tc.GetCallValue())
-	// sub from sender the call value
-	return dMap.Each(func(assetID string, cvwr *transaction.CallValue) error {
-		transferContract := transaction.TransferContract{
+	contracts := callValueTransfers(tc)
+
+	if sc.forkController.FixAuditChangesV7() {
+		resultCode, err := accKapp.TransferBatch(transaction.TXContract_SmartContractType, acntSnd.AddressBytes(), contracts)
+		return callValuePaymentError(resultCode, err)
+	}
+
+	for _, transferContract := range contracts {
+		resultCode, err := accKapp.Transfer(transaction.TXContract_SmartContractType, acntSnd.AddressBytes(), transferContract)
+		if err := callValuePaymentError(resultCode, err); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// callValueTransfers returns the account transfer that pays each asset of tc's call value to the
+// contract, in DeterministicMap order.
+func callValueTransfers(tc data.SmartContractHandler) []*transaction.TransferContract {
+	callValue := tc.GetCallValue()
+	contracts := make([]*transaction.TransferContract, 0, len(callValue))
+	_ = types.NewDeterministicMap(callValue).Each(func(assetID string, cvwr *transaction.CallValue) error {
+		contracts = append(contracts, &transaction.TransferContract{
 			ToAddress:    tc.GetAddress(),
 			Amount:       cvwr.Amount,
 			AssetID:      []byte(assetID),
 			KDARoyalties: cvwr.KDARoyalties,
 			KLVRoyalties: cvwr.KLVRoyalties,
-		}
-		// execute transfer without royalties as it will be deducted from sender account
-		resultCode, err := accKapp.Transfer(transaction.TXContract_SmartContractType, acntSnd.AddressBytes(), &transferContract)
-		if err != nil {
-			return fmt.Errorf("result code: %d, %v", resultCode, err)
-		}
+		})
 		return nil
 	})
+
+	return contracts
+}
+
+// callValuePaymentError is the error processSCPayment reports for a failed call-value transfer.
+func callValuePaymentError(resultCode transaction.Transaction_TXResultCode, err error) error {
+	if err != nil {
+		return fmt.Errorf("result code: %d, %v", resultCode, err)
+	}
+
+	return nil
 }
 
 func (sc *scProcessor) processVMOutput(

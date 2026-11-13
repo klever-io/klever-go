@@ -146,42 +146,28 @@ func (a *accountsKapp) checkReadOnly() error {
 	return nil
 }
 
+// Transfer moves one asset from sender to tc.ToAddress. Once FixAuditChangesV7 is active it checks
+// the whole transfer before moving anything, as a batch of one (see TransferBatch).
 func (a *accountsKapp) Transfer(cType transaction.TXContract_ContractType, sender []byte, tc *transaction.TransferContract) (transaction.Transaction_TXResultCode, error) {
-	if err := a.checkReadOnly(); err != nil {
-		return transaction.Transaction_KAPPError, err
+	if !a.forkController.FixAuditChangesV7() {
+		return a.transferLegacy(cType, sender, tc)
 	}
 
-	acntSrc, acntDst, resultCode, err := a.validateAndLoadAccounts(sender, tc)
+	return a.TransferBatch(cType, sender, []*transaction.TransferContract{tc})
+}
+
+// transferLegacy is Transfer before FixAuditChangesV7, where each step checks and then moves value
+// before the next step runs. Its behaviour is kept unchanged, with the opening checks in
+// resolveTransfer, to replay blocks before the fork activation epoch.
+func (a *accountsKapp) transferLegacy(cType transaction.TXContract_ContractType, sender []byte, tc *transaction.TransferContract) (transaction.Transaction_TXResultCode, error) {
+	target, resultCode, err := a.resolveTransfer(cType, sender, tc)
 	if err != nil {
 		return resultCode, err
 	}
 
-	assetID, internalID, kda, resultCode, err := a.loadKDA(tc.GetAssetID())
-	if err != nil {
-		return resultCode, err
-	}
-
+	acntSrc, acntDst := target.acntSrc, target.acntDst
+	assetID, internalID, kda := target.assetID, target.internalID, target.kda
 	ctx := a.KAppController.GetCurrentKAppContext()
-
-	if kda.Attributes.IsPaused {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetPaused, process.ErrAssetIsPaused.Error())
-		return transaction.Transaction_AssetPaused, process.ErrAssetIsPaused
-	}
-
-	if a.forkController.EnableSmartContracts() {
-		// check for transfer roles if SC fork enabled
-		if !kda.IsTransferAllowed(sender, tc.GetToAddress()) {
-			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldTransferNotAllowed, process.ErrKDATransferNotAllowed.Error())
-			return transaction.Transaction_KDATransferNotAllowed, process.ErrKDATransferNotAllowed
-		}
-		// block transfer to uninitialized contract addresses
-		// but only block on transfer actions, smart contract actions (such deploy or call) are allowed
-		if cType != transaction.TXContract_SmartContractType &&
-			a.isUninitializedContractAddress(tc.GetToAddress()) {
-			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldUninitializedContract, process.ErrContractAccountNotAllowed.Error())
-			return transaction.Transaction_AccountError, process.ErrContractAccountNotAllowed
-		}
-	}
 
 	resultCode, err = a.processFixedRoyaltiesTransfer(tc, acntSrc, acntDst, kda)
 	if err != nil {
@@ -213,6 +199,64 @@ func (a *accountsKapp) Transfer(cType transaction.TXContract_ContractType, sende
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, common.ErrAssetTypeInvalid.Error())
 		return transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
 	}
+}
+
+// resolvedTransfer is what Transfer has loaded and checked before it moves anything.
+type resolvedTransfer struct {
+	acntSrc    state.UserAccountHandler
+	acntDst    state.UserAccountHandler
+	assetID    []byte
+	internalID []byte
+	kda        *kapps.KDAData
+}
+
+// resolveTransfer runs the checks a transfer makes before anything else: execution mode, addresses,
+// accounts, asset, pause state, transfer roles and the destination contract state. Both the legacy
+// path and planTransfer start with it.
+func (a *accountsKapp) resolveTransfer(cType transaction.TXContract_ContractType, sender []byte, tc *transaction.TransferContract) (*resolvedTransfer, transaction.Transaction_TXResultCode, error) {
+	if err := a.checkReadOnly(); err != nil {
+		return nil, transaction.Transaction_KAPPError, err
+	}
+
+	acntSrc, acntDst, resultCode, err := a.validateAndLoadAccounts(sender, tc)
+	if err != nil {
+		return nil, resultCode, err
+	}
+
+	assetID, internalID, kda, resultCode, err := a.loadKDA(tc.GetAssetID())
+	if err != nil {
+		return nil, resultCode, err
+	}
+
+	ctx := a.KAppController.GetCurrentKAppContext()
+
+	if kda.Attributes.IsPaused {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetPaused, process.ErrAssetIsPaused.Error())
+		return nil, transaction.Transaction_AssetPaused, process.ErrAssetIsPaused
+	}
+
+	if a.forkController.EnableSmartContracts() {
+		// check for transfer roles if SC fork enabled
+		if !kda.IsTransferAllowed(sender, tc.GetToAddress()) {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldTransferNotAllowed, process.ErrKDATransferNotAllowed.Error())
+			return nil, transaction.Transaction_KDATransferNotAllowed, process.ErrKDATransferNotAllowed
+		}
+		// block transfer to uninitialized contract addresses
+		// but only block on transfer actions, smart contract actions (such deploy or call) are allowed
+		if cType != transaction.TXContract_SmartContractType &&
+			a.isUninitializedContractAddress(tc.GetToAddress()) {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldUninitializedContract, process.ErrContractAccountNotAllowed.Error())
+			return nil, transaction.Transaction_AccountError, process.ErrContractAccountNotAllowed
+		}
+	}
+
+	return &resolvedTransfer{
+		acntSrc:    acntSrc,
+		acntDst:    acntDst,
+		assetID:    assetID,
+		internalID: internalID,
+		kda:        kda,
+	}, transaction.Transaction_Ok, nil
 }
 
 func (a *accountsKapp) validateAndLoadAccounts(sender []byte, tc *transaction.TransferContract) (state.UserAccountHandler, state.UserAccountHandler, transaction.Transaction_TXResultCode, error) {
@@ -299,55 +343,15 @@ func (a *accountsKapp) computeRoyalties(kda *kapps.KDAData, amountToTransfer int
 	return klvRoyalties, assetRoyalties, nil
 }
 
+// computeSplitRoyalties pays one split its share of value: the checks of planSplitRoyalty, then the
+// credit, cacher update and receipt of payRoyalty, which the batch path uses too.
 func (a *accountsKapp) computeSplitRoyalties(address string, assetID []byte, assetType kapps.KDAData_EnumAssetType, acntSrc state.UserAccountHandler, value int64, percentage int64, royaltiesToPay *int64) (transaction.Transaction_TXResultCode, error) {
-	ctx := a.KAppController.GetCurrentKAppContext()
-
-	decodedAddress, err := hex.DecodeString(address)
+	split, resultCode, err := a.planSplitRoyalty(address, value, percentage, royaltiesToPay)
 	if err != nil {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidSplitRoyalties, err.Error())
-		return transaction.Transaction_LoadAccountError, err
+		return resultCode, err
 	}
 
-	splitRoyalty, err := a.LoadUserAccount(decodedAddress)
-	if err != nil {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldLoadRoyaltyAccount, err.Error())
-		return transaction.Transaction_LoadAccountError, err
-	}
-
-	splitToPay, err := tools.ComputePercentageI64(value, percentage, a.forkController.EnableSmartContracts())
-	if err != nil {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, err.Error())
-		return transaction.Transaction_ParameterInvalid, err
-	}
-	if a.forkController.FixMarketBuyOverflow() && splitToPay > *royaltiesToPay {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
-		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-	}
-	*royaltiesToPay -= splitToPay
-
-	err = splitRoyalty.AddToBalance(splitToPay, assetID, a.forkController.EnableSmartContracts())
-	if err != nil {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBalanceError, err.Error())
-		return transaction.Transaction_BalanceError, err
-	}
-
-	if err := a.accountsCacher.UpdateUser(splitRoyalty); err != nil {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldSaveAccountError, err.Error())
-		return transaction.Transaction_SaveAccountError, err
-	}
-
-	ctx.Receipts().Add(txProcess.NewReceipt(
-		txProcess.Transfer,
-		ctx.ContractID(),
-		acntSrc.AddressBytes(),
-		splitRoyalty.AddressBytes(),
-		[]byte(strconv.FormatInt(splitToPay, 10)),
-		assetID,
-		nil,
-		[]byte{byte(assetType)},
-	))
-
-	return transaction.Transaction_Ok, nil
+	return a.payRoyalty(&royaltyPlan{assetID: assetID, assetType: assetType}, split, acntSrc)
 }
 
 // paySplitRoyalties pays each split its share of value, in sorted key order. percentOf picks which split
@@ -458,7 +462,10 @@ func (a *accountsKapp) processFixedRoyaltiesTransfer(tc *transaction.TransferCon
 	return transaction.Transaction_Ok, nil
 }
 
-func (a *accountsKapp) validatePercentageRoyaltiesTransfer(tc *transaction.TransferContract, kda *kapps.KDAData, acntSrc state.UserAccountHandler, assetID []byte) (int64, transaction.Transaction_TXResultCode, error) {
+// validatePercentageRoyaltiesTransfer checks the sender can pay the transfer and its percentage
+// royalty out of its balance of assetID, less spent: the amount earlier transfers of the same
+// batch already take from that balance (zero on the legacy path).
+func (a *accountsKapp) validatePercentageRoyaltiesTransfer(tc *transaction.TransferContract, kda *kapps.KDAData, acntSrc state.UserAccountHandler, assetID []byte, spent int64) (int64, transaction.Transaction_TXResultCode, error) {
 	if core.IsSmartContractAddress(acntSrc.AddressBytes()) ||
 		kda.Royalties == nil ||
 		len(kda.Royalties.TransferPercentage) <= 0 {
@@ -484,7 +491,7 @@ func (a *accountsKapp) validatePercentageRoyaltiesTransfer(tc *transaction.Trans
 		}
 	}
 
-	balance := acntSrc.GetBalance(assetID, a.forkController.EnableSmartContracts())
+	balance := acntSrc.GetBalance(assetID, a.forkController.EnableSmartContracts()) - spent
 	if balance < value+royaltyAmount {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFunds, process.ErrInsufficientFunds.Error())
 		return 0, transaction.Transaction_OutOfFunds, process.ErrInsufficientFunds
@@ -494,7 +501,7 @@ func (a *accountsKapp) validatePercentageRoyaltiesTransfer(tc *transaction.Trans
 }
 
 func (a *accountsKapp) processPercentageRoyaltiesTransfer(tc *transaction.TransferContract, assetID, internalID []byte, acntSrc, acntDst state.UserAccountHandler, kda *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
-	royaltyAmount, status, err := a.validatePercentageRoyaltiesTransfer(tc, kda, acntSrc, assetID)
+	royaltyAmount, status, err := a.validatePercentageRoyaltiesTransfer(tc, kda, acntSrc, assetID, 0)
 	if err != nil {
 		return status, err
 	}

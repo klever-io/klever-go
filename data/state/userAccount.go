@@ -352,7 +352,7 @@ func (a *userAccount) SubInternalKDA(assetID []byte, internalID []byte, forks co
 	if err != nil {
 		return nil, err
 	}
-	if len(data) == 0 || forks.FixAuditChangesV7() && !isHeldNFTRecord(data) {
+	if len(data) == 0 || forks.FixAuditChangesV7() && !IsHeldNFTRecord(data) {
 		return nil, common.ErrAssetNotFound
 	}
 
@@ -364,7 +364,9 @@ func (a *userAccount) SubInternalKDA(assetID []byte, internalID []byte, forks co
 	return data, nil
 }
 
-func isHeldNFTRecord(data []byte) bool {
+// IsHeldNFTRecord reports whether data, a user's NFT holder record, holds the NFT (see
+// kapps.UserKDA.IsHeldNFT). A record that does not decode does not hold it.
+func IsHeldNFTRecord(data []byte) bool {
 	userKDA := &kapps.UserKDA{}
 	if err := marshal.NewProtoMarshalizer().Unmarshal(userKDA, data); err != nil {
 		return false

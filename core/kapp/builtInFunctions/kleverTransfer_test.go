@@ -725,13 +725,14 @@ func TestKleverTransferOversizedValueForkGating(t *testing.T) {
 
 // TestKleverTransferZeroValueLogForkGating pins KLC-2830 in the builtin: a zero-value transfer is
 // settled without an account transfer on both sides of FixAuditChangesV6, and only before the fork
-// does it leave a transfer log naming its asset id and NFT nonce.
+// does it leave a transfer log naming its asset id and NFT nonce. The rule holds both for the
+// per-transfer loop and for the FixAuditChangesV7 TransferBatch.
 func TestKleverTransferZeroValueLogForkGating(t *testing.T) {
 	t.Parallel()
 
 	funcGasCost := uint64(100)
 
-	run := func(t *testing.T, forkEnabled bool) ([]*vmcommon.LogEntry, []*vmcommon.KDATransfer, []string) {
+	run := func(t *testing.T, forkEnabled, batch bool) ([]*vmcommon.LogEntry, []*vmcommon.KDATransfer, []string) {
 		var transferredAssets []string
 		instance := builtInFunctions.NewKDATransferFunc(
 			funcGasCost,
@@ -749,7 +750,9 @@ func TestKleverTransferZeroValueLogForkGating(t *testing.T) {
 					}
 				},
 			},
-			mock.NewForkControllerStub().SetFork("FixAuditChangesV6", forkEnabled),
+			mock.NewForkControllerStub().
+				SetFork("FixAuditChangesV6", forkEnabled).
+				SetFork("FixAuditChangesV7", batch),
 		)
 		require.NoError(t, instance.SetPayableChecker(&PayableHandlerStub{}))
 
@@ -778,13 +781,15 @@ func TestKleverTransferZeroValueLogForkGating(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		forkEnabled bool
+		batch       bool
 		logTokens   []string
 	}{
 		{name: "fork disabled logs the zero-value transfer", forkEnabled: false, logTokens: []string{"FTFunded", "NFT-1234/5"}},
 		{name: "fork enabled logs only the funded transfer", forkEnabled: true, logTokens: []string{"FTFunded"}},
+		{name: "batch logs only the funded transfer", forkEnabled: true, batch: true, logTokens: []string{"FTFunded"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			logs, transfers, transferredAssets := run(t, tc.forkEnabled)
+			logs, transfers, transferredAssets := run(t, tc.forkEnabled, tc.batch)
 
 			require.Equal(t, tc.logTokens, logTokens(logs))
 			require.Equal(t, []string{"FTFunded"}, transferredAssets, "only the funded transfer reaches the accounts KApp")
@@ -793,4 +798,57 @@ func TestKleverTransferZeroValueLogForkGating(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Under FixAuditChangesV7 the builtin settles its transfers as one TransferBatch. When the batch
+// fails its checks nothing is applied: the stub's fallback runs ValidateTransfers on the whole
+// batch before any TransferCalled, as the production TransferBatch checks before it moves.
+func TestKleverTransferBatchRejectedBeforeAnyTransfer(t *testing.T) {
+	t.Parallel()
+
+	funcGasCost := uint64(100)
+	errRejected := fmt.Errorf("second transfer rejected")
+
+	var validated []*transaction.TransferContract
+	transferCalls := 0
+	instance := builtInFunctions.NewKDATransferFunc(
+		funcGasCost,
+		&stub.KAppControllerStub{
+			GetAccountsKAppCalled: func() kapp.AccountsKapp {
+				return &stub.KAppAccountsStub{
+					ValidateTransfersCalled: func(
+						_ transaction.TXContract_ContractType,
+						_ []byte,
+						tcs []*transaction.TransferContract,
+					) (transaction.Transaction_TXResultCode, error) {
+						validated = tcs
+						return transaction.Transaction_OutOfFunds, errRejected
+					},
+					TransferCalled: func(
+						_ transaction.TXContract_ContractType,
+						_ []byte,
+						_ *transaction.TransferContract,
+					) (transaction.Transaction_TXResultCode, error) {
+						transferCalls++
+						return transaction.Transaction_Ok, nil
+					},
+				}
+			},
+		},
+		mock.NewForkControllerStub().SetFork("FixAuditChangesV7", true),
+	)
+	require.NoError(t, instance.SetPayableChecker(&PayableHandlerStub{}))
+
+	first := &vmcommon.KDATransfer{KDATokenName: []byte("FTA"), KDAValue: big.NewInt(100)}
+	second := &vmcommon.KDATransfer{KDATokenName: []byte("FTB"), KDAValue: big.NewInt(200)}
+	vmInput := vmInputTransferCreation([]*vmcommon.KDATransfer{first, second}, 2*funcGasCost)
+
+	vmOutput, err := instance.ProcessBuiltinFunction(vmInput)
+	require.ErrorIs(t, err, errRejected)
+	require.Nil(t, vmOutput)
+
+	require.Len(t, validated, 2, "the whole batch is checked at once")
+	require.Zero(t, transferCalls, "a rejected batch applies no transfer")
+	require.False(t, first.IsExecuted())
+	require.False(t, second.IsExecuted())
 }

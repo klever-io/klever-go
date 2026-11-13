@@ -4127,6 +4127,7 @@ func Test_ValidatePercentageRoyaltiesTransfer(t *testing.T) {
 				tt.kda,
 				tt.accSrc,
 				kdautils.KLVIdentifier,
+				0,
 			)
 			assert.Equal(tt.expectedErr, err)
 			assert.Equal(tt.expectedStatus, status)
@@ -6776,7 +6777,9 @@ func Test_ProcessNonFungibleTransfer_NonCanonicalAmount(t *testing.T) {
 				return commonMock.NFTHolderRecord(1), nil
 			}
 			src := &commonMock.UserAccountHandlerStub{
-				AddressBytesCalled:   func() []byte { return sender },
+				AddressBytesCalled: func() []byte { return sender },
+				// The V7 plan reads the holder record before anything moves.
+				RetrieveValueCalled:  func([]byte) ([]byte, error) { return commonMock.NFTHolderRecord(1), nil },
 				SubInternalKDACalled: take,
 				SubFromBalanceWithNonceCalled: func(value int64, _, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
 					t.Fatalf("balance path called for true NFT with value %d", value)
@@ -6879,7 +6882,9 @@ func Test_ProcessNonFungibleTransfer_CanonicalAmountPostFork(t *testing.T) {
 		return commonMock.NFTHolderRecord(1), nil
 	}
 	src := &commonMock.UserAccountHandlerStub{
-		AddressBytesCalled:   func() []byte { return sender },
+		AddressBytesCalled: func() []byte { return sender },
+		// The V7 plan reads the holder record before anything moves.
+		RetrieveValueCalled:  func([]byte) ([]byte, error) { return commonMock.NFTHolderRecord(1), nil },
 		SubInternalKDACalled: take,
 	}
 	dst := &commonMock.UserAccountHandlerStub{
@@ -8841,6 +8846,10 @@ func Test_Transfer_FixedRoyaltyRejectionsEmitErrorReceipts(t *testing.T) {
 			}
 			require.NoError(t, f.src.AddToBalance(tt.klvStart, kdautils.KLVIdentifier, true))
 			require.NoError(t, f.dst.AddToBalance(tt.dstKLV, kdautils.KLVIdentifier, true))
+			// The sender covers the amount, so the royalty step is the only failure. From
+			// FixAuditChangesV7 every check runs before value moves, so a failing amount check
+			// would be reported ahead of a royalty credit that overflows.
+			require.NoError(t, f.src.AddToBalance(transferValue, []byte("FUNGI-1234"), true))
 
 			tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: []byte("FUNGI-1234"), Amount: transferValue, KLVRoyalties: tt.klvClaimed}
 
@@ -9007,4 +9016,197 @@ func TestTransfer_FungibleWritableCacher_CommitsBothSides(t *testing.T) {
 				"a writable transfer must credit the receiver in committed state")
 		})
 	}
+}
+
+// ValidateTransfers must reject a single transfer exactly as the legacy Transfer (before
+// FixAuditChangesV7) does, with the same result code, error and error receipts, and without moving
+// anything. The sender is a user address here, so the royalty branches are live.
+func TestValidateTransfers_MatchesTransferWithoutMutating(t *testing.T) {
+	fungibleID := []byte("FUNGI-1234")
+	semiFungibleID, semiFungibleNonce := []byte("SEMI-1234"), []byte("1")
+	nonFungibleID, nonFungibleNonce := []byte("NONFUNGI-1234"), []byte("7")
+	senderAddr := makeAddress("validate-sender")
+	receiverAddr := makeAddress("validate-receiver")
+	percentage := &kapps.RoyaltiesData{
+		Address:            makeAddress("validate-royalties"),
+		TransferPercentage: []*kapps.RoyaltyData{{Amount: math.MaxInt64, Percentage: core.HundredPercent / 10}},
+	}
+	royaltyOn := func(amount int64) int64 {
+		kda := &kapps.KDAData{Royalties: percentage}
+		royalty, err := kda.GetTransferRoyaltyByAmount(amount, true, true)
+		require.NoError(t, err)
+		return royalty
+	}
+
+	// holding reads what the account holds of the asset each asset type is tested with.
+	holding := func(assetType kapps.KDAData_EnumAssetType, acc state.UserAccountHandler) int64 {
+		switch assetType {
+		case kapps.KDAData_SemiFungible:
+			return acc.GetBalanceWithNonce(semiFungibleID, semiFungibleNonce, true)
+		case kapps.KDAData_NonFungible:
+			data, err := acc.RetrieveValue(kdautils.ToKDAKey(nonFungibleID, nonFungibleNonce))
+			if err != nil || len(data) == 0 {
+				return 0
+			}
+			return 1
+		default:
+			return acc.GetBalance(fungibleID, true)
+		}
+	}
+	fund := func(assetType kapps.KDAData_EnumAssetType, acc state.UserAccountHandler) ([]byte, int64) {
+		switch assetType {
+		case kapps.KDAData_SemiFungible:
+			require.NoError(t, acc.AddToBalanceWithNonce(transferSenderStart, semiFungibleID, semiFungibleNonce, true))
+			return []byte("SEMI-1234/1"), transferSenderStart
+		case kapps.KDAData_NonFungible:
+			require.NoError(t, acc.AddInternalKDA(nonFungibleID, nonFungibleNonce, []byte("nft-metadata")))
+			return []byte("NONFUNGI-1234/7"), 1
+		default:
+			require.NoError(t, acc.AddToBalance(transferSenderStart, fungibleID, true))
+			return fungibleID, transferSenderStart
+		}
+	}
+
+	tests := []struct {
+		name      string
+		assetType kapps.KDAData_EnumAssetType
+		royalties *kapps.RoyaltiesData
+		tc        *transaction.TransferContract
+		klv       int64
+	}{
+		{
+			name:      "semi-fungible insufficient funds for the nonce",
+			assetType: kapps.KDAData_SemiFungible,
+			tc:        &transaction.TransferContract{Amount: transferSenderStart + 1},
+		},
+		{
+			// The royalty is checked against the nonce-less balance, which holds nothing here.
+			name:      "semi-fungible percentage royalty",
+			assetType: kapps.KDAData_SemiFungible,
+			royalties: percentage,
+			tc:        &transaction.TransferContract{Amount: transferValue, KDARoyalties: royaltyOn(transferValue)},
+		},
+		{
+			name:      "non-fungible amount other than one",
+			assetType: kapps.KDAData_NonFungible,
+			tc:        &transaction.TransferContract{Amount: 2},
+		},
+		{
+			name: "zero amount",
+			tc:   &transaction.TransferContract{Amount: 0},
+		},
+		{
+			name: "insufficient funds",
+			tc:   &transaction.TransferContract{Amount: transferSenderStart + 1},
+		},
+		{
+			name:      "fixed royalty not matching",
+			royalties: &kapps.RoyaltiesData{TransferFixed: 10},
+			tc:        &transaction.TransferContract{Amount: transferValue},
+			klv:       100,
+		},
+		{
+			name:      "fixed royalty not covered by the KLV balance",
+			royalties: &kapps.RoyaltiesData{TransferFixed: 10},
+			tc:        &transaction.TransferContract{Amount: transferValue, KLVRoyalties: 10},
+			klv:       9,
+		},
+		{
+			name:      "percentage royalty not covered by the balance",
+			royalties: percentage,
+			tc:        &transaction.TransferContract{Amount: transferSenderStart, KDARoyalties: royaltyOn(transferSenderStart)},
+		},
+		{
+			name:      "percentage royalty not matching",
+			royalties: percentage,
+			tc:        &transaction.TransferContract{Amount: transferValue},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var funded int64
+			run := func(cfg config.EnableEpochs, call func(f transferFixture, tc *transaction.TransferContract) (transaction.Transaction_TXResultCode, error)) (transferFixture, transaction.Transaction_TXResultCode, error) {
+				f := newTransferFixture(t, cfg, tt.assetType, senderAddr, receiverAddr)
+				f.kda.Royalties = tt.royalties
+				var assetID []byte
+				assetID, funded = fund(tt.assetType, f.src)
+				if tt.klv > 0 {
+					require.NoError(t, f.src.AddToBalance(tt.klv, kdautils.KLVIdentifier, true))
+				}
+
+				tc := transaction.TransferContract{
+					ToAddress:    receiverAddr,
+					AssetID:      assetID,
+					Amount:       tt.tc.Amount,
+					KLVRoyalties: tt.tc.KLVRoyalties,
+					KDARoyalties: tt.tc.KDARoyalties,
+				}
+				status, err := call(f, &tc)
+				return f, status, err
+			}
+
+			transferRun, transferStatus, transferErr := run(config.EnableEpochs{FixAuditChangesV7: 1000}, func(f transferFixture, tc *transaction.TransferContract) (transaction.Transaction_TXResultCode, error) {
+				return f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
+			})
+			require.Error(t, transferErr)
+
+			f, status, err := run(config.EnableEpochs{}, func(f transferFixture, tc *transaction.TransferContract) (transaction.Transaction_TXResultCode, error) {
+				return f.accKapp.ValidateTransfers(transaction.TXContract_TransferContractType, senderAddr, []*transaction.TransferContract{tc})
+			})
+			require.Equal(t, transferErr, err)
+			require.Equal(t, transferStatus, status)
+			require.Equal(t, transferRun.ctx.Receipts().GetPreserved(), f.ctx.Receipts().GetPreserved())
+
+			require.Equal(t, funded, holding(tt.assetType, f.src))
+			require.Equal(t, tt.klv, f.src.GetBalance(kdautils.KLVIdentifier, true))
+			require.Zero(t, holding(tt.assetType, f.dst))
+			require.Empty(t, f.saved, "validation must not hand any account to the cacher")
+		})
+	}
+}
+
+// Debits add up across the batch, royalties included, and a batch the sender can cover in full
+// passes without moving anything.
+func TestValidateTransfers_TalliesDebitsAcrossTheBatch(t *testing.T) {
+	assetID := []byte("FUNGI-1234")
+	senderAddr := makeAddress("validate-sender")
+	receiverAddr := makeAddress("validate-receiver")
+
+	transfer := func(amount int64) *transaction.TransferContract {
+		return &transaction.TransferContract{ToAddress: receiverAddr, AssetID: assetID, Amount: amount}
+	}
+	validate := func(f transferFixture, tcs ...*transaction.TransferContract) (transaction.Transaction_TXResultCode, error) {
+		return f.accKapp.ValidateTransfers(transaction.TXContract_TransferContractType, senderAddr, tcs)
+	}
+
+	f := newTransferFixture(t, config.EnableEpochs{}, kapps.KDAData_Fungible, senderAddr, receiverAddr)
+	require.NoError(t, f.src.AddToBalance(transferSenderStart, assetID, true))
+
+	status, err := validate(f, transfer(transferSenderStart-transferValue), transfer(transferValue))
+	require.NoError(t, err)
+	require.Equal(t, transaction.Transaction_Ok, status)
+
+	status, err = validate(f, transfer(transferSenderStart-transferValue), transfer(transferValue+1))
+	require.ErrorIs(t, err, process.ErrInsufficientFunds)
+	require.Equal(t, transaction.Transaction_OutOfFunds, status)
+
+	// A fixed royalty is paid in KLV, so it counts against the KLV the same batch transfers.
+	f.kda.Royalties = &kapps.RoyaltiesData{TransferFixed: 10, Address: receiverAddr}
+	require.NoError(t, f.src.AddToBalance(100, kdautils.KLVIdentifier, true))
+	klvTransfer := func(amount int64) *transaction.TransferContract {
+		return &transaction.TransferContract{ToAddress: receiverAddr, AssetID: kdautils.KLVIdentifier, Amount: amount, KLVRoyalties: 10}
+	}
+
+	status, err = validate(f, klvTransfer(90))
+	require.NoError(t, err)
+	require.Equal(t, transaction.Transaction_Ok, status)
+
+	status, err = validate(f, klvTransfer(91))
+	require.ErrorIs(t, err, process.ErrInsufficientFunds)
+	require.Equal(t, transaction.Transaction_OutOfFunds, status)
+
+	require.Equal(t, transferSenderStart, f.src.GetBalance(assetID, true))
+	require.Equal(t, int64(100), f.src.GetBalance(kdautils.KLVIdentifier, true))
+	require.Empty(t, f.saved)
 }

@@ -11,6 +11,8 @@ type KAppAccountsStub struct {
 	SetAccountsCacherCalled func(cacher state.AccountsCacher) error
 	GetAccountsCacherCalled func() state.AccountsCacher
 	TransferCalled          func(cType transaction.TXContract_ContractType, sender []byte, tc *transaction.TransferContract) (transaction.Transaction_TXResultCode, error)
+	TransferBatchCalled     func(cType transaction.TXContract_ContractType, sender []byte, tcs []*transaction.TransferContract) (transaction.Transaction_TXResultCode, error)
+	ValidateTransfersCalled func(cType transaction.TXContract_ContractType, sender []byte, tcs []*transaction.TransferContract) (transaction.Transaction_TXResultCode, error)
 	FreezeCalled            func(sender []byte, tc *transaction.FreezeContract) (transaction.Transaction_TXResultCode, error)
 	UnfreezeCalled          func(sender []byte, tc *transaction.UnfreezeContract) (transaction.Transaction_TXResultCode, error)
 	DelegateCalled          func(sender []byte, tc *transaction.DelegateContract) (transaction.Transaction_TXResultCode, error)
@@ -50,6 +52,39 @@ func (stub *KAppAccountsStub) GetAccountsCacher() state.AccountsCacher {
 func (stub *KAppAccountsStub) Transfer(cType transaction.TXContract_ContractType, sender []byte, tc *transaction.TransferContract) (transaction.Transaction_TXResultCode, error) {
 	if stub.TransferCalled != nil {
 		return stub.TransferCalled(cType, sender, tc)
+	}
+
+	return transaction.Transaction_TXResultCode(0), nil
+}
+
+// TransferBatch runs TransferBatchCalled, or else mirrors the production shape: every transfer
+// goes through ValidateTransfers first, so a check failure applies nothing, and only then is each
+// one applied through TransferCalled, where a failure leaves earlier transfers applied (as a
+// failure while moving value does in production).
+func (stub *KAppAccountsStub) TransferBatch(cType transaction.TXContract_ContractType, sender []byte, tcs []*transaction.TransferContract) (transaction.Transaction_TXResultCode, error) {
+	if stub.TransferBatchCalled != nil {
+		return stub.TransferBatchCalled(cType, sender, tcs)
+	}
+
+	resultCode, err := stub.ValidateTransfers(cType, sender, tcs)
+	if err != nil || resultCode != transaction.Transaction_Ok {
+		return resultCode, err
+	}
+
+	for _, tc := range tcs {
+		resultCode, err := stub.Transfer(cType, sender, tc)
+		if err != nil || resultCode != transaction.Transaction_Ok {
+			return resultCode, err
+		}
+	}
+
+	return transaction.Transaction_Ok, nil
+}
+
+// ValidateTransfers runs ValidateTransfersCalled, or else accepts every transfer.
+func (stub *KAppAccountsStub) ValidateTransfers(cType transaction.TXContract_ContractType, sender []byte, tcs []*transaction.TransferContract) (transaction.Transaction_TXResultCode, error) {
+	if stub.ValidateTransfersCalled != nil {
+		return stub.ValidateTransfersCalled(cType, sender, tcs)
 	}
 
 	return transaction.Transaction_TXResultCode(0), nil
