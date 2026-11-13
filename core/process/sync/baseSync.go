@@ -736,9 +736,9 @@ func (boot *baseBootstrap) syncBlock() error {
 		return err
 	}
 
-	// A slot-ahead failure here only postpones the sync and reverts the tries, leaving the
-	// in-memory state ProcessBlock advanced (epoch notifier, epoch start trigger, validators
-	// info) in place. That relies on ProcessBlock being idempotent for the same header when
+	// A slot-ahead failure here only postpones the sync. The revert puts back the tries and
+	// the epoch state ProcessBlock advanced (epoch notifier, epoch start trigger), but not the
+	// validators info. That relies on ProcessBlock being idempotent for the same header when
 	// it is retried; a different header failing for this nonce rolls back and realigns it.
 	startCommitBlockTime := time.Now()
 	attemptSlotIndex = boot.slotManager.Index()
