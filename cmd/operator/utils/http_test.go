@@ -243,7 +243,7 @@ func TestErrorStatusComesFromTheCodeNotTheServer(t *testing.T) {
 	assert.Less(t, len(err.Error()), 200)
 }
 
-// TestErrorUnknownStatusCodeIsBare pins the other half of statusText: a code net/http has
+// TestErrorUnknownStatusCodeIsBare pins the status text for a code net/http has
 // no phrase for is printed as the number alone, not with a trailing space.
 func TestErrorUnknownStatusCodeIsBare(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +276,6 @@ func TestErrorCarriesFieldsForLoggers(t *testing.T) {
 	require.ErrorAs(t, err, &statusErr)
 	assert.Equal(t, http.MethodPost, statusErr.Method)
 	assert.Equal(t, srv.URL, statusErr.URL)
-	assert.Equal(t, http.StatusBadGateway, statusErr.StatusCode)
 	assert.Equal(t, "502 Bad Gateway", statusErr.Status)
 	assert.Equal(t, reason, statusErr.Body)
 	assert.Empty(t, statusErr.ReadErr)

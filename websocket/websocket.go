@@ -660,6 +660,9 @@ func mirrorFailureFields(err error) []interface{} {
 		return []interface{}{"lastError", loggableError(err)}
 	}
 
+	// The body already went through the operator helper's 64 KiB cap, which leaves its own
+	// marker at the end; loggableText's "… (N bytes)" counts that sanitised, marked body,
+	// not the bytes the mirror sent.
 	fields := []interface{}{"status", statusErr.Status, "body", loggableText(statusErr.Body, maxLoggableErrorLength)}
 	if statusErr.ReadErr != "" {
 		fields = append(fields, "readError", loggableText(statusErr.ReadErr, maxLoggableErrorLength))
@@ -671,7 +674,8 @@ func mirrorFailureFields(err error) []interface{} {
 }
 
 // loggableText bounds and scrubs one field of text that peer input may have reached. Shared
-// by loggableError and loggablePanic, which differ only in where the text comes from.
+// by loggableError, loggablePanic and mirrorFailureFields, which differ only in where the
+// text comes from.
 func loggableText(text string, maxLength int) string {
 	if len(text) > maxLength {
 		// Step the cut back to a rune start so it does not split a sequence into U+FFFD in
@@ -704,9 +708,7 @@ func loggableText(text string, maxLength int) string {
 // loggablePanic scrubs a recovered panic value. It can quote peer input, so it gets the
 // same bound and control-rune scrub as loggableError (KLC-2596).
 func loggablePanic(r interface{}) string {
-	const maxLoggablePanicLength = 256
-
-	return loggableText(fmt.Sprintf("%v", r), maxLoggablePanicLength)
+	return loggableText(fmt.Sprintf("%v", r), maxLoggableErrorLength)
 }
 
 // panicWarner is the log budget for one barrier. An unknown op shares otherPanicWarn.

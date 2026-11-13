@@ -101,12 +101,11 @@ func PostURLWithContext(ctx context.Context, url, body string, headers []string,
 // each on its own, so a body the server wrote cannot imitate the attribution or push it
 // past the log's bound.
 type HTTPStatusError struct {
-	Method     string
-	URL        string
-	StatusCode int
-	Status     string // from the code alone, e.g. "502 Bad Gateway"
-	Body       string // sanitised, bounded at maxErrorBody, with a marker when cut
-	ReadErr    string // sanitised read failure; empty when the body was read whole
+	Method  string
+	URL     string
+	Status  string // from the status code alone, e.g. "502 Bad Gateway"
+	Body    string // sanitised, bounded at maxErrorBody, with a marker when cut
+	ReadErr string // sanitised read failure; empty when the body was read whole
 }
 
 // Error renders the message the operator reads: method and URL first, so the attribution
@@ -136,32 +135,26 @@ func checkStatus(method, url string, r *http.Response) error {
 	// phrase, unbounded and chosen by the server. TrimSpace covers a code net/http has no
 	// phrase for.
 	statusErr := &HTTPStatusError{
-		Method:     method,
-		URL:        url,
-		StatusCode: r.StatusCode,
-		Status:     strings.TrimSpace(fmt.Sprintf("%d %s", r.StatusCode, http.StatusText(r.StatusCode))),
+		Method: method,
+		URL:    url,
+		Status: strings.TrimSpace(fmt.Sprintf("%d %s", r.StatusCode, http.StatusText(r.StatusCode))),
 	}
 	// io.ReadAll returns the bytes it did manage to read alongside a non-nil error on a
 	// truncated/hijacked body (e.g. a declared Content-Length the server never delivered) —
 	// keep that partial snippet instead of discarding it. readErr's own message can embed
 	// server-supplied text (net/http's trailer parsing may fold a server header into it), so
-	// sanitize it the same as status/body rather than let it skip the same treatment.
-	// Read one byte past the cap so a body that is exactly at it is not reported as cut.
+	// sanitize it the same as the body (the status is built from the code alone and carries
+	// no server text). Read one byte past the cap so a body that is exactly at it is not
+	// reported as cut.
 	snippet, readErr := io.ReadAll(io.LimitReader(r.Body, maxErrorBody+1))
-	truncated := len(snippet) > maxErrorBody
-	if truncated {
-		// A multi-byte rune the cut splits is invalid UTF-8, and sanitizeServerBytes drops
-		// invalid bytes, so no U+FFFD precedes the marker.
-		snippet = snippet[:maxErrorBody]
-	}
-	statusErr.Body = sanitizeServerBytes(snippet)
-	if truncated {
-		marker := fmt.Sprintf("(response body truncated at %d bytes)", maxErrorBody)
-		if statusErr.Body == "" {
-			statusErr.Body = marker
-		} else {
-			statusErr.Body += " ... " + marker
+	// A multi-byte rune the cut splits is invalid UTF-8, and sanitizeServerBytes drops
+	// invalid bytes, so no U+FFFD precedes the marker.
+	statusErr.Body = sanitizeServerBytes(snippet[:min(len(snippet), maxErrorBody)])
+	if len(snippet) > maxErrorBody {
+		if statusErr.Body != "" {
+			statusErr.Body += " ... "
 		}
+		statusErr.Body += fmt.Sprintf("(response body truncated at %d bytes)", maxErrorBody)
 	}
 	if readErr != nil {
 		statusErr.ReadErr = sanitizeServerBytes([]byte(readErr.Error()))

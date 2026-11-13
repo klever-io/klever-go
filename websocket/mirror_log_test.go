@@ -152,8 +152,8 @@ func TestMirrorFailureLogBoundsTheBody(t *testing.T) {
 // and url, with readError only when the body was not read whole.
 func TestMirrorFailureFields(t *testing.T) {
 	longLine := strings.Repeat("k", 300)
-	statusErr := &utils.HTTPStatusError{Method: "POST", URL: "https://mirror.example/hook", StatusCode: 502, Status: "502 Bad Gateway", Body: `{"error":"x"}`}
-	readErr := &utils.HTTPStatusError{Method: "POST", URL: "https://mirror.example/hook", StatusCode: 500, Status: "500 Internal Server Error", Body: "short", ReadErr: "unexpected EOF"}
+	statusErr := &utils.HTTPStatusError{Method: "POST", URL: "https://mirror.example/hook", Status: "502 Bad Gateway", Body: `{"error":"x"}`}
+	readErr := &utils.HTTPStatusError{Method: "POST", URL: "https://mirror.example/hook", Status: "500 Internal Server Error", Body: "short", ReadErr: "unexpected EOF"}
 
 	tests := []struct {
 		name string
@@ -182,7 +182,7 @@ func TestMirrorFailureFields(t *testing.T) {
 		},
 		{
 			name: "long url is bounded too",
-			err:  &utils.HTTPStatusError{Method: "POST", URL: "https://mirror.example/" + longLine, StatusCode: 502, Status: "502 Bad Gateway"},
+			err:  &utils.HTTPStatusError{Method: "POST", URL: "https://mirror.example/" + longLine, Status: "502 Bad Gateway"},
 			want: map[string]string{"status": "502 Bad Gateway", "body": "", "url": loggableText("https://mirror.example/"+longLine, maxLoggableErrorLength)},
 		},
 	}
