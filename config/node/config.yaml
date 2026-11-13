@@ -24,20 +24,83 @@ p2p:
     #  `ListsSharder` will split the peers based on the shard membership (intra, cross or unknown)
     #  `OneListSharder` will do just the connection triming (upto TargetPeerCount value) not taking into account
     #              the shard membership of the connected peers
-    #  `NilListSharder` will disable connection trimming (sharder is off)
+    #  `NilListSharder` will disable the sharder's own connection trimming (sharder is off).
+    #              It does not disable libp2p's connection manager: every regular node,
+    #              whatever the sharder, runs the connection manager configured under
+    #              connectionManager below, which protects known validators and caps
+    #              unknown inbound peers. Seed nodes always run a no-op connection manager.
     type: NilListSharder
-  # Optional libp2p ResourceManager tuning. Omitting this section is equivalent
-  # to strategy "" / "default": libp2p's auto-scaled DefaultResourceManager
-  # (memory budget = TotalRAM/8) is used. Available strategies:
-  #   ""        leave libp2p's auto-scaled DefaultResourceManager in place.
-  #   "default" same as "" — explicit libp2p auto-scale.
+  # libp2p ResourceManager tuning. Available strategies:
+  #   ""        on a regular node, the same as "scaled" with 4096 MiB (an in-code
+  #             default, so configs from before this section existed get the values
+  #             below); on a seed node, libp2p's auto-scaled DefaultResourceManager.
+  #   "default" libp2p's auto-scaled DefaultResourceManager (memory budget =
+  #             TotalRAM/8): 64 + 8*GB inbound and 128 + 16*GB total (GB of host RAM),
+  #             128/256 on an 8 GB host, too few for a ~200-validator network. With
+  #             the default maxUnprotectedInboundConns of 100 that leaves 28 inbound
+  #             slots for validators, so lower the cap with it (the node warns at
+  #             startup when fewer than 200 slots are left for validators).
   #   "null"    disable libp2p resource limits (bounded only by OS ulimit and RAM).
   #   "scaled"  auto-scale limits as if the host had `scaledMemoryMiB` MiB of memory.
-  # Example: lift caps on a small host without going fully unbounded:
+  # Shipped default (KLC-2417): "scaled" with 4096 MiB, giving up to 64 + 4096/16 =
+  # 320 inbound and 640 total connections. It is lower if the host reports less than
+  # 4096 MiB of RAM (the value is clamped to physical memory) or if RLIMIT_NOFILE/2 is
+  # below what those connections need. The value is an accounting ceiling, not memory
+  # the node reserves. The optional maxConns*/connRate* knobs (see
+  # config/seednode/config.yaml) are left unset, so libp2p's per-IP limits keep their
+  # defaults (8 connections per /32). On regular nodes "scaled" also limits each peer
+  # ID to 4 inbound connections (libp2p's default is 8), so one identity
+  # cannot hold many inbound slots; seed nodes keep libp2p's per-peer limits.
+  resourceManager:
+    strategy: scaled
+    scaledMemoryMiB: 4096
+  # libp2p connection manager of regular nodes (seed nodes ignore it and never trim).
+  # lowWater and highWater count connections, not peers. Once the connection count
+  # reaches highWater, the node closes the connections of the lowest-value unprotected
+  # peers older than gracePeriodInSec until lowWater unprotected, out-of-grace
+  # connections remain. Which peers go first follows their connection-manager value,
+  # which gossipsub's decaying pubsub-deliveries tags dominate (peers that deliver
+  # messages first are kept), not whether they are unknown or observers. Protected
+  # peers are never closed and their connections are not counted against lowWater:
+  # validators the node knows of, and the peers gossipsub and kad-dht protect. lowWater
+  # is therefore the connection budget for unprotected peers, and lowWater plus the
+  # protected peers' inbound connections must stay below the inbound ResourceManager
+  # limit (320 above): 100 plus ~200 validators fits. With a larger lowWater,
+  # unprotected peers could hold every inbound slot without a trim ever closing them. The node warns at startup when the watermarks do not fit the
+  # ResourceManager limits. A zero or missing value selects the default shown here;
+  # lowWater must stay below highWater, both at most 100000, gracePeriodInSec above 10
+  # (the peer protector's interval) and at most 3600. Below 60 the node warns: a
+  # validator with a fresh peer ID can stay unidentified until its next heartbeat.
   #
-  # resourceManager:
-  #   strategy: scaled
-  #   scaledMemoryMiB: 16384
+  # Trimming never closes a connection younger than gracePeriodInSec, so a peer that
+  # keeps rotating its peer ID and reconnecting would never be trimmed. To close that
+  # gap, the node caps the inbound connections of peers that are not known validators
+  # at maxUnprotectedInboundConns. Only validators are exempt: peers that gossipsub or
+  # kad-dht protect still count, because kad-dht protects most routing-table peers and
+  # gossipsub never drops the protection of a mesh peer that disconnected. It counts
+  # connections, as the ResourceManager does, because one peer ID can hold several.
+  # At admission, a new inbound connection from such a peer is refused once the cap
+  # is reached, so freed slots cannot be refilled by an attacker ahead of a
+  # reconnecting validator; validators per the node's records are always admitted,
+  # and outbound connections are never refused. A validator that starts with a new
+  # peer ID is unknown everywhere, so where the cap is full its own dials are refused;
+  # it gets in when another node dials it (found through the DHT; outbound on that
+  # side, so never refused, and its own cap is still in warm-up) or when it reaches a
+  # node below the cap, and its heartbeat then identifies it network-wide. Seed nodes
+  # join no topic, so they do not relay heartbeats. Every 10s the node also
+  # closes whole peers, whatever their age, until the sum is within the cap.
+  # Closing order: unknown peers connected for over 60s, newest first; then observers
+  # (any peer can become an "observer" with a self-signed heartbeat), newest first;
+  # last, unknown peers younger than 60s, oldest first, because a validator that has
+  # just connected is unknown until its next heartbeat (every 20-25s). The cap is
+  # armed once the node's peer shard resolver is installed and enforced 60s later, so
+  # reconnecting validators are identified and protected first. 0 or missing means
+  # 100; at most 100000. The node warns at startup if it is not below the inbound limit.
+  connectionManager:
+    lowWater: 100
+    highWater: 300
+    gracePeriodInSec: 60
+    maxUnprotectedInboundConns: 100
   # Optional caps on the inbound direct-send streams this node accepts (KLC-2433).
   # Omitting this section, or leaving a knob at 0, keeps the built-in defaults:
   # 4 streams per peer and 512 across all peers. A well-behaved peer reuses a

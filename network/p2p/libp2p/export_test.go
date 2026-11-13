@@ -11,6 +11,7 @@ import (
 	"github.com/klever-io/klever-go/storage"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	pubsub_pb "github.com/libp2p/go-libp2p-pubsub/pb"
+	"github.com/libp2p/go-libp2p/core/connmgr"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -23,6 +24,7 @@ var SeenMessagesPerPeer = seenMessagesPerPeer
 var BroadcastGoRoutines = broadcastGoRoutines
 var PubsubTimeCacheDuration = pubsubTimeCacheDuration
 var AcceptMessagesInAdvanceDuration = acceptMessagesInAdvanceDuration
+var ScaledLimits = scaledLimits
 
 const CurrentTopicMessageVersion = currentTopicMessageVersion
 
@@ -171,4 +173,180 @@ func ConnLimitsPerSubnetV6(maxConns int) []rcmgr.ConnLimitPerSubnet {
 // BuildConnRateLimiter exposes buildConnRateLimiter for testing.
 func BuildConnRateLimiter(rps float64, burst int) *rate.Limiter {
 	return buildConnRateLimiter(rps, burst)
+}
+
+// ValidatorProtectionTag, ObserverTag and ObserverTagValue expose the peer protector's tags.
+const ValidatorProtectionTag = validatorProtectionTag
+const ObserverTag = observerTag
+const ObserverTagValue = observerTagValue
+
+// DefaultConnMgrLowWater and DefaultConnMgrHighWater expose the connection manager defaults.
+const DefaultConnMgrLowWater = defaultConnMgrLowWater
+const DefaultConnMgrHighWater = defaultConnMgrHighWater
+
+// PeerProtectorPassResult exposes peerProtectorPassResult for testing.
+type PeerProtectorPassResult = peerProtectorPassResult
+
+// ProtectorNetwork exposes the network subset the peer protector uses.
+type ProtectorNetwork = protectorNetwork
+
+// MaxUnprotectedInboundConns exposes maxUnprotectedInboundConns for testing.
+var MaxUnprotectedInboundConns = maxUnprotectedInboundConns
+
+// RegularNodePeerConnsInbound exposes the regular-node per-peer inbound connection limit.
+const RegularNodePeerConnsInbound = regularNodePeerConnsInbound
+
+// NewPeerProtector builds a peer protector over an arbitrary connection manager and network.
+// The inbound cap is armed and enforced from the first pass (no warm-up).
+func NewPeerProtector(cm connmgr.ConnManager, net ProtectorNetwork, resolver p2p.PeerShardResolver, maxUnprotectedInboundConns int) *peerProtector {
+	pp := NewPeerProtectorWithClock(cm, net, resolver, maxUnprotectedInboundConns, 0, time.Now)
+	pp.arm()
+	return pp
+}
+
+// Arm arms the inbound cap, as SetPeerShardResolver does.
+func (pp *peerProtector) Arm() {
+	pp.arm()
+}
+
+// SetUnknownPeerIdentificationWindow changes the identification window. The returned func
+// restores the original.
+func SetUnknownPeerIdentificationWindow(d time.Duration) func() {
+	old := unknownPeerIdentificationWindow
+	unknownPeerIdentificationWindow = d
+	return func() { unknownPeerIdentificationWindow = old }
+}
+
+// NewPeerProtectorWithClock builds an unarmed peer protector with an explicit warm-up and clock.
+func NewPeerProtectorWithClock(
+	cm connmgr.ConnManager,
+	net ProtectorNetwork,
+	resolver p2p.PeerShardResolver,
+	maxUnprotectedInboundConns int,
+	warmUp time.Duration,
+	now func() time.Time,
+) *peerProtector {
+	return newPeerProtector(cm, net, func() p2p.PeerShardResolver { return resolver }, maxUnprotectedInboundConns, warmUp, now)
+}
+
+// SetInboundCapWarmUp changes the inbound cap warm-up for messengers created afterwards. The
+// returned func restores the original.
+func SetInboundCapWarmUp(d time.Duration) func() {
+	old := inboundCapWarmUp
+	inboundCapWarmUp = d
+	return func() { inboundCapWarmUp = old }
+}
+
+// RunPass runs one protector pass.
+func (pp *peerProtector) RunPass() PeerProtectorPassResult {
+	return pp.runPass()
+}
+
+// RunPeerProtectorPass runs one pass of the messenger's own peer protector. ok is false when the
+// messenger has none (seeds, mocknet hosts).
+func (netMes *networkMessenger) RunPeerProtectorPass() (res PeerProtectorPassResult, ok bool) {
+	if netMes.peerProtector == nil {
+		return PeerProtectorPassResult{}, false
+	}
+	return netMes.peerProtector.runPass(), true
+}
+
+// SetPeerProtectorInterval changes the protector loop interval for messengers created afterwards.
+// The returned func restores the original.
+func SetPeerProtectorInterval(d time.Duration) func() {
+	old := peerProtectorInterval
+	peerProtectorInterval = d
+	return func() { peerProtectorInterval = old }
+}
+
+// SetDefaultConnMgrGracePeriod changes the grace period used when gracePeriodInSec is 0, for
+// messengers created afterwards. The returned func restores the original.
+func SetDefaultConnMgrGracePeriod(d time.Duration) func() {
+	old := defaultConnMgrGracePeriod
+	defaultConnMgrGracePeriod = d
+	return func() { defaultConnMgrGracePeriod = old }
+}
+
+// ValidateConnectionManagerConfig exposes validateConnectionManagerConfig for testing.
+func ValidateConnectionManagerConfig(cmCfg config.ConnectionManagerConfig) error {
+	return validateConnectionManagerConfig(cmCfg)
+}
+
+// ConnManagerSettings exposes connManagerSettings for testing.
+func ConnManagerSettings(cmCfg config.ConnectionManagerConfig) (int, int, time.Duration) {
+	return connManagerSettings(cmCfg)
+}
+
+// ClampToPhysicalMemory exposes clampToPhysicalMemory for testing.
+var ClampToPhysicalMemory = clampToPhysicalMemory
+
+// GetFDLimit exposes getFDLimit for testing.
+var GetFDLimit = getFDLimit
+
+// ConnManagerLimitWarnings exposes connManagerLimitWarnings for testing.
+var ConnManagerLimitWarnings = connManagerLimitWarnings
+
+// GracePeriodWarning exposes gracePeriodWarning for testing.
+var GracePeriodWarning = gracePeriodWarning
+
+// SystemConnLimits exposes systemConnLimits for testing.
+var SystemConnLimits = systemConnLimits
+
+// EffectiveResourceManagerConfig exposes effectiveResourceManagerConfig for testing.
+func EffectiveResourceManagerConfig(rmCfg config.ResourceManagerConfig, isSeedNode bool) config.ResourceManagerConfig {
+	return effectiveResourceManagerConfig(rmCfg, isSeedNode)
+}
+
+// BuildResourceManagerStrategy runs the messenger's ResourceManager setup for args and returns the
+// effective strategy and, when it built its own ResourceManager ("scaled"), that manager's system
+// connection limits read back through systemConnLimits; it closes what it built.
+func BuildResourceManagerStrategy(args ArgsNetworkMessenger) (strategy string, connsInbound int, conns int, hasLimits bool, err error) {
+	setup, err := buildResourceManager(args)
+	if err != nil {
+		return "", 0, 0, false, err
+	}
+	if setup.closer == nil {
+		return setup.strategy, 0, 0, false, nil
+	}
+	defer func() { _ = setup.closer.Close() }()
+	rm, ok := setup.closer.(network.ResourceManager)
+	if !ok {
+		return setup.strategy, 0, 0, false, nil
+	}
+	connsInbound, conns, hasLimits = systemConnLimits(rm)
+	return setup.strategy, connsInbound, conns, hasLimits, nil
+}
+
+// NewInboundCapGater exposes newInboundCapGater for testing, on the wall clock.
+func NewInboundCapGater() *inboundCapGater {
+	return newInboundCapGater(time.Now)
+}
+
+// NewInboundCapGaterWithClock exposes newInboundCapGater for testing.
+func NewInboundCapGaterWithClock(now func() time.Time) *inboundCapGater {
+	return newInboundCapGater(now)
+}
+
+// SetProtector binds the protector whose cap the gater enforces, without a network to notify it.
+func (g *inboundCapGater) SetProtector(pp *peerProtector) {
+	g.bind(pp, nil)
+}
+
+// PendingLen returns how many admitted connections are waiting to be registered.
+func (g *inboundCapGater) PendingLen() int {
+	g.mut.Lock()
+	defer g.mut.Unlock()
+	return len(g.pending)
+}
+
+// InboundCapPendingTTL exposes inboundCapPendingTTL.
+var InboundCapPendingTTL = inboundCapPendingTTL
+
+// InboundGater returns the messenger's connection gater (nil on seeds) and whether it is bound to
+// the messenger's peer protector.
+func (netMes *networkMessenger) InboundGater() (gater connmgr.ConnectionGater, bound bool) {
+	if netMes.inboundGater == nil {
+		return nil, false
+	}
+	return netMes.inboundGater, netMes.inboundGater.protector.Load() == netMes.peerProtector
 }
