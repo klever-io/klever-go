@@ -16,6 +16,8 @@ var ErrCachingFailed = errors.New("instance caching failed")
 
 var ErrInstanceCleaned = errors.New("wasmer2 instance already cleaned")
 
+var ErrFailedVMHooksSetup = errors.New("could not set the executor vm hooks")
+
 // ErrOpcodeCostLayoutMismatch signals that the executor library reads an
 // opcode cost struct of a different size than OpcodeCost.
 var ErrOpcodeCostLayoutMismatch = errors.New("executor library opcode cost layout does not match OpcodeCost")

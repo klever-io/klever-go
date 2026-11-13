@@ -47,8 +47,3 @@ linters:
         linters:
           - staticcheck
         text: "SA1019"
-      # CGO unsafe.Pointer (intentional for interop)
-      - path: wasmer2ImportsCgoHelper\.go
-        linters:
-          - govet
-        text: "unsafeptr"

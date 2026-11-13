@@ -192,11 +192,17 @@ func cWasmerCheckSignatures(instance *cWasmerInstanceT) cInt {
 	))
 }
 
-func cWasmerExecutorContextDataSet(executor *cWasmerExecutorT, vmHooksPtr unsafe.Pointer) {
-	C.vm_exec_executor_set_vm_hooks_ptr(
+func cWasmerExecutorContextDataSet(executor *cWasmerExecutorT, vmHooksPtr unsafe.Pointer) cWasmerResultT {
+	return (cWasmerResultT)(C.vm_exec_executor_set_vm_hooks_ptr(
 		(*C.vm_exec_executor_t)(executor),
 		vmHooksPtr,
-	)
+	))
+}
+
+func cNewVMHooksIndexCell(index uintptr) unsafe.Pointer {
+	cell := C.malloc(C.size_t(unsafe.Sizeof(C.uintptr_t(0))))
+	*(*C.uintptr_t)(cell) = C.uintptr_t(index)
+	return cell
 }
 
 func cWasmerInstanceDestroy(instance *cWasmerInstanceT) {

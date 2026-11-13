@@ -317,6 +317,10 @@ func TestManaged_SetRandom_RejectsOversizeLength(t *testing.T) {
 	})
 
 	t.Run("pre-fork: an oversize length is still allocated", func(t *testing.T) {
+		if test.RaceDetectorEnabled {
+			t.Skip("the race detector slows execution past the smart contract execution timeout")
+		}
+
 		var hookReturn int32
 		var produced []byte
 

@@ -1,10 +1,13 @@
 package wasmer2
 
 import (
+	"os"
+	"sync"
 	"testing"
 	"unsafe"
 
 	"github.com/klever-io/klever-go/kvm/executor"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -65,4 +68,77 @@ func TestCreateExecutor_RefusesMismatchedCompilationOptions(t *testing.T) {
 	wasmerExecutor, err := CreateExecutor()
 	require.ErrorIs(t, err, ErrCompilationOptionsLayoutMismatch)
 	require.Nil(t, wasmerExecutor)
+}
+
+type vmHooksStub struct {
+	executor.VMHooks
+}
+
+func TestWasmer2Executor_ResolvesItsOwnVMHooks(t *testing.T) {
+	firstHooks := &vmHooksStub{}
+	secondHooks := &vmHooksStub{}
+
+	firstExecutor, err := CreateExecutor()
+	require.NoError(t, err)
+	require.NoError(t, firstExecutor.initVMHooks(firstHooks))
+
+	secondExecutor, err := CreateExecutor()
+	require.NoError(t, err)
+	require.NoError(t, secondExecutor.initVMHooks(secondHooks))
+
+	require.Same(t, firstHooks, getVMHooksFromContextRawPtr(firstExecutor.vmHooksCell))
+	require.Same(t, secondHooks, getVMHooksFromContextRawPtr(secondExecutor.vmHooksCell))
+}
+
+func TestWasmer2Executor_InitVMHooksFailsWhileAnInstanceExists(t *testing.T) {
+	wasmerExecutor, err := CreateExecutor()
+	require.NoError(t, err)
+
+	code, err := os.ReadFile("../test/contracts/answer/output/answer.wasm")
+	require.NoError(t, err)
+	instance, err := wasmerExecutor.NewInstanceWithOptions(code, executor.CompilationOptions{
+		GasLimit:             100_000_000,
+		RuntimeBreakpoints:   true,
+		MaxDeclaredTableSize: 1024,
+	})
+	require.NoError(t, err)
+	defer instance.Clean()
+
+	err = wasmerExecutor.initVMHooks(&vmHooksStub{})
+	require.ErrorIs(t, err, ErrFailedVMHooksSetup)
+	require.Nil(t, wasmerExecutor.vmHooksCell)
+}
+
+func TestVMHooksRegistry_ConcurrentAddAndGet(t *testing.T) {
+	registry := &vmHooksRegistry{}
+	numGoroutines := 16
+	numHooksPerGoroutine := 200
+
+	var wg sync.WaitGroup
+	for range numGoroutines {
+		wg.Go(func() {
+			for range numHooksPerGoroutine {
+				hooks := &vmHooksStub{}
+				index := registry.add(hooks)
+				assert.Same(t, hooks, registry.get(index))
+			}
+		})
+	}
+	wg.Wait()
+
+	require.Len(t, *registry.entries.Load(), numGoroutines*numHooksPerGoroutine)
+}
+
+func BenchmarkGetVMHooksFromContextRawPtr(b *testing.B) {
+	wasmerExecutor, err := CreateExecutor()
+	require.NoError(b, err)
+	require.NoError(b, wasmerExecutor.initVMHooks(&vmHooksStub{}))
+
+	var vmHooks executor.VMHooks
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		vmHooks = getVMHooksFromContextRawPtr(wasmerExecutor.vmHooksCell)
+	}
+	require.NotNil(b, vmHooks)
 }

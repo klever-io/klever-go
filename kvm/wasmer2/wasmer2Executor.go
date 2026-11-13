@@ -2,6 +2,7 @@ package wasmer2
 
 import (
 	"fmt"
+	"runtime"
 	"unsafe"
 
 	"github.com/klever-io/klever-go/kvm/executor"
@@ -14,9 +15,7 @@ var _ executor.Executor = (*Wasmer2Executor)(nil)
 type Wasmer2Executor struct {
 	cgoExecutor *cWasmerExecutorT
 
-	vmHookPointers *cWasmerVmHookPointers
-	vmHooks        executor.VMHooks
-	vmHooksPtrPtr  unsafe.Pointer
+	vmHooksCell unsafe.Pointer
 
 	opcodeCost *OpcodeCost
 }
@@ -34,16 +33,16 @@ func CreateExecutor() (*Wasmer2Executor, error) {
 	}
 
 	vmHookPointers := populateCgoFunctionPointers()
-	// #nosec G103: unsafe.Pointer is used to convert to uintptr
-	localPtr := uintptr(unsafe.Pointer(vmHookPointers))
-	// #nosec G103 G115: unsafe.Pointer is used to convert to uintptr
-	localPtrPtr := unsafe.Pointer(&localPtr)
+	var pinner runtime.Pinner
+	defer pinner.Unpin()
+	pinner.Pin(vmHookPointers)
 
 	var c_executor *cWasmerExecutorT
 
 	var result = cWasmerNewExecutor(
 		&c_executor,
-		localPtrPtr,
+		// #nosec G103: unsafe.Pointer is used to pass the pinned hook pointers
+		unsafe.Pointer(&vmHookPointers),
 	)
 
 	if result != cWasmerOk {
@@ -53,8 +52,7 @@ func CreateExecutor() (*Wasmer2Executor, error) {
 	cWasmerForceInstallSighandlers()
 
 	executor := &Wasmer2Executor{
-		cgoExecutor:    c_executor,
-		vmHookPointers: vmHookPointers,
+		cgoExecutor: c_executor,
 	}
 
 	return executor, nil
@@ -165,24 +163,23 @@ func (wasmerExecutor *Wasmer2Executor) IsInterfaceNil() bool {
 
 // initVMHooks inits the VM hooks
 //
-// C stores vmHooksPtrPtr as the executor context data and follows
-// vmHooksPtrPtr -> localPtr -> &vmHooks only inside a host-function callback,
-// while a goroutine runs an instance this executor created. That goroutine
-// holds the executor through its host's runtime context for the whole call.
-// localPtr escapes to the heap and the vmHooksPtrPtr field keeps it alive for
-// as long as the executor is reachable, and the Go GC does not move heap
-// objects, so the uintptr stays valid. initVMHooks runs once per executor and
-// vmHooks is never reassigned. vm_exec_executor_destroy is not bound, so once
-// the host is dropped C keeps a dangling pointer that nothing reads. Running an
-// instance after its host is unreachable, swapping the executor under live
-// instances, or reassigning vmHooks breaks this contract.
-func (wasmerExecutor *Wasmer2Executor) initVMHooks(vmHooks executor.VMHooks) {
-	wasmerExecutor.vmHooks = vmHooks
-	// #nosec G103: unsafe.Pointer is used to convert to uintptr
-	localPtr := uintptr(unsafe.Pointer(&wasmerExecutor.vmHooks))
-	// #nosec G103 G115: unsafe.Pointer is used to convert to uintptr
-	wasmerExecutor.vmHooksPtrPtr = unsafe.Pointer(&localPtr)
-	cWasmerExecutorContextDataSet(wasmerExecutor.cgoExecutor, wasmerExecutor.vmHooksPtrPtr)
+// The hooks are kept in a package-level registry and C stores, as the executor
+// context data, a C-allocated cell holding their index in it. A host-function
+// callback reads the index back and takes the hooks from the registry, so C
+// never holds a Go pointer. The executor library refuses the context data
+// while an instance of the executor exists. Registry entries are never
+// released, so the hooks stay reachable for the life of the process, and
+// vm_exec_executor_destroy is not bound, so the cell is never freed either.
+func (wasmerExecutor *Wasmer2Executor) initVMHooks(vmHooks executor.VMHooks) error {
+	cell := cNewVMHooksIndexCell(registeredVMHooks.add(vmHooks))
+	result := cWasmerExecutorContextDataSet(wasmerExecutor.cgoExecutor, cell)
+	if result != cWasmerOk {
+		cFree(cell)
+		return newWrappedError(ErrFailedVMHooksSetup)
+	}
+
+	wasmerExecutor.vmHooksCell = cell
+	return nil
 }
 
 func (wasmerExecutor *Wasmer2Executor) extractOpcodeCost(wasmOps *executor.WASMOpcodeCost) *OpcodeCost {

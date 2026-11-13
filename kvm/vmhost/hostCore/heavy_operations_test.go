@@ -19,6 +19,10 @@ const heavyOpsContractPath = "../../test/contracts/timeout/output/timeout.wasm"
 // TestHeavyOperations_Run tests the run function which performs many hook calls
 // and measures its execution time to verify optimization effectiveness
 func TestHeavyOperations_Run(t *testing.T) {
+	if testcommon.RaceDetectorEnabled {
+		t.Skip("the race detector slows execution past the smart contract execution timeout")
+	}
+
 	// Load the contract WASM code
 	contractCode, err := os.ReadFile(heavyOpsContractPath)
 	require.NoError(t, err, "Failed to load timeout contract from %s", heavyOpsContractPath)
@@ -143,6 +147,10 @@ func TestHeavyOperations_Run(t *testing.T) {
 // TestHeavyOperations_RunMultipleIterations runs the run function multiple times
 // and reports average, min, and max execution times to measure hook call overhead
 func TestHeavyOperations_RunMultipleIterations(t *testing.T) {
+	if testcommon.RaceDetectorEnabled {
+		t.Skip("the race detector slows execution past the smart contract execution timeout")
+	}
+
 	iterations := 10
 
 	// Load the contract WASM code

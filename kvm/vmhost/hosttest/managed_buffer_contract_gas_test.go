@@ -100,6 +100,10 @@ func TestRealContractGasPreForkVersusPostFork(t *testing.T) {
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
+			if testcommon.RaceDetectorEnabled && testCase.contract == "timeout" {
+				t.Skip("the race detector slows execution past the smart contract execution timeout")
+			}
+
 			preFork := runContractForGas(t, testCase.contract, testCase.function, testCase.arguments, false, gasSchedule)
 			postFork := runContractForGas(t, testCase.contract, testCase.function, testCase.arguments, true, gasSchedule)
 

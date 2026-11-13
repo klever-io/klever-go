@@ -152,6 +152,10 @@ func Test_ManagedBufferToHex_RejectsOversizedBuffer_PostFork(t *testing.T) {
 }
 
 func Test_ManagedBufferToHex_AllowsOversizedBuffer_PreFork(t *testing.T) {
+	if testcommon.RaceDetectorEnabled {
+		t.Skip("the race detector slows execution past the smart contract execution timeout")
+	}
+
 	oversizedBuffer := bytes.Repeat([]byte{7}, 16000001)
 
 	runManagedHookForkGateTest(t, &blockchainConfig.EnableEpochs{FixAuditChangesV5: 1},
