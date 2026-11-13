@@ -24,20 +24,32 @@ p2p:
     #  `ListsSharder` will split the peers based on the shard membership (intra, cross or unknown)
     #  `OneListSharder` will do just the connection triming (upto TargetPeerCount value) not taking into account
     #              the shard membership of the connected peers
-    #  `NilListSharder` will disable connection trimming (sharder is off)
+    #  `NilListSharder` will disable the sharder's own connection trimming (sharder is off).
+    #              It does not disable libp2p's connection manager: every regular node,
+    #              whatever the sharder, runs the connection manager configured under
+    #              connectionManager below, which protects known validators and caps
+    #              unknown inbound peers. Seed nodes always run a no-op connection manager.
     type: NilListSharder
-  # Optional libp2p ResourceManager tuning. Omitting this section is equivalent
-  # to strategy "" / "default": libp2p's auto-scaled DefaultResourceManager
-  # (memory budget = TotalRAM/8) is used. Available strategies:
-  #   ""        leave libp2p's auto-scaled DefaultResourceManager in place.
-  #   "default" same as "" — explicit libp2p auto-scale.
-  #   "null"    disable libp2p resource limits (bounded only by OS ulimit and RAM).
-  #   "scaled"  auto-scale limits as if the host had `scaledMemoryMiB` MiB of memory.
-  # Example: lift caps on a small host without going fully unbounded:
-  #
-  # resourceManager:
-  #   strategy: scaled
-  #   scaledMemoryMiB: 16384
+  # libp2p ResourceManager. strategy: "" (regular node: same as scaled with 4096 MiB; seed: libp2p
+  # default), "default" (libp2p auto-scaled), "null" (no limits), "scaled" (limits as if the host
+  # had scaledMemoryMiB of RAM; 4096 gives up to 320 inbound / 640 total connections).
+  # Design: scaledLimits in network/p2p/libp2p/netMessenger.go.
+  resourceManager:
+    strategy: scaled
+    scaledMemoryMiB: 4096
+  # libp2p connection manager of regular nodes (seed nodes ignore it). Design and trim/cap
+  # ordering: network/p2p/libp2p/peerProtector.go. 0 or missing selects the default.
+  #   lowWater: connections kept for unprotected peers after a trim (default 100; below highWater;
+  #     at most 100000)
+  #   highWater: connection count that triggers a trim (default 300; at most 100000)
+  #   gracePeriodInSec: minimum age before a connection can be trimmed (default 60; 11 to 3600)
+  #   maxUnprotectedInboundConns: inbound cap for peers that are not known validators (default 100;
+  #     at most 100000; keep it below the ResourceManager inbound limit)
+  connectionManager:
+    lowWater: 100
+    highWater: 300
+    gracePeriodInSec: 60
+    maxUnprotectedInboundConns: 100
   # Optional caps on the inbound direct-send streams this node accepts (KLC-2433).
   # Omitting this section, or leaving a knob at 0, keeps the built-in defaults:
   # 4 streams per peer and 512 across all peers. A well-behaved peer reuses a
