@@ -419,19 +419,8 @@ func (pp *peerProtector) evictionCandidate(pid peer.ID, skip func(network.Conn) 
 	var victim []network.Conn
 	var victimFirstInbound time.Time
 	for _, candidate := range pp.net.Peers() {
-		if candidate == pid || pp.cm.IsProtected(candidate, validatorProtectionTag) {
-			continue
-		}
-		conns := pp.net.ConnsToPeer(candidate)
-		firstInbound, inboundConns := inboundConnStats(conns)
-		if inboundConns == 0 || firstInbound.After(identifiedBy) {
-			continue
-		}
-		if len(victim) > 0 && !firstInbound.After(victimFirstInbound) {
-			continue
-		}
-		inbound, skipped := inboundConnsOf(conns, skip)
-		if skipped {
+		inbound, firstInbound, ok := pp.staleInboundConns(candidate, pid, identifiedBy, skip)
+		if !ok || (len(victim) > 0 && !firstInbound.After(victimFirstInbound)) {
 			continue
 		}
 		if resolver == nil {
@@ -446,6 +435,32 @@ func (pp *peerProtector) evictionCandidate(pid peer.ID, skip func(network.Conn) 
 	}
 
 	return victim
+}
+
+// staleInboundConns returns candidate's inbound connections and when the oldest was opened, and
+// whether candidate may be evicted on those grounds: it is not pid, does not carry
+// validatorProtectionTag, has an inbound connection opened no later than identifiedBy, and skip
+// returns true for none of its inbound connections. The caller still checks its peer type.
+func (pp *peerProtector) staleInboundConns(
+	candidate peer.ID,
+	pid peer.ID,
+	identifiedBy time.Time,
+	skip func(network.Conn) bool,
+) ([]network.Conn, time.Time, bool) {
+	if candidate == pid || pp.cm.IsProtected(candidate, validatorProtectionTag) {
+		return nil, time.Time{}, false
+	}
+	conns := pp.net.ConnsToPeer(candidate)
+	firstInbound, inboundConns := inboundConnStats(conns)
+	if inboundConns == 0 || firstInbound.After(identifiedBy) {
+		return nil, time.Time{}, false
+	}
+	inbound, skipped := inboundConnsOf(conns, skip)
+	if skipped {
+		return nil, time.Time{}, false
+	}
+
+	return inbound, firstInbound, true
 }
 
 // inboundConnsOf returns the inbound connections among conns, and whether skip returned true for

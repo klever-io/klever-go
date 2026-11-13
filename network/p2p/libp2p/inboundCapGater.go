@@ -145,40 +145,7 @@ func (g *inboundCapGater) InterceptUpgraded(conn network.Conn) (bool, control.Di
 	}
 
 	g.mut.Lock()
-	registeredConns := pp.unprotectedInboundConns()
-	registered := 0
-	for c := range registeredConns {
-		if _, isEvicting := g.evicting[c]; !isEvicting {
-			registered++
-		}
-	}
-	now := g.now()
-	pending := 0
-	for c, admittedAt := range g.pending {
-		if now.Sub(admittedAt) >= g.pendingTTL {
-			delete(g.pending, c)
-			continue
-		}
-		if _, isRegistered := registeredConns[c]; !isRegistered {
-			pending++
-		}
-	}
-	used := registered + pending
-	admit := used < pp.maxUnprotectedInboundConns
-	var victim []network.Conn
-	if !admit {
-		victim = pp.evictionCandidate(pid, g.isEvicting)
-		admit = len(victim) > 0 && used-len(victim) < pp.maxUnprotectedInboundConns
-		if !admit {
-			victim = nil
-		}
-		for _, c := range victim {
-			g.evicting[c] = struct{}{}
-		}
-	}
-	if admit {
-		g.pending[conn] = now
-	}
+	admit, victim := g.admitLocked(pp, conn, pid)
 	g.mut.Unlock()
 
 	if !admit {
@@ -189,6 +156,52 @@ func (g *inboundCapGater) InterceptUpgraded(conn network.Conn) (bool, control.Di
 		go g.evict(victim, pid)
 	}
 	return true, 0
+}
+
+// admitLocked decides whether conn from pid fits in the cap, evicting a stale unknown peer when it
+// does not. An admitted conn is recorded as pending, and the victim's conns, if any, as evicting;
+// the caller closes them. Called with mut held.
+func (g *inboundCapGater) admitLocked(pp *peerProtector, conn network.Conn, pid peer.ID) (bool, []network.Conn) {
+	now := g.now()
+	used := g.usedBudgetLocked(pp, now)
+	if used < pp.maxUnprotectedInboundConns {
+		g.pending[conn] = now
+		return true, nil
+	}
+
+	victim := pp.evictionCandidate(pid, g.isEvicting)
+	if len(victim) == 0 || used-len(victim) >= pp.maxUnprotectedInboundConns {
+		return false, nil
+	}
+	for _, c := range victim {
+		g.evicting[c] = struct{}{}
+	}
+	g.pending[conn] = now
+	return true, victim
+}
+
+// usedBudgetLocked counts the unprotected inbound connections that hold cap budget: the registered
+// ones that are not being evicted plus the pending ones that are not registered yet. It drops
+// pending entries older than pendingTTL. Called with mut held.
+func (g *inboundCapGater) usedBudgetLocked(pp *peerProtector, now time.Time) int {
+	registeredConns := pp.unprotectedInboundConns()
+	used := 0
+	for c := range registeredConns {
+		if !g.isEvicting(c) {
+			used++
+		}
+	}
+	for c, admittedAt := range g.pending {
+		if now.Sub(admittedAt) >= g.pendingTTL {
+			delete(g.pending, c)
+			continue
+		}
+		if _, isRegistered := registeredConns[c]; !isRegistered {
+			used++
+		}
+	}
+
+	return used
 }
 
 // isEvicting reports whether conn belongs to an eviction victim. Called with mut held.
