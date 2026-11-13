@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/klever-io/klever-go/cmd/operator/utils"
 
@@ -46,6 +47,10 @@ const (
 
 	// peerFailLogOp labels the shutdown summaries for the peer-driven failure budgets.
 	peerFailLogOp = "ws.peerFailures"
+
+	// postMirrorLogOp labels every line about the HTTP mirror: queue drops, shutdown, and
+	// post failures.
+	postMirrorLogOp = "ws.EventReceive.postWSConnection"
 )
 
 var (
@@ -281,7 +286,7 @@ func (h *SocketHub) asyncPost(parsed *Send) {
 	default:
 		h.appStatusHandler.Increment(core.MetricWSMirrorQueueDroppedTotal)
 		if count, ok := h.queueDropWarn.fire(); ok {
-			log.Warn("ws.EventReceive.postWSConnection", "msg", "mirror queue full, dropping events", "droppedCount", count)
+			log.Warn(postMirrorLogOp, "msg", "mirror queue full, dropping events", "droppedCount", count)
 		}
 	}
 }
@@ -309,13 +314,13 @@ func (h *SocketHub) startPostWorkers(ctx context.Context) {
 					// item. Check ctx.Err() before posting instead of starting (and
 					// immediately failing) a doomed request.
 					if ctx.Err() != nil {
-						log.Warn("ws.EventReceive.postWSConnection", "msg", "shutdown: abandoning mirror queue", "pending", len(h.postQueue)+1)
+						log.Warn(postMirrorLogOp, "msg", "shutdown: abandoning mirror queue", "pending", len(h.postQueue)+1)
 						return
 					}
 					if err := h.postWSConnection(ctx, parsed); err != nil {
 						h.appStatusHandler.Increment(core.MetricWSMirrorPostFailuresTotal)
 						if count, ok := h.postFailWarn.fire(); ok {
-							log.Warn("ws.EventReceive.postWSConnection", "msg", "failed to post to mirror", "failedCount", count, "lastError", err.Error())
+							log.Warn(postMirrorLogOp, append([]interface{}{"msg", "failed to post to mirror", "failedCount", count}, mirrorFailureFields(err)...)...)
 						}
 					}
 				}
@@ -397,10 +402,10 @@ func (h *SocketHub) StartServer(ctx context.Context) {
 			// unrelated later window on hub reuse. Flush both here, once, after every
 			// worker has actually exited.
 			if count, ok := h.queueDropWarn.flush(); ok {
-				log.Warn("ws.EventReceive.postWSConnection", "msg", "mirror queue full, dropping events (final)", "droppedCount", count)
+				log.Warn(postMirrorLogOp, "msg", "mirror queue full, dropping events (final)", "droppedCount", count)
 			}
 			if count, ok := h.postFailWarn.flush(); ok {
-				log.Warn("ws.EventReceive.postWSConnection", "msg", "failed to post to mirror (final)", "failedCount", count)
+				log.Warn(postMirrorLogOp, "msg", "failed to post to mirror (final)", "failedCount", count)
 			}
 			// Same reasoning for the peer-driven budgets: without this, the tail of a burst
 			// that stops before the next window opens is never reported at all.
@@ -634,8 +639,6 @@ func (h *SocketHub) logQueryFailure(op string, key string, value interface{}, er
 // same way — gorilla puts it verbatim in CloseError.Error(), and the logger's formatter
 // passes CR/LF through, so a reason of "\nWARN ..." forges a log line of its own.
 func loggableError(err error) string {
-	const maxLoggableErrorLength = 256
-
 	if err == nil {
 		return ""
 	}
@@ -643,11 +646,48 @@ func loggableError(err error) string {
 	return loggableText(err.Error(), maxLoggableErrorLength)
 }
 
+// maxLoggableErrorLength bounds any one log field that peer input may have reached.
+const maxLoggableErrorLength = 256
+
+// mirrorFailureFields renders a failed mirror post for the log. A non-2xx answer goes in
+// field by field — the status, the body bounded on its own, any read failure, and the
+// operator-configured URL — so a body the mirror wrote can neither imitate the
+// attribution nor push it past the bound, which one flat message would allow. Any other
+// error (transport, context) is one bounded text.
+func mirrorFailureFields(err error) []interface{} {
+	var statusErr *utils.HTTPStatusError
+	if !errors.As(err, &statusErr) {
+		return []interface{}{"lastError", loggableError(err)}
+	}
+
+	// The body already went through the operator helper's 64 KiB cap, which leaves its own
+	// marker at the end; loggableText's "… (N bytes)" counts that sanitised, marked body,
+	// not the bytes the mirror sent.
+	fields := []interface{}{"status", statusErr.Status, "body", loggableText(statusErr.Body, maxLoggableErrorLength)}
+	if statusErr.ReadErr != "" {
+		fields = append(fields, "readError", loggableText(statusErr.ReadErr, maxLoggableErrorLength))
+	}
+
+	// The URL is operator configuration, not peer input, but it has no length limit and
+	// repeats on every warning; bound it like the rest.
+	return append(fields, "url", loggableText(statusErr.URL, maxLoggableErrorLength))
+}
+
 // loggableText bounds and scrubs one field of text that peer input may have reached. Shared
-// by loggableError and loggablePanic, which differ only in where the text comes from.
+// by loggableError, loggablePanic and mirrorFailureFields, which differ only in where the
+// text comes from.
 func loggableText(text string, maxLength int) string {
 	if len(text) > maxLength {
-		text = text[:maxLength] + fmt.Sprintf("… (%d bytes)", len(text))
+		// Step the cut back to a rune start so it does not split a sequence into U+FFFD in
+		// front of the marker — at most UTFMax-1 steps, so a run of stray continuation bytes
+		// cannot walk the cut back through the head. Invalid bytes inside the head are left
+		// to the Map pass below, which renders them as U+FFFD exactly as it does for text
+		// under the bound.
+		cut := maxLength
+		for steps := 0; steps < utf8.UTFMax-1 && cut > 0 && !utf8.RuneStart(text[cut]); steps++ {
+			cut--
+		}
+		text = text[:cut] + fmt.Sprintf("… (%d bytes)", len(text))
 	}
 
 	// Anything that could end a log line becomes a space: CR/LF, the other control runes,
@@ -668,9 +708,7 @@ func loggableText(text string, maxLength int) string {
 // loggablePanic scrubs a recovered panic value. It can quote peer input, so it gets the
 // same bound and control-rune scrub as loggableError (KLC-2596).
 func loggablePanic(r interface{}) string {
-	const maxLoggablePanicLength = 256
-
-	return loggableText(fmt.Sprintf("%v", r), maxLoggablePanicLength)
+	return loggableText(fmt.Sprintf("%v", r), maxLoggableErrorLength)
 }
 
 // panicWarner is the log budget for one barrier. An unknown op shares otherPanicWarn.
