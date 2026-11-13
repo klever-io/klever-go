@@ -244,6 +244,11 @@ func checkNetworkMessengerArgs(args ArgsNetworkMessenger) error {
 		return err
 	}
 
+	if args.IsSeedNode {
+		// Seeds run the NullConnMgr and ignore p2p.connectionManager.
+		return nil
+	}
+
 	return validateConnectionManagerConfig(args.P2pConfig.ConnectionManager)
 }
 
@@ -1759,10 +1764,6 @@ func logNetworkLimits(args ArgsNetworkMessenger, rmStrategy string, rm network.R
 // libp2p.New() fails, since the host can no longer take ownership.
 // A nil option means "let libp2p use its DefaultResourceManager".
 func buildResourceManagerOption(rmCfg config.ResourceManagerConfig, isSeedNode bool) (libp2p.Option, io.Closer, error) {
-	if err := validateResourceManagerConfig(rmCfg); err != nil {
-		return nil, nil, err
-	}
-
 	switch rmCfg.Strategy {
 	case config.ResourceManagerStrategyDefault, config.ResourceManagerStrategyLibp2pDefault:
 		return nil, nil, nil
