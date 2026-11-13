@@ -1,6 +1,7 @@
 package libp2p_test
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -16,42 +17,38 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeConn is a network.Conn that only answers Stat, RemotePeer and RemoteMultiaddr; the protector
-// and the gater read nothing else.
-type fakeConn struct {
-	network.Conn
-	stat   network.ConnStats
-	remote peer.ID
-}
-
-func (fc *fakeConn) Stat() network.ConnStats {
-	return fc.stat
-}
-
-func (fc *fakeConn) RemotePeer() peer.ID {
-	return fc.remote
-}
-
-func (fc *fakeConn) RemoteMultiaddr() ma.Multiaddr {
-	return nil
+// stubConn is a connection from pid opened at opened in direction dir. The protector and the gater
+// read only Stat, RemotePeer and RemoteMultiaddr, and close it; mutablePeers.connect makes Close
+// unregister it unless the test set CloseCalled itself.
+func stubConn(pid peer.ID, dir network.Direction, opened time.Time) *mock.ConnStub {
+	return &mock.ConnStub{
+		StatCalled: func() network.ConnStats {
+			return network.ConnStats{Stats: network.Stats{Direction: dir, Opened: opened}}
+		},
+		RemotePeerCalled:      func() peer.ID { return pid },
+		RemoteMultiaddrCalled: func() ma.Multiaddr { return nil },
+	}
 }
 
 func connFrom(pid peer.ID, dir network.Direction) network.Conn {
-	return &fakeConn{stat: network.ConnStats{Stats: network.Stats{Direction: dir, Opened: time.Now()}}, remote: pid}
+	return stubConn(pid, dir, time.Now())
 }
 
 func conn(dir network.Direction, opened time.Time) network.Conn {
-	return &fakeConn{stat: network.ConnStats{Stats: network.Stats{Direction: dir, Opened: opened}}}
+	return stubConn("", dir, opened)
 }
 
 // mutablePeers is a fake network (connected peers, their connections) and a peer-type map the
 // tests change between passes. It implements libp2p.ProtectorNetwork.
 type mutablePeers struct {
-	mut    sync.Mutex
-	peers  []peer.ID
-	types  map[peer.ID]core.P2PPeerType
-	conns  map[peer.ID][]network.Conn
-	closed []peer.ID
+	mut   sync.Mutex
+	peers []peer.ID
+	types map[peer.ID]core.P2PPeerType
+	conns map[peer.ID][]network.Conn
+	// closed lists, in order, the peers whose last connection was closed; closedConns every
+	// connection closed.
+	closed      []peer.ID
+	closedConns []network.Conn
 }
 
 func (mp *mutablePeers) Peers() []peer.ID {
@@ -63,18 +60,52 @@ func (mp *mutablePeers) Peers() []peer.ID {
 func (mp *mutablePeers) ConnsToPeer(pid peer.ID) []network.Conn {
 	mp.mut.Lock()
 	defer mp.mut.Unlock()
-	return mp.conns[pid]
+	return append([]network.Conn(nil), mp.conns[pid]...)
 }
 
-func (mp *mutablePeers) ClosePeer(pid peer.ID) error {
+// unregister removes c from pid's connections, and pid from the connected peers once it has none,
+// as the swarm does when a connection closes.
+func (mp *mutablePeers) unregister(pid peer.ID, c network.Conn) {
 	mp.mut.Lock()
+	defer mp.mut.Unlock()
+	remaining := make([]network.Conn, 0, len(mp.conns[pid]))
+	found := false
+	for _, ci := range mp.conns[pid] {
+		if ci == c {
+			found = true
+			continue
+		}
+		remaining = append(remaining, ci)
+	}
+	if !found {
+		return
+	}
+	mp.conns[pid] = remaining
+	mp.closedConns = append(mp.closedConns, c)
+	if len(remaining) > 0 {
+		return
+	}
+	for i, p := range mp.peers {
+		if p == pid {
+			mp.peers = append(mp.peers[:i], mp.peers[i+1:]...)
+			break
+		}
+	}
 	mp.closed = append(mp.closed, pid)
-	mp.mut.Unlock()
-	mp.disconnect(pid)
-	return nil
 }
 
 func (mp *mutablePeers) connect(pid peer.ID, pt core.P2PPeerType, conns ...network.Conn) {
+	for _, c := range conns {
+		stub, ok := c.(*mock.ConnStub)
+		if !ok || stub.CloseCalled != nil {
+			continue
+		}
+		stub.CloseCalled = func() error {
+			mp.unregister(pid, stub)
+			return nil
+		}
+	}
+
 	mp.mut.Lock()
 	defer mp.mut.Unlock()
 	if mp.types == nil {
@@ -92,6 +123,12 @@ func (mp *mutablePeers) closedPeers() []peer.ID {
 	mp.mut.Lock()
 	defer mp.mut.Unlock()
 	return append([]peer.ID(nil), mp.closed...)
+}
+
+func (mp *mutablePeers) closedConnCount() int {
+	mp.mut.Lock()
+	defer mp.mut.Unlock()
+	return len(mp.closedConns)
 }
 
 // noCap disables the unprotected inbound cap in tests that only look at protection and tags.
@@ -186,6 +223,10 @@ func TestPeerProtector_ProtectsValidatorsTagsObserversAndCleansUp(t *testing.T) 
 	})
 
 	t.Run("a validator that becomes an observer is unprotected and tagged", func(t *testing.T) {
+		mp.set(observer, core.ValidatorPeer)
+		pp.RunPass()
+		require.True(t, cm.IsProtected(observer, libp2p.ValidatorProtectionTag))
+
 		mp.set(observer, core.ObserverPeer)
 		pp.RunPass()
 		assert.False(t, cm.IsProtected(observer, libp2p.ValidatorProtectionTag))
@@ -471,4 +512,56 @@ func TestPeerProtector_InboundCapUnderCapClosesNothing(t *testing.T) {
 
 	assert.Zero(t, res.Closed)
 	assert.Empty(t, mp.closedPeers())
+}
+
+func TestPeerProtector_InboundCapClosesOnlyInboundConnections(t *testing.T) {
+	cm := newTestConnMgr(t)
+	mp := &mutablePeers{}
+	mp.connect("u1", core.UnknownPeer, conn(network.DirInbound, at(1)))
+	mp.connect("mixed", core.UnknownPeer, conn(network.DirInbound, at(2)), conn(network.DirOutbound, at(2)))
+
+	res := libp2p.NewPeerProtector(cm, mp, mp.resolver(), 1).RunPass()
+
+	assert.Equal(t, 1, res.Closed, "the newest peer's inbound connection goes")
+	assert.Equal(t, 1, res.ClosedConns)
+	remaining := mp.ConnsToPeer("mixed")
+	require.Len(t, remaining, 1, "the outbound connection must stay open")
+	assert.Equal(t, network.DirOutbound, remaining[0].Stat().Direction)
+	assert.Contains(t, mp.Peers(), peer.ID("mixed"))
+	assert.Len(t, mp.ConnsToPeer("u1"), 1)
+}
+
+func TestPeerProtector_InboundCapCountsWhatAFailedCloseRemoved(t *testing.T) {
+	t.Run("a close that unregisters the connection but errors frees its slot", func(t *testing.T) {
+		cm := newTestConnMgr(t)
+		mp := &mutablePeers{}
+		mp.connect("u1", core.UnknownPeer, conn(network.DirInbound, at(1)))
+		failing := stubConn("u2", network.DirInbound, at(2))
+		failing.CloseCalled = func() error {
+			mp.unregister("u2", failing)
+			return errors.New("close error")
+		}
+		mp.connect("u2", core.UnknownPeer, failing)
+
+		res := libp2p.NewPeerProtector(cm, mp, mp.resolver(), 1).RunPass()
+
+		assert.Equal(t, []peer.ID{"u2"}, mp.closedPeers(), "u2's connection went away, so u1 fits the cap and stays")
+		assert.Equal(t, 1, res.Closed)
+		assert.Equal(t, 1, res.ClosedConns)
+	})
+
+	t.Run("a close that leaves the connection registered frees nothing", func(t *testing.T) {
+		cm := newTestConnMgr(t)
+		mp := &mutablePeers{}
+		mp.connect("u1", core.UnknownPeer, conn(network.DirInbound, at(1)))
+		stuck := stubConn("u2", network.DirInbound, at(2))
+		stuck.CloseCalled = func() error { return errors.New("close error") }
+		mp.connect("u2", core.UnknownPeer, stuck)
+
+		res := libp2p.NewPeerProtector(cm, mp, mp.resolver(), 1).RunPass()
+
+		assert.Equal(t, []peer.ID{"u1"}, mp.closedPeers(), "u2 is still there, so the next peer goes")
+		assert.Equal(t, 1, res.Closed)
+		assert.Equal(t, 1, res.ClosedConns)
+	})
 }

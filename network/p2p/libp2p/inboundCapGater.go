@@ -26,21 +26,25 @@ var inboundCapPendingTTL = 5 * time.Second
 // inboundCapGater enforces the peer protector's unprotected inbound cap at admission (see
 // peerProtector for the cap itself). The 10s protector pass alone reserves nothing: the
 // ResourceManager admits any inbound connection while it is below its limit, so an attacker refills
-// the slots a pass frees before a restarted validator's dials get through. The gater refuses an
-// inbound connection from a peer that is not exempt (peerProtector.exemptFromCap) while the cap is
-// reached. Outbound connections, and every connection before the cap is armed and past its warm-up,
-// are admitted. libp2p needs the gater before the host exists, so the protector is bound late;
-// until then everything is admitted.
+// the slots a pass frees before a restarted validator's dials get through. While the cap is
+// reached, the gater admits an inbound connection from a peer that is not exempt
+// (peerProtector.exemptFromCap) only by evicting an unknown peer that outstayed the identification
+// window (peerProtector.evictionCandidate), closing that peer's inbound connections; with no such
+// peer it refuses. Outbound connections, and every connection before the cap is armed and past its
+// warm-up, are admitted. libp2p needs the gater before the host exists, so the protector is bound
+// late; until then everything is admitted.
 //
-// A validator that starts with a fresh peer ID is unknown to every node, so where the cap is full
-// its own dials are refused. It gets in when another node dials it (discovered through the DHT;
-// that connection is outbound on the other side, so never gated), or when it reaches a node below
-// the cap. Once one such link exists it joins the heartbeat mesh and its heartbeat identifies it
-// everywhere. Seeds do not help here: they join no topic, so they never relay heartbeats.
+// A validator that starts with a fresh peer ID is unknown to every node. Where the cap is full it
+// gets in by evicting such a stale unknown peer; where only observers and young unknown peers hold
+// the cap its own dials are refused, and it gets in when another node dials it (discovered through
+// the DHT; that connection is outbound on the other side, so never gated), or when it reaches a node
+// below the cap. Once one such link exists it joins the heartbeat mesh and its heartbeat identifies
+// it everywhere. Seeds do not help here: they join no topic, so they never relay heartbeats.
 //
 // Two checks, because the swarm only lists a connection once it is fully set up:
 //   - InterceptSecured runs right after the security handshake and rejects early, from the
-//     connections already registered. It is not authoritative: on TCP a client can stall muxer
+//     connections already registered, only when the cap is reached and no eviction could make
+//     room. It evicts nothing. It is not authoritative: on TCP a client can stall muxer
 //     negotiation for the 15s accept timeout, so many connections can pass it while the count is
 //     still low.
 //   - InterceptUpgraded is authoritative. libp2p calls it from swarm.addConn after muxer
@@ -49,13 +53,18 @@ var inboundCapPendingTTL = 5 * time.Second
 //     (pending), and records the new one as pending when it admits it. The Connected
 //     notification carries the same network.Conn, which clears the entry; entries also expire
 //     after inboundCapPendingTTL. A pending connection already visible in the swarm is counted
-//     once.
+//     once. At the cap it picks the eviction victim under mut and records the victim's
+//     connections as evicting until they are closed: they no longer count, and no concurrent
+//     admission can pick the same victim.
 //
 // Locking (libp2p v0.48): neither hook is called with a swarm lock held. Counting reads
 // Network().Peers() and ConnsToPeer, which take only the swarm's connection read lock, and the
 // writer of that lock never waits on the gater. Connected is called with the connection's notify
 // lock and the swarm's notifiee read lock held. Neither is taken by the code that holds mut, so
-// Connected waiting on mut cannot deadlock.
+// Connected waiting on mut cannot deadlock. A victim is closed in a goroutine, without mut:
+// Conn.Close takes the swarm's connection write lock to unregister the connection and then closes
+// the transport, which can block for seconds (a TLS close_notify write has a 5s deadline), so it
+// must neither run under mut nor delay the admitted connection past inboundCapPendingTTL.
 type inboundCapGater struct {
 	protector            atomic.Pointer[peerProtector]
 	rejectedSinceSummary atomic.Uint64
@@ -63,7 +72,9 @@ type inboundCapGater struct {
 
 	mut     sync.Mutex
 	pending map[network.Conn]time.Time
-	now     func() time.Time
+	// evicting holds the inbound connections of eviction victims until their close returns.
+	evicting map[network.Conn]struct{}
+	now      func() time.Time
 	// pendingTTL is inboundCapPendingTTL, copied at construction so connection goroutines never
 	// read the package variable.
 	pendingTTL time.Duration
@@ -72,6 +83,7 @@ type inboundCapGater struct {
 func newInboundCapGater(now func() time.Time) *inboundCapGater {
 	return &inboundCapGater{
 		pending:    make(map[network.Conn]time.Time),
+		evicting:   make(map[network.Conn]struct{}),
 		now:        now,
 		pendingTTL: inboundCapPendingTTL,
 	}
@@ -133,7 +145,13 @@ func (g *inboundCapGater) InterceptUpgraded(conn network.Conn) (bool, control.Di
 	}
 
 	g.mut.Lock()
-	registered, registeredConns := pp.unprotectedInboundConns()
+	registeredConns := pp.unprotectedInboundConns()
+	registered := 0
+	for c := range registeredConns {
+		if _, isEvicting := g.evicting[c]; !isEvicting {
+			registered++
+		}
+	}
 	now := g.now()
 	pending := 0
 	for c, admittedAt := range g.pending {
@@ -145,7 +163,19 @@ func (g *inboundCapGater) InterceptUpgraded(conn network.Conn) (bool, control.Di
 			pending++
 		}
 	}
-	admit := registered+pending < pp.maxUnprotectedInboundConns
+	used := registered + pending
+	admit := used < pp.maxUnprotectedInboundConns
+	var victim []network.Conn
+	if !admit {
+		victim = pp.evictionCandidate(pid, g.isEvicting)
+		admit = len(victim) > 0 && used-len(victim) < pp.maxUnprotectedInboundConns
+		if !admit {
+			victim = nil
+		}
+		for _, c := range victim {
+			g.evicting[c] = struct{}{}
+		}
+	}
 	if admit {
 		g.pending[conn] = now
 	}
@@ -155,11 +185,41 @@ func (g *inboundCapGater) InterceptUpgraded(conn network.Conn) (bool, control.Di
 		g.recordRejection(pid, conn, pp.maxUnprotectedInboundConns)
 		return false, 0
 	}
+	if len(victim) > 0 {
+		go g.evict(victim, pid)
+	}
 	return true, 0
+}
+
+// isEvicting reports whether conn belongs to an eviction victim. Called with mut held.
+func (g *inboundCapGater) isEvicting(conn network.Conn) bool {
+	_, ok := g.evicting[conn]
+	return ok
+}
+
+// evict closes a victim's inbound connections, then stops tracking them: by then the swarm has
+// unregistered them.
+func (g *inboundCapGater) evict(victim []network.Conn, admitted peer.ID) {
+	for _, c := range victim {
+		if err := c.Close(); err != nil {
+			log.Debug("inbound cap: closing evicted connection", "pid", c.RemotePeer().String(), "error", err)
+		}
+	}
+	log.Debug("inbound cap: evicted an unknown peer past the identification window",
+		"evicted", victim[0].RemotePeer().String(), "conns", len(victim), "admitted", admitted.String())
+
+	g.mut.Lock()
+	for _, c := range victim {
+		delete(g.evicting, c)
+	}
+	g.mut.Unlock()
 }
 
 // Connected clears the pending entry of a connection the swarm has just registered.
 func (g *inboundCapGater) Connected(_ network.Network, conn network.Conn) {
+	if conn.Stat().Direction != network.DirInbound {
+		return
+	}
 	g.mut.Lock()
 	delete(g.pending, conn)
 	g.mut.Unlock()
