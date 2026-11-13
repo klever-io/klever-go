@@ -2,9 +2,9 @@ name: 'Go Setup Action'
 description: 'Sets up Go environment with private modules support and caching'
 inputs:
   go-version:
-    description: 'The Go version to use'
+    description: 'The Go version to use. Empty uses the version in go.mod.'
     required: false
-    default: '1.25.14'
+    default: ''
   go-private:
     description: 'Private go modules'
     required: false
@@ -27,6 +27,7 @@ runs:
       uses: actions/setup-go@v6
       with:
         go-version: ${{ inputs.go-version }}
+        go-version-file: ${{ inputs.go-version == '' && 'go.mod' || '' }}
         cache: false
 
     - name: Configure git for private modules
