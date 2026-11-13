@@ -101,8 +101,8 @@ VERSION:
 			"`0, 10230, 15670` or range of ports such as `5000-10000`",
 		Value: "0",
 	}
-	// profileMode defines a flag for profiling the binary
-	// If enabled, it will open the pprof routes over the default gin rest webserver.
+	// profileMode defines a flag for profiling the binary.
+	// The routes are registered only when this flag is set and debug /pprof is open in api.yaml.
 	// There are several routes that will be available for profiling (profiling can be analyzed with: go tool pprof):
 	//  /debug/pprof/ (can be accessed in the browser, will list the available options)
 	//  /debug/pprof/goroutine
@@ -115,8 +115,8 @@ VERSION:
 	// Usage: go tool pprof http(s)://ip.of.the.server/debug/pprof/xxxxx
 	profileMode = cli.BoolFlag{
 		Name: "profile-mode",
-		Usage: "Boolean option for enabling the profiling mode. If set, the /debug/pprof routes will be available " +
-			"on the node for profiling the application.",
+		Usage: "Boolean option for enabling the profiling mode. The /debug/pprof routes are registered " +
+			"only when debug /pprof is open in api.yaml. secured:true on that route adds Basic Auth.",
 	}
 	// useHealthService is used to enable the health service
 	useHealthService = cli.BoolFlag{

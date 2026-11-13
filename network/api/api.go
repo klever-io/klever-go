@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"reflect"
+	"strconv"
 
 	"github.com/klever-io/klever-go/network/api/vm"
 
@@ -53,6 +54,11 @@ const (
 	subscribeRoute   = "/subscribe"
 
 	nodePackage = "node"
+
+	pprofPackage = "debug"
+	pprofRoute   = "/pprof"
+	// maxPprofSeconds is the longest profiling window a request may ask for.
+	maxPprofSeconds = 60
 
 	// defaultLogWSMaxConnections is the node-wide /log cap used when logWebSocketConnections
 	// resolves to 0 (a config.yaml predating the key). It cannot be disabled: before the cap
@@ -151,7 +157,7 @@ func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.API
 
 	apiHandler, ok := kleverFacade.(MainAPIHandler)
 	if ok && apiHandler.PprofEnabled() {
-		pprof.Register(ws)
+		registerPprof(ws, routesConfig, authHandler)
 	}
 	if routesConfig.IsRouteEnabled(logPackage, logRoute) {
 		var logMaxConns, logMaxConnsPerIP uint32
@@ -171,15 +177,7 @@ func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.API
 		log.Warn("subscribe route has secured:true but open:false; /subscribe will not be registered. Set open:true to enable it (secured then requires Basic Auth).")
 	}
 
-	// Upgrading the binary does not rewrite an operator's api.yaml, so a node installed
-	// before the diagnostic routes were secured keeps serving cached internal state and
-	// network topology unauthenticated with nothing to signal it. The edit is the
-	// operator's to make.
-	for _, route := range nodeDiagnosticRoutes {
-		if routesConfig.IsRouteEnabled(nodePackage, route) && !routesConfig.IsRouteSecured(nodePackage, route) {
-			log.Warn("node diagnostic route is open but not secured; it answers unauthenticated. Add secured:true to it in api.yaml.", "route", nodePackage+route)
-		}
-	}
+	warnUnsecuredDiagnosticRoutes(routesConfig)
 
 	if routesConfig.IsRouteEnabled(subscribePackage, subscribeRoute) {
 		var postConnUrl, postConnApiKey string
@@ -230,6 +228,59 @@ func RegisterDefaultValidators() error {
 		}
 	}
 	return nil
+}
+
+// Upgrading the binary does not rewrite an operator's api.yaml, so a node installed
+// before the diagnostic routes were secured keeps serving cached internal state and
+// network topology unauthenticated with nothing to signal it. The edit is the
+// operator's to make.
+func warnUnsecuredDiagnosticRoutes(routesConfig config.APIRoutesConfig) {
+	for _, route := range nodeDiagnosticRoutes {
+		if routesConfig.IsRouteEnabled(nodePackage, route) && !routesConfig.IsRouteSecured(nodePackage, route) {
+			log.Warn("node diagnostic route is open but not secured; it answers unauthenticated. Add secured:true to it in api.yaml.", "route", nodePackage+route)
+		}
+	}
+}
+
+// registerPprof runs only with the pprof flag on. The shipped default is the flag off and
+// open:false, so that combination stays quiet.
+func registerPprof(ws *gin.Engine, routesConfig config.APIRoutesConfig, authHandler gin.HandlerFunc) {
+	if !routesConfig.IsRouteEnabled(pprofPackage, pprofRoute) {
+		log.Warn("pprof routes are not registered; set open:true on debug /pprof in api.yaml")
+		return
+	}
+
+	group := ws.Group("")
+	if routesConfig.IsRouteSecured(pprofPackage, pprofRoute) {
+		group.Use(authHandler)
+	} else {
+		log.Warn("pprof route is open but not secured; it answers unauthenticated. Add secured:true to it in api.yaml.", "route", pprofPackage+pprofRoute)
+	}
+	group.Use(hidePprofCmdline, rejectLongPprof)
+	pprof.RouteRegister(group)
+}
+
+// hidePprofCmdline answers 404 on /cmdline: it returns the full argv, and the node takes
+// secrets as flags (--ws-conn-api-key, --bugsnag-key).
+func hidePprofCmdline(c *gin.Context) {
+	if c.FullPath() == "/debug/pprof/cmdline" {
+		c.AbortWithStatus(http.StatusNotFound)
+	}
+}
+
+// rejectLongPprof refuses a seconds value above maxPprofSeconds. It reads the value as
+// net/http/pprof does, with FormValue, so a multipart body on a GET is checked too. POST
+// /symbol is left alone: FormValue would consume the body it reads.
+func rejectLongPprof(c *gin.Context) {
+	if c.Request.Method != http.MethodGet {
+		return
+	}
+	sec, err := strconv.ParseFloat(c.Request.FormValue("seconds"), 64)
+	if err != nil || sec <= maxPprofSeconds {
+		return
+	}
+	c.String(http.StatusBadRequest, "seconds must be at most 60")
+	c.Abort()
 }
 
 func registerLoggerWsRoute(

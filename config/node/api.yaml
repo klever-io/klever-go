@@ -117,6 +117,12 @@ apiPackages:
       - name: /log
         open: true
         secured: true
+  # /debug/pprof/* also requires --profile-mode. open:false leaves the routes unregistered.
+  debug:
+    routes:
+      - name: /pprof
+        open: false
+        secured: true
   vm:
     routes:
       - name: /hex
