@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/klever-io/klever-go/core"
@@ -53,7 +54,8 @@ type peerProtectorPassResult struct {
 	Unprotected int
 	// UnprotectedInboundUnknown and UnprotectedInboundObservers count the peers subject to the
 	// inbound cap and UnprotectedInboundConns their inbound connections, before any was closed.
-	// Closed is how many peers the pass closed and ClosedConns how many inbound connections they held.
+	// Closed is how many peers the pass left with no inbound connection and ClosedConns how many
+	// inbound connections its closes removed.
 	UnprotectedInboundUnknown   int
 	UnprotectedInboundObservers int
 	UnprotectedInboundConns     int
@@ -69,7 +71,6 @@ type peerProtectorPassResult struct {
 type protectorNetwork interface {
 	Peers() []peer.ID
 	ConnsToPeer(p peer.ID) []network.Conn
-	ClosePeer(p peer.ID) error
 }
 
 // Closing priority classes of the inbound cap, lowest first.
@@ -108,7 +109,8 @@ type inboundCandidate struct {
 // younger than its grace period, so a peer that keeps rotating its identity and reconnecting stays
 // inside the grace period forever, is never a trim candidate, and can hold inbound slots
 // indefinitely. The protector therefore sums the inbound connections of the connected peers that
-// are not validators, and closes whole peers regardless of grace until that sum is within the cap.
+// are not validators, and closes their inbound connections, a peer at a time and regardless of
+// grace, until that sum is within the cap. Outbound connections are never closed: we chose them.
 // Only validators are exempt (resolver-identified, or carrying validatorProtectionTag). Protection
 // set by other subsystems does not exempt a peer: kad-dht protects most routing-table peers (its
 // two lowest buckets), and gossipsub never unprotects a mesh peer that disconnects (its
@@ -133,6 +135,11 @@ type inboundCandidate struct {
 // young peers first would instead close the validator that has just connected, which is what the
 // cap exists to protect. libp2p's per-IP limits (8 connections per IPv4 /32) bound how much of the
 // cap one address can take.
+//
+// The pass only acts above the cap. At the cap, the connection gater evicts at admission instead
+// (see evictionCandidate): a new non-exempt inbound connection gets in only by displacing a class 1
+// peer, so the cap never locks newcomers out behind peers that failed to identify themselves.
+// Observers and young unknown peers are never evicted.
 type peerProtector struct {
 	mut                        sync.Mutex
 	cm                         connmgr.ConnManager
@@ -146,11 +153,10 @@ type peerProtector struct {
 	// identificationWindow is unknownPeerIdentificationWindow, copied at construction so passes on
 	// the protector's goroutine never read the package variable.
 	identificationWindow time.Duration
-	// mutArm guards armed and capEnforcedFrom apart from mut, so the connection gater can read
-	// them without waiting for a pass to finish.
-	mutArm          sync.RWMutex
-	armed           bool
-	capEnforcedFrom time.Time
+	// capEnforcedFrom is when the cap starts being enforced, or nil while it is not armed. Atomic,
+	// so the connection gater reads it without waiting for a pass to finish. A time.Time rather
+	// than UnixNano keeps the monotonic reading, so a wall-clock step cannot stretch the warm-up.
+	capEnforcedFrom atomic.Pointer[time.Time]
 }
 
 func newPeerProtector(
@@ -176,14 +182,8 @@ func newPeerProtector(
 
 // arm starts the warm-up after which the inbound cap is enforced. Only the first call counts.
 func (pp *peerProtector) arm() {
-	pp.mutArm.Lock()
-	defer pp.mutArm.Unlock()
-
-	if pp.armed {
-		return
-	}
-	pp.armed = true
-	pp.capEnforcedFrom = pp.now().Add(pp.warmUp)
+	from := pp.now().Add(pp.warmUp)
+	pp.capEnforcedFrom.CompareAndSwap(nil, &from)
 }
 
 // runPass classifies every connected peer once and updates protection and tags accordingly.
@@ -346,42 +346,123 @@ func sortInboundCandidates(candidates []inboundCandidate) {
 	})
 }
 
-// closeExcessInbound closes candidates in order until the inbound connections fit in the cap.
+// closeExcessInbound closes the inbound connections of candidates, in order, until the inbound
+// connections fit in the cap. What a close freed is recounted from the network, so a close that
+// errors after unregistering its connection still counts, and one that left it open does not.
 func (pp *peerProtector) closeExcessInbound(candidates []inboundCandidate, total int, res *peerProtectorPassResult) {
 	for _, c := range candidates {
 		if total <= pp.maxUnprotectedInboundConns {
 			return
 		}
-		err := pp.net.ClosePeer(c.pid)
-		if err != nil {
-			log.Debug("peer protector: closing unprotected inbound peer", "pid", c.pid.String(), "error", err)
+		closeInboundConns(pp.net.ConnsToPeer(c.pid), c.pid)
+		_, remaining := inboundConnStats(pp.net.ConnsToPeer(c.pid))
+		removed := c.inboundConns - remaining
+		if removed <= 0 {
 			continue
 		}
-		total -= c.inboundConns
-		res.Closed++
-		res.ClosedConns += c.inboundConns
+		total -= removed
+		res.ClosedConns += removed
+		if remaining == 0 {
+			res.Closed++
+		}
+	}
+}
+
+// closeInboundConns closes the inbound connections among conns, all to pid.
+func closeInboundConns(conns []network.Conn, pid peer.ID) {
+	for _, conn := range conns {
+		if conn.Stat().Direction != network.DirInbound {
+			continue
+		}
+		if err := conn.Close(); err != nil {
+			log.Debug("peer protector: closing unprotected inbound connection", "pid", pid.String(), "error", err)
+		}
 	}
 }
 
 // capState reports whether the cap is armed and whether, at now, it is past its warm-up.
 func (pp *peerProtector) capState(now time.Time) (armed bool, enforced bool) {
-	pp.mutArm.RLock()
-	defer pp.mutArm.RUnlock()
-
-	return pp.armed, pp.armed && !now.Before(pp.capEnforcedFrom)
+	from := pp.capEnforcedFrom.Load()
+	if from == nil {
+		return false, false
+	}
+	return true, !now.Before(*from)
 }
 
-// admitInbound decides, for the connection gater, whether a new inbound connection from pid may be
-// admitted. It refuses only when the cap is enforced, pid is neither a validator per the resolver
-// nor carrying validatorProtectionTag, and the unprotected inbound connections already reach the cap. It
-// does not take mut, so it never waits for a pass.
+// admitInbound is the gater's early check of a new inbound connection from pid. It refuses only
+// when the cap is enforced, pid is neither a validator per the resolver nor carrying
+// validatorProtectionTag, the unprotected inbound connections already reach the cap, and evicting
+// evictionCandidate would not bring them below it. It evicts nothing: the gater's authoritative
+// check does. It does not take mut, so it never waits for a pass.
 func (pp *peerProtector) admitInbound(pid peer.ID) bool {
 	if !pp.capEnforcedNow() || pp.exemptFromCap(pid) {
 		return true
 	}
 
-	count, _ := pp.unprotectedInboundConns()
-	return count < pp.maxUnprotectedInboundConns
+	count := len(pp.unprotectedInboundConns())
+	if count < pp.maxUnprotectedInboundConns {
+		return true
+	}
+	victim := pp.evictionCandidate(pid, nil)
+	return len(victim) > 0 && count-len(victim) < pp.maxUnprotectedInboundConns
+}
+
+// evictionCandidate returns the inbound connections of the peer whose eviction may admit a new
+// inbound connection from pid at a full cap, or nil: the class 1 peer (unknown, first inbound
+// connection older than identificationWindow) that connected last, other than pid and not carrying
+// validatorProtectionTag. Peers with a connection for which skip returns true (being evicted
+// already) are passed over. It does not take mut.
+func (pp *peerProtector) evictionCandidate(pid peer.ID, skip func(network.Conn) bool) []network.Conn {
+	identifiedBy := pp.now().Add(-pp.identificationWindow)
+	var resolver p2p.PeerShardResolver
+
+	var victim []network.Conn
+	var victimFirstInbound time.Time
+	for _, candidate := range pp.net.Peers() {
+		if candidate == pid || pp.cm.IsProtected(candidate, validatorProtectionTag) {
+			continue
+		}
+		conns := pp.net.ConnsToPeer(candidate)
+		firstInbound, inboundConns := inboundConnStats(conns)
+		if inboundConns == 0 || firstInbound.After(identifiedBy) {
+			continue
+		}
+		if len(victim) > 0 && !firstInbound.After(victimFirstInbound) {
+			continue
+		}
+		inbound, skipped := inboundConnsOf(conns, skip)
+		if skipped {
+			continue
+		}
+		if resolver == nil {
+			resolver = pp.resolver()
+		}
+		peerType := resolver.GetPeerInfo(core.PeerID(candidate)).PeerType
+		if peerType == core.ValidatorPeer || peerType == core.ObserverPeer {
+			continue
+		}
+		victim = inbound
+		victimFirstInbound = firstInbound
+	}
+
+	return victim
+}
+
+// inboundConnsOf returns the inbound connections among conns, and whether skip returned true for
+// any of them.
+func inboundConnsOf(conns []network.Conn, skip func(network.Conn) bool) ([]network.Conn, bool) {
+	inbound := make([]network.Conn, 0, len(conns))
+	for _, conn := range conns {
+		if conn.Stat().Direction != network.DirInbound {
+			continue
+		}
+		if skip != nil && skip(conn) {
+			return nil, true
+		}
+		inbound = append(inbound, conn)
+	}
+
+	return inbound, false
 }
 
 // capEnforcedNow reports whether the cap is armed and past its warm-up.
@@ -400,11 +481,11 @@ func (pp *peerProtector) exemptFromCap(pid peer.ID) bool {
 	return pp.cm.IsProtected(pid, validatorProtectionTag)
 }
 
-// unprotectedInboundConns counts, and returns, the inbound connections of connected peers that do
-// not carry validatorProtectionTag. Unlike the pass it does not consult the resolver for every peer:
+// unprotectedInboundConns returns the inbound connections of connected peers that do not carry
+// validatorProtectionTag. Unlike the pass it does not consult the resolver for every peer:
 // connected validators are protected by the previous pass, and one that connected since is counted
 // until the next pass, which can only make admission stricter for a few seconds.
-func (pp *peerProtector) unprotectedInboundConns() (int, map[network.Conn]struct{}) {
+func (pp *peerProtector) unprotectedInboundConns() map[network.Conn]struct{} {
 	conns := make(map[network.Conn]struct{})
 	for _, pid := range pp.net.Peers() {
 		if pp.cm.IsProtected(pid, validatorProtectionTag) {
@@ -417,7 +498,7 @@ func (pp *peerProtector) unprotectedInboundConns() (int, map[network.Conn]struct
 		}
 	}
 
-	return len(conns), conns
+	return conns
 }
 
 // inboundConnStats returns when the oldest inbound connection among conns was opened and how many

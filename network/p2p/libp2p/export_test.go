@@ -339,6 +339,13 @@ func (g *inboundCapGater) PendingLen() int {
 	return len(g.pending)
 }
 
+// EvictingLen returns how many connections of eviction victims are still being closed.
+func (g *inboundCapGater) EvictingLen() int {
+	g.mut.Lock()
+	defer g.mut.Unlock()
+	return len(g.evicting)
+}
+
 // InboundCapPendingTTL exposes inboundCapPendingTTL.
 var InboundCapPendingTTL = inboundCapPendingTTL
 
