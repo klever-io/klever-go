@@ -428,6 +428,8 @@ func TestDoJobOnSyncBlockFail_RejectedBodyAtErrorLimitShouldNotReset(t *testing.
 		fmt.Errorf("%w: %w", process.ErrBlockBodyNotMatchingHeader, process.ErrInvalidTXResultsCount),
 		fmt.Errorf("%w: %w", process.ErrBlockBodyNotMatchingHeader, process.ErrTxRootHashDoesNotMatch),
 		process.ErrTransactionResultMismatch,
+		&process.TxResultMismatchError{Reason: process.ErrLocalExecutionTimeoutAbstain, TxHash: []byte("tx"), Contract: "sc"},
+		&process.TxResultMismatchError{Reason: process.ErrLeaderTimeoutRefused, TxHash: []byte("tx"), Contract: "sc"},
 		process.WrapBlockExecutionNotMatchingHeader(process.ErrInvalidTXFees),
 		process.WrapBlockExecutionNotMatchingHeader(process.ErrInvalidKAppsFees),
 		process.WrapBlockExecutionNotMatchingHeader(process.ErrRootStateDoesNotMatch),
@@ -565,4 +567,30 @@ func TestIsSyncPostponed_ShouldReleaseWhenNonceChangesInSameSlot(t *testing.T) {
 	require.NoError(t, boot.chainHandler.SetCurrentBlockHeaderAndHash(newHeader(6, 10, []byte("h5")), []byte("h6")))
 
 	assert.False(t, boot.isSyncPostponed())
+}
+
+// Blocks applied by the bootstrapper are quorum-signed history, so they must go through the
+// agreed-history entry point; the live consensus entry point would re-judge recorded timeouts with
+// local wall-clock timing and could keep a node that abstained stuck behind the chain.
+func TestSyncBlock_UsesAgreedHistoryProcessing(t *testing.T) {
+	sim, boot := newSyncSim(t)
+
+	bp, ok := boot.blockProcessor.(*consensusMock.BlockProcessorMock)
+	require.True(t, ok)
+
+	liveProcess := bp.ProcessBlockCalled
+	numLive, numSynced := 0, 0
+	bp.ProcessBlockCalled = func(header data.HeaderHandler, haveTime func() time.Duration) error {
+		numLive++
+		return liveProcess(header, haveTime)
+	}
+	bp.ProcessSyncedBlockCalled = func(header data.HeaderHandler, haveTime func() time.Duration) error {
+		numSynced++
+		return liveProcess(header, haveTime)
+	}
+
+	require.NoError(t, boot.syncBlock())
+	assert.Equal(t, uint64(6), sim.currentHeader().GetNonce(), "the block must be committed")
+	assert.Equal(t, 1, numSynced)
+	assert.Equal(t, 0, numLive)
 }

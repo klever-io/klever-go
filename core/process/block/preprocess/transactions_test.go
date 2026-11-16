@@ -1484,3 +1484,69 @@ func TestTransactions_CreateAndProcessBlockSkipsTxOverGasBound(t *testing.T) {
 	assert.Equal(t, uint64(7), first.GasLimit)
 	assert.Equal(t, uint64(7), second.GasLimit)
 }
+
+// The live timeout sentinels must abort block processing exactly like a plain result mismatch,
+// otherwise a validator that abstains on a local timeout would keep executing the block. The
+// control row wraps an unrelated reason in the same error type and must not abort, which shows the
+// short-circuit is reached through the reason and not through the error type.
+func TestTransactions_ProcessBlockTransactions_TimeoutSentinelsShortCircuit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		err           error
+		wantAbort     bool
+		wantProcessed int
+	}{
+		{name: "plain mismatch", err: process.ErrTransactionResultMismatch, wantAbort: true, wantProcessed: 1},
+		{
+			name:      "local timeout abstain",
+			err:       &process.TxResultMismatchError{Reason: process.ErrLocalExecutionTimeoutAbstain, TxHash: []byte("TX2"), Contract: "sc"},
+			wantAbort: true, wantProcessed: 1,
+		},
+		{
+			name:      "leader timeout refused",
+			err:       &process.TxResultMismatchError{Reason: process.ErrLeaderTimeoutRefused, TxHash: []byte("TX2"), Contract: "sc"},
+			wantAbort: true, wantProcessed: 1,
+		},
+		{
+			name:      "control: unrelated reason in the same type does not abort",
+			err:       &process.TxResultMismatchError{Reason: errors.New("unrelated"), TxHash: []byte("TX2")},
+			wantAbort: false, wantProcessed: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			poolHolders := createCacheWithTransactions(t, []*txcache.WrappedTransaction{
+				{TxHash: []byte("TX1"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 0, Nonce: 1, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000, Result: transaction.Transaction_SUCCESS}},
+				{TxHash: []byte("TX2"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 1, Nonce: 2, Sender: []byte("addr1"), Data: [][]byte{[]byte("data")}}, GasLimit: 100000, Result: transaction.Transaction_SUCCESS}},
+				{TxHash: []byte("TX3"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 2, Nonce: 3, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000, Result: transaction.Transaction_SUCCESS}},
+			})
+			txs := createGoodPreprocessor(poolHolders)
+			blk := &block.Block{TxHashes: [][]byte{[]byte("TX1"), []byte("TX2"), []byte("TX3")}}
+
+			callCount := 0
+			txs.GetTXProcessor().(*mock.TxProcessorMock).ProcessTransactionCalled = func(_ *block.Block, _ []byte, _ *transaction.Transaction) error {
+				callCount++
+				if callCount == 2 {
+					return tt.err
+				}
+				return nil
+			}
+
+			processResult, err := txs.ProcessBlockTransactions(blk, func() bool { return true })
+
+			if tt.wantAbort {
+				assert.ErrorIs(t, err, process.ErrTransactionResultMismatch)
+				assert.Equal(t, 2, callCount, "TX3 must not be executed once the block is rejected")
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, 3, callCount)
+			}
+			assert.Equal(t, tt.wantProcessed, processResult.Length())
+		})
+	}
+}

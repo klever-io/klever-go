@@ -1,6 +1,7 @@
 package transaction
 
 import (
+	"encoding/hex"
 	"errors"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 // TestLogResultMismatch tests the logResultMismatch function
@@ -100,7 +102,7 @@ func TestValidateToleranceBand_LeaderWeakHardware(t *testing.T) {
 
 		err := txProc.validateToleranceBand(txHash, tx, expectedResultCode, validatorTimeNs, localErr)
 
-		assert.Equal(t, process.ErrTransactionResultMismatch, err)
+		assert.ErrorIs(t, err, process.ErrTransactionResultMismatch)
 		// ResultCode must NOT be updated when rejecting
 		assert.Equal(t, transaction.Transaction_TXResultCode(0), tx.ResultCode)
 		assert.Equal(t, transaction.Transaction_TXResult(0), tx.Result)
@@ -120,7 +122,7 @@ func TestValidateToleranceBand_LeaderWeakHardware(t *testing.T) {
 		// 10ms: nowhere near the 425ms lower bound, so no honest leader could have timed out on it
 		err := txProc.validateToleranceBand(txHash, tx, expectedResultCode, int64(10*time.Millisecond), localErr)
 
-		assert.Equal(t, process.ErrTransactionResultMismatch, err)
+		assert.ErrorIs(t, err, process.ErrTransactionResultMismatch)
 		assert.Equal(t, transaction.Transaction_TXResultCode(0), tx.ResultCode)
 		assert.Equal(t, transaction.Transaction_TXResult(0), tx.Result)
 	})
@@ -325,7 +327,7 @@ func TestValidateToleranceBand_UnconfiguredBaseTimeout(t *testing.T) {
 		err := newTxProc(newCfg(0), true).
 			validateToleranceBand(txHash, tx, expectedResultCode, int64(50*time.Millisecond), nil)
 
-		assert.Equal(t, process.ErrTransactionResultMismatch, err)
+		assert.ErrorIs(t, err, process.ErrTransactionResultMismatch)
 		assert.Equal(t, transaction.Transaction_TXResultCode(0), tx.ResultCode)
 	})
 
@@ -338,7 +340,7 @@ func TestValidateToleranceBand_UnconfiguredBaseTimeout(t *testing.T) {
 		err := newTxProc(newCfg(100), true).
 			validateToleranceBand(txHash, tx, expectedResultCode, int64(300*time.Millisecond), nil)
 
-		assert.Equal(t, process.ErrTransactionResultMismatch, err)
+		assert.ErrorIs(t, err, process.ErrTransactionResultMismatch)
 		assert.Equal(t, transaction.Transaction_TXResultCode(0), tx.ResultCode)
 	})
 
@@ -415,7 +417,7 @@ func TestHandleResultMismatch_ValidatorSucceededLeaderFailed(t *testing.T) {
 	)
 
 	// Rejects because leader hardware too weak, with an error that actually propagates (KLR-63)
-	assert.Equal(t, process.ErrTransactionResultMismatch, err)
+	assert.ErrorIs(t, err, process.ErrTransactionResultMismatch)
 	assert.Equal(t, transaction.Transaction_TXResultCode(0), tx.ResultCode)
 }
 
@@ -448,7 +450,7 @@ func TestHandleResultMismatch_LeaderSucceededValidatorFailed_Validator(t *testin
 	)
 
 	// Validator must reject when it failed but leader succeeded
-	assert.Equal(t, process.ErrTransactionResultMismatch, err)
+	assert.ErrorIs(t, err, process.ErrTransactionResultMismatch)
 }
 
 // TestHandleResultMismatch_BothFailedDifferentErrors_Validator tests CASE 3 for Validator
@@ -555,7 +557,7 @@ func TestHandleResultMismatch_ValidatorMode_FastLocalSuccessRejects(t *testing.T
 
 	// Live path still routes through the tolerance band (not the Observer short-circuit): the fast
 	// local success rejects the block and never stamps the consensus ResultCode.
-	assert.Equal(t, process.ErrTransactionResultMismatch, err)
+	assert.ErrorIs(t, err, process.ErrTransactionResultMismatch)
 	assert.Equal(t, transaction.Transaction_TXResultCode(0), tx.ResultCode)
 }
 
@@ -703,7 +705,7 @@ func TestValidateTransactionResult_CallsHandleResultMismatch(t *testing.T) {
 		err := txProc.validateTransactionResult(blk, txHash, tx, localErr, validatorTimeNs)
 
 		// Should reject (leader hardware too weak)
-		assert.Equal(t, process.ErrTransactionResultMismatch, err)
+		assert.ErrorIs(t, err, process.ErrTransactionResultMismatch)
 		assert.Equal(t, transaction.Transaction_TXResultCode(0), tx.ResultCode) // Not updated
 	})
 
@@ -723,7 +725,7 @@ func TestValidateTransactionResult_CallsHandleResultMismatch(t *testing.T) {
 		err := txProc.validateTransactionResult(blk, txHash, tx, localErr, validatorTimeNs)
 
 		// Should reject (validator must reject when it fails but leader succeeded)
-		assert.Equal(t, process.ErrTransactionResultMismatch, err)
+		assert.ErrorIs(t, err, process.ErrTransactionResultMismatch)
 	})
 
 	t.Run("both failed with different errors", func(t *testing.T) {
@@ -797,7 +799,7 @@ func TestValidateTransactionResult_ObserverModePlumbing(t *testing.T) {
 
 		// Same input, opposite outcome from Observer: the leader had no right to fail this fast,
 		// so the block is rejected and the consensus ResultCode is never adopted.
-		assert.Equal(t, process.ErrTransactionResultMismatch, err)
+		assert.ErrorIs(t, err, process.ErrTransactionResultMismatch)
 		assert.Equal(t, transaction.Transaction_TXResultCode(0), tx.ResultCode)
 	})
 }
@@ -847,4 +849,216 @@ func (m *mockSmartContractProcessor) LastBlock() data.HeaderHandler {
 
 func (m *mockSmartContractProcessor) IsInterfaceNil() bool {
 	return m == nil
+}
+
+// TestHandleResultMismatch_TimeoutOutcomesByMode pins the outcome of every timeout-related mismatch
+// per execution mode. Only the two live (Validator) timeout disagreements carry the distinct
+// sentinels consensus reports on; both still match ErrTransactionResultMismatch, so every caller
+// keeps rejecting the block. Replay (agreed history) and the deterministic cases are unchanged.
+func TestHandleResultMismatch_TimeoutOutcomesByMode(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		VirtualMachine: config.VirtualMachineServicesConfig{
+			Execution: config.VirtualMachineConfig{
+				TimeOutForSCExecutionInMilliseconds: 500,
+				TimeOutTolerancePercentage:          15,
+			},
+		},
+	}
+
+	okCode := uint32(transaction.Transaction_Ok)
+	timeoutCode := uint32(transaction.Transaction_VMExecutionFailed)
+	userErrCode := uint32(transaction.Transaction_VMUserError)
+	contractAddr := []byte("contract-address-0123456789abcde")
+	txHash := []byte("tx-hash")
+
+	newSCTx := func(resultCode transaction.Transaction_TXResultCode) *transaction.Transaction {
+		param, err := anypb.New(&transaction.SmartContract{Type: transaction.SmartContract_SCInvoke, Address: contractAddr})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &transaction.Transaction{
+			RawData: &transaction.Transaction_Raw{
+				Contract: []*transaction.TXContract{{Type: transaction.TXContract_SmartContractType, Parameter: param}},
+			},
+			ResultCode: resultCode,
+		}
+	}
+
+	localTimeoutErr := errors.New("execution timed out")
+	fast := int64(50 * time.Millisecond)    // far below the 425ms lower bound
+	inBand := int64(450 * time.Millisecond) // inside the tolerance band
+	// the VM cancels a Validator-mode call at base + tolerance: 500ms + 15% = 575ms, and with an
+	// unset timeout at the 400ms floor + 15% = 460ms; a timed-out call measures at least that
+	atValidatorTimeout := int64(575 * time.Millisecond)
+	atFlooredValidatorTimeout := int64(460 * time.Millisecond)
+
+	tests := []struct {
+		name          string
+		mode          vmcommon.ExecutionMode
+		expected      uint32
+		actual        uint32
+		localErr      error
+		localResult   transaction.Transaction_TXResultCode
+		execTimeNs    int64
+		unsetTimeout  bool  // TimeOutForSCExecutionInMilliseconds left at 0
+		wantExact     error // compared with assert.Equal when set
+		wantIs        []error
+		wantNotIs     []error
+		wantContract  bool
+		wantStampedRC bool
+	}{
+		{
+			name: "CASE 2 validator: local timeout at the validator timeout, leader ok -> abstain", mode: vmcommon.ExecutionModeValidator,
+			expected: okCode, actual: timeoutCode, localErr: localTimeoutErr, localResult: transaction.Transaction_VMExecutionFailed,
+			execTimeNs:   atValidatorTimeout,
+			wantIs:       []error{process.ErrLocalExecutionTimeoutAbstain, process.ErrTransactionResultMismatch},
+			wantNotIs:    []error{process.ErrLeaderTimeoutRefused},
+			wantContract: true,
+		},
+		{
+			name: "CASE 2 validator: local timeout past the validator timeout -> abstain", mode: vmcommon.ExecutionModeValidator,
+			expected: okCode, actual: timeoutCode, localErr: localTimeoutErr, localResult: transaction.Transaction_VMExecutionFailed,
+			execTimeNs:   int64(600 * time.Millisecond),
+			wantIs:       []error{process.ErrLocalExecutionTimeoutAbstain, process.ErrTransactionResultMismatch},
+			wantContract: true,
+		},
+		{
+			name: "CASE 2 validator: VMExecutionFailed before the validator timeout is not a timeout -> plain mismatch", mode: vmcommon.ExecutionModeValidator,
+			expected: okCode, actual: timeoutCode, localErr: localTimeoutErr, localResult: transaction.Transaction_VMExecutionFailed,
+			execTimeNs: atValidatorTimeout - 1,
+			wantExact:  process.ErrTransactionResultMismatch,
+			wantNotIs:  []error{process.ErrLocalExecutionTimeoutAbstain, process.ErrLeaderTimeoutRefused},
+		},
+		{
+			name: "CASE 2 validator: unset timeout uses the VM floor, at the floored validator timeout -> abstain", mode: vmcommon.ExecutionModeValidator,
+			expected: okCode, actual: timeoutCode, localErr: localTimeoutErr, localResult: transaction.Transaction_VMExecutionFailed,
+			unsetTimeout: true, execTimeNs: atFlooredValidatorTimeout,
+			wantIs:       []error{process.ErrLocalExecutionTimeoutAbstain},
+			wantContract: true,
+		},
+		{
+			name: "CASE 2 validator: unset timeout uses the VM floor, just before it -> plain mismatch", mode: vmcommon.ExecutionModeValidator,
+			expected: okCode, actual: timeoutCode, localErr: localTimeoutErr, localResult: transaction.Transaction_VMExecutionFailed,
+			unsetTimeout: true, execTimeNs: atFlooredValidatorTimeout - 1,
+			wantExact: process.ErrTransactionResultMismatch,
+			wantNotIs: []error{process.ErrLocalExecutionTimeoutAbstain},
+		},
+		{
+			name: "CASE 2 replay: unchanged plain mismatch", mode: vmcommon.ExecutionModeReplay,
+			expected: okCode, actual: timeoutCode, localErr: localTimeoutErr, localResult: transaction.Transaction_VMExecutionFailed,
+			execTimeNs: int64(5 * time.Second),
+			wantExact:  process.ErrTransactionResultMismatch,
+			wantNotIs:  []error{process.ErrLocalExecutionTimeoutAbstain, process.ErrLeaderTimeoutRefused},
+		},
+		{
+			name: "CASE 1a validator below lower bound -> refused", mode: vmcommon.ExecutionModeValidator,
+			expected: timeoutCode, actual: okCode, execTimeNs: fast,
+			wantIs:       []error{process.ErrLeaderTimeoutRefused, process.ErrTransactionResultMismatch},
+			wantNotIs:    []error{process.ErrLocalExecutionTimeoutAbstain},
+			wantContract: true,
+		},
+		{
+			name: "CASE 1a validator inside band -> accept leader", mode: vmcommon.ExecutionModeValidator,
+			expected: timeoutCode, actual: okCode, execTimeNs: inBand,
+			wantExact: process.ErrTransactionResultMismatchAcceptLeader, wantStampedRC: true,
+		},
+		{
+			name: "CASE 1a replay fast -> accept recorded timeout", mode: vmcommon.ExecutionModeReplay,
+			expected: timeoutCode, actual: okCode, execTimeNs: fast,
+			wantExact: process.ErrTransactionResultMismatchAcceptLeader, wantStampedRC: true,
+		},
+		{
+			name: "CASE 1b validator: deterministic failure code rejects", mode: vmcommon.ExecutionModeValidator,
+			expected: userErrCode, actual: okCode, execTimeNs: inBand,
+			wantExact: process.ErrTransactionResultMismatch,
+			wantNotIs: []error{process.ErrLocalExecutionTimeoutAbstain, process.ErrLeaderTimeoutRefused},
+		},
+		{
+			name: "CASE 1b replay: deterministic failure code rejects", mode: vmcommon.ExecutionModeReplay,
+			expected: userErrCode, actual: okCode, execTimeNs: inBand,
+			wantExact: process.ErrTransactionResultMismatch,
+			wantNotIs: []error{process.ErrLocalExecutionTimeoutAbstain, process.ErrLeaderTimeoutRefused},
+		},
+		{
+			name: "CASE 3 validator: both failed differently -> local error", mode: vmcommon.ExecutionModeValidator,
+			expected: timeoutCode, actual: userErrCode, localErr: process.ErrAccountNotFound, localResult: transaction.Transaction_VMUserError,
+			wantExact: process.ErrAccountNotFound,
+		},
+		{
+			name: "non-timeout local failure, leader ok -> local error", mode: vmcommon.ExecutionModeValidator,
+			expected: okCode, actual: userErrCode, localErr: process.ErrAccountNotFound, localResult: transaction.Transaction_VMUserError,
+			wantExact: process.ErrAccountNotFound,
+			wantNotIs: []error{process.ErrLocalExecutionTimeoutAbstain},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rowCfg := cfg
+			if tt.unsetTimeout {
+				rowCfg.VirtualMachine.Execution.TimeOutForSCExecutionInMilliseconds = 0
+			}
+			txProc := &txProcessor{
+				baseTxProcessor: &baseTxProcessor{
+					cfg:            rowCfg,
+					scProcessor:    &mockSmartContractProcessor{executionMode: tt.mode},
+					forkController: &forkControllerStub{fixAuditChangesV5: true},
+				},
+			}
+			tx := newSCTx(tt.localResult)
+
+			err := txProc.handleResultMismatch(txHash, 0, tx, tt.localErr, tt.expected, tt.actual, tt.execTimeNs, tt.mode)
+
+			assertMismatchOutcome(t, err, tx, mismatchOutcome{
+				exact: tt.wantExact, is: tt.wantIs, notIs: tt.wantNotIs,
+				contract: tt.wantContract, stampedRC: tt.wantStampedRC, localResult: tt.localResult,
+				txHash: txHash, contractAddr: contractAddr,
+			})
+		})
+	}
+}
+
+type mismatchOutcome struct {
+	exact        error // compared with assert.Equal when set
+	is           []error
+	notIs        []error
+	contract     bool
+	stampedRC    bool
+	localResult  transaction.Transaction_TXResultCode
+	txHash       []byte
+	contractAddr []byte
+}
+
+func assertMismatchOutcome(t *testing.T, err error, tx *transaction.Transaction, want mismatchOutcome) {
+	t.Helper()
+
+	if want.exact != nil {
+		assert.Equal(t, want.exact, err)
+	}
+	for _, target := range want.is {
+		assert.ErrorIs(t, err, target)
+	}
+	for _, target := range want.notIs {
+		assert.NotErrorIs(t, err, target)
+	}
+
+	var mismatch *process.TxResultMismatchError
+	if want.contract {
+		if assert.ErrorAs(t, err, &mismatch) {
+			assert.Equal(t, want.txHash, mismatch.TxHash)
+			assert.Equal(t, hex.EncodeToString(want.contractAddr), mismatch.Contract)
+		}
+	} else {
+		assert.False(t, errors.As(err, &mismatch), "only live timeout disagreements carry the contract")
+	}
+
+	if want.stampedRC {
+		assert.Equal(t, transaction.Transaction_VMExecutionFailed, tx.ResultCode)
+	} else {
+		assert.Equal(t, want.localResult, tx.ResultCode)
+	}
 }

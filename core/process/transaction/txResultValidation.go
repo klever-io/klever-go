@@ -1,12 +1,14 @@
 package transaction
 
 import (
+	"encoding/hex"
 	"time"
 
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/vmcommon"
 )
 
@@ -32,7 +34,7 @@ import (
 // Returns:
 //   - nil: Results match consensus, no further action needed
 //   - localErr: Transaction not found in block or no validation needed
-//   - process.ErrTransactionResultMismatch: Block should be rejected
+//   - an error matching process.ErrTransactionResultMismatch (errors.Is): Block should be rejected
 //   - consensus error: Local succeeded but consensus failed (accept block with consensus result)
 func (txProc *txProcessor) validateTransactionResult(
 	block *block.Block,
@@ -132,7 +134,9 @@ func (txProc *txProcessor) logResultMismatch(
 //     b. the failure is any other code (VMUserError, VMOutOfGas, Fail, ...), which is deterministic
 //     and cannot be explained by leader slowness: reject the block outright, in every mode
 //     (KLR-63, from FixAuditChangesV5 on)
-//  2. Consensus succeeded, but local failed: reject the block
+//  2. Consensus succeeded, but local execution failed with the timeout code: reject the block.
+//     Validator (live): ErrLocalExecutionTimeoutAbstain, so consensus can report the abstention.
+//     Replay (agreed history): plain ErrTransactionResultMismatch, the state cannot be mended.
 //  3. Both failed with different errors: bubble up the local error
 //
 // Parameters:
@@ -170,7 +174,7 @@ func (txProc *txProcessor) handleResultMismatch(
 			// pass/fail from local wall-clock timing (the tolerance band, KLC-1894, is
 			// Validator/live-only).
 			if executionMode == vmcommon.ExecutionModeReplay {
-				log.Warn("Observer: transaction result mismatch - Accepting leader failure (import-db mode)",
+				log.Warn("Observer: transaction result mismatch - Accepting leader failure (agreed history: import-db or sync)",
 					"txHash", txHash,
 					"expectedResult", expectedResultCode,
 					"actualResult", actualResultCode,
@@ -204,15 +208,10 @@ func (txProc *txProcessor) handleResultMismatch(
 		return localErr
 	}
 
-	// CASE 2: Leader succeeded, but validator failed - block reject
+	// CASE 2: Leader succeeded, but the local execution failed with the timeout code - block reject
 	// (even on replay mode, we cant mend the state here as we dont have the actual result)
 	if expectedResultCode == okCode && actualResultCode == vmFailedCode {
-		log.Warn("Validator: transaction result mismatch - rejecting block",
-			"txHash", txHash,
-			"expectedResult", expectedResultCode,
-			"actualResult", actualResultCode,
-			"txIndex", txIndex)
-		return process.ErrTransactionResultMismatch
+		return txProc.rejectLocalTimeout(txHash, txIndex, tx, validatorExecutionTimeNs, executionMode)
 	}
 
 	// CASE 3: Both failed with different error codes, continue based on execution mode - block rejected
@@ -244,8 +243,9 @@ func (txProc *txProcessor) handleResultMismatch(
 //   - validatorExecutionTimeNs: Validator's execution time in nanoseconds
 //
 // Returns:
-//   - process.ErrTransactionResultMismatch (pre-FixAuditChangesV5: localErr, always nil): leader
-//     too weak, reject the block; no ResultCode update
+//   - an error matching process.ErrLeaderTimeoutRefused and process.ErrTransactionResultMismatch
+//     (pre-FixAuditChangesV5: localErr, always nil): leader too weak, reject the block; no
+//     ResultCode update
 //   - process.ErrTransactionResultMismatchAcceptLeader: accept, with ResultCode set to consensus
 func (txProc *txProcessor) validateToleranceBand(
 	txHash []byte,
@@ -264,23 +264,8 @@ func (txProc *txProcessor) validateToleranceBand(
 	// deriving the bound from the raw config value.
 	fixAuditChangesV5 := txProc.forkController.FixAuditChangesV5()
 
-	baseTimeout := time.Duration(txProc.cfg.VirtualMachine.Execution.TimeOutForSCExecutionInMilliseconds) * time.Millisecond
-	if fixAuditChangesV5 && baseTimeout < core.MinSCExecutionTimeout {
-		baseTimeout = core.MinSCExecutionTimeout
-	}
-
-	tolerancePercentage := txProc.cfg.VirtualMachine.Execution.TimeOutTolerancePercentage
-	if tolerancePercentage == 0 {
-		tolerancePercentage = core.DefaultTolerancePercentage
-	}
-	if tolerancePercentage > 100 {
-		log.Warn("TimeOutTolerancePercentage exceeds 100%, using 100%",
-			"configured", tolerancePercentage)
-		tolerancePercentage = 100
-	}
-
 	// Calculate lower bound: base - tolerance%
-	toleranceAmount := (baseTimeout * time.Duration(tolerancePercentage)) / 100
+	baseTimeout, toleranceAmount := txProc.scTimeoutBand(fixAuditChangesV5)
 	lowerBound := baseTimeout - toleranceAmount
 	validatorExecTime := time.Duration(validatorExecutionTimeNs)
 
@@ -300,7 +285,7 @@ func (txProc *txProcessor) validateToleranceBand(
 			"leaderShouldHaveSucceeded", true)
 
 		if fixAuditChangesV5 {
-			return process.ErrTransactionResultMismatch
+			return txProc.newResultMismatchError(process.ErrLeaderTimeoutRefused, txHash, tx)
 		}
 
 		return localErr
@@ -319,4 +304,122 @@ func acceptConsensusFailure(tx *transaction.Transaction, expectedResultCode uint
 	//nolint:gosec // G115: expectedResultCode is provably vmFailedCode at this point, which is a valid enum value
 	tx.ResultCode = transaction.Transaction_TXResultCode(expectedResultCode)
 	return process.ErrTransactionResultMismatchAcceptLeader
+}
+
+// rejectLocalTimeout handles CASE 2: the block records a success for a transaction whose local
+// execution failed with the timeout code. The block is rejected in every mode, the difference is
+// only in what is reported:
+//   - Validator (live consensus), local execution ran up to the Validator-mode VM timeout: this
+//     node cannot vouch for the leader's result, so it abstains from signing. The returned error
+//     matches ErrLocalExecutionTimeoutAbstain and carries the transaction and contract so
+//     consensus can report it; it still matches ErrTransactionResultMismatch, so the block is
+//     rejected and the local execution reverted.
+//   - Validator, local execution failed before that timeout: the code is also produced by VM
+//     failures other than a timeout, so this is reported as a plain mismatch.
+//   - Replay (agreed history: sync and import-db): local execution failed even with the replay
+//     budget, so there is no recorded result to reproduce and the state cannot be mended.
+func (txProc *txProcessor) rejectLocalTimeout(
+	txHash []byte,
+	txIndex int,
+	tx *transaction.Transaction,
+	validatorExecutionTimeNs int64,
+	executionMode vmcommon.ExecutionMode,
+) error {
+	contract := txProc.smartContractAddress(tx)
+
+	if executionMode == vmcommon.ExecutionModeReplay {
+		log.Warn("Replay: local smart contract execution failed with the timeout code even with the replay budget "+
+			"on a transaction the network recorded as successful - rejecting block, the local state cannot be mended",
+			"txHash", txHash,
+			"txIndex", txIndex,
+			"contract", contract)
+		return process.ErrTransactionResultMismatch
+	}
+
+	validatorTimeout := txProc.validatorSCTimeout()
+	localExecTime := time.Duration(validatorExecutionTimeNs)
+	if localExecTime < validatorTimeout {
+		log.Warn("Validator: local smart contract execution failed before the timeout where the leader succeeded - rejecting block",
+			"txHash", txHash,
+			"txIndex", txIndex,
+			"contract", contract,
+			"localExecTime", localExecTime,
+			"validatorTimeout", validatorTimeout)
+		return process.ErrTransactionResultMismatch
+	}
+
+	log.Warn("Validator: local smart contract execution timed out where the leader succeeded - rejecting block, abstaining from signing",
+		"txHash", txHash,
+		"txIndex", txIndex,
+		"contract", contract,
+		"localExecTime", localExecTime,
+		"validatorTimeout", validatorTimeout)
+	return &process.TxResultMismatchError{
+		Reason:   process.ErrLocalExecutionTimeoutAbstain,
+		TxHash:   txHash,
+		Contract: contract,
+	}
+}
+
+func (txProc *txProcessor) newResultMismatchError(reason error, txHash []byte, tx *transaction.Transaction) error {
+	return &process.TxResultMismatchError{
+		Reason:   reason,
+		TxHash:   txHash,
+		Contract: txProc.smartContractAddress(tx),
+	}
+}
+
+// smartContractAddress returns the encoded address of the first smart contract the transaction
+// calls, or an empty string when it calls none (e.g. a deploy, which has no address yet)
+func (txProc *txProcessor) smartContractAddress(tx *transaction.Transaction) string {
+	for _, contract := range tx.GetRawData().GetContract() {
+		if contract.GetType() != transaction.TXContract_SmartContractType {
+			continue
+		}
+
+		sc, err := contract.GetSmartContract()
+		if err != nil || len(sc.GetAddress()) == 0 {
+			continue
+		}
+
+		if check.IfNil(txProc.pubkeyConv) {
+			return hex.EncodeToString(sc.GetAddress())
+		}
+
+		return txProc.pubkeyConv.Encode(sc.GetAddress())
+	}
+
+	return ""
+}
+
+// scTimeoutBand returns the base smart contract execution timeout and the tolerance amount around
+// it, normalised the way hostCore.configureTimeouts normalises them: a zero tolerance percentage
+// takes the default and one above 100 is capped at 100. floorBase raises a base below
+// core.MinSCExecutionTimeout to that floor, as the VM host does.
+func (txProc *txProcessor) scTimeoutBand(floorBase bool) (time.Duration, time.Duration) {
+	baseTimeout := time.Duration(txProc.cfg.VirtualMachine.Execution.TimeOutForSCExecutionInMilliseconds) * time.Millisecond
+	if floorBase && baseTimeout < core.MinSCExecutionTimeout {
+		baseTimeout = core.MinSCExecutionTimeout
+	}
+
+	tolerancePercentage := txProc.cfg.VirtualMachine.Execution.TimeOutTolerancePercentage
+	if tolerancePercentage == 0 {
+		tolerancePercentage = core.DefaultTolerancePercentage
+	}
+	if tolerancePercentage > 100 {
+		log.Warn("TimeOutTolerancePercentage exceeds 100%, using 100%",
+			"configured", tolerancePercentage)
+		tolerancePercentage = 100
+	}
+
+	return baseTimeout, (baseTimeout * time.Duration(tolerancePercentage)) / 100
+}
+
+// validatorSCTimeout returns the timeout the VM host enforces in Validator mode (base + tolerance,
+// hostCore.getEffectiveTimeout). The host floors the base unconditionally, so this does too. The
+// execution time is measured around the whole VM call, which only returns after the deadline when
+// it was cancelled, so a local timeout always measures at least this long.
+func (txProc *txProcessor) validatorSCTimeout() time.Duration {
+	baseTimeout, toleranceAmount := txProc.scTimeoutBand(true)
+	return baseTimeout + toleranceAmount
 }

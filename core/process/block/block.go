@@ -106,10 +106,33 @@ func NewMetaProcessor(arguments ArgMetaProcessor) (*metaProcessor, error) {
 	return &mp, nil
 }
 
-// ProcessBlock processes a block. It returns nil if all ok or the specific error
+// ProcessBlock processes a block proposed in consensus. Its transactions are validated with the
+// live rules (Validator mode), unless the node is replaying an import-db. It returns nil if all ok
+// or the specific error
 func (mp *metaProcessor) ProcessBlock(
 	headerHandler data.HeaderHandler,
 	haveTime func() time.Duration,
+) error {
+	return mp.processBlock(headerHandler, haveTime, mp.processingMode == core.ImportDb)
+}
+
+// ProcessSyncedBlock processes a block received through sync. Such a block passed header
+// interception, which verifies the leader signature and the aggregated consensus signature, so it
+// is agreed history: its transactions run in Replay mode, reproducing a recorded VM timeout instead
+// of re-judging it with local wall-clock timing, with the gas-bounded replay timeout. The block is
+// still rejected if the resulting state does not match the roots in its header. It returns nil if
+// all ok or the specific error
+func (mp *metaProcessor) ProcessSyncedBlock(
+	headerHandler data.HeaderHandler,
+	haveTime func() time.Duration,
+) error {
+	return mp.processBlock(headerHandler, haveTime, true)
+}
+
+func (mp *metaProcessor) processBlock(
+	headerHandler data.HeaderHandler,
+	haveTime func() time.Duration,
+	isAgreedHistory bool,
 ) (err error) {
 	startProcess := time.Now()
 
@@ -152,18 +175,9 @@ func (mp *metaProcessor) ProcessBlock(
 		restoreProposalParameters = snapshotProposalParameters(mp.proposalController.Get())
 	}
 
+	// err is the named return, so the deferred call sees its final value
 	defer func() {
-		if err != nil {
-			log.Error("ProcessBlock revert: ", "error", err.Error())
-			// fork flags first: the revert reloads the proposal parameters and backfills
-			// the defaults of every fork active at the restored epoch, not the rejected one
-			mp.restoreEpochState(prevEpoch, prevCurrentHeader, restoreEpochTrigger)
-			mp.RevertStateToSnapshot(header)
-
-			if restoreProposalParameters != nil {
-				restoreProposalParameters()
-			}
-		}
+		mp.revertProcessBlockOnError(err, header, prevEpoch, prevCurrentHeader, restoreEpochTrigger, restoreProposalParameters)
 	}()
 
 	mp.epochNotifier.CheckEpoch(headerHandler.GetEpoch())
@@ -224,7 +238,7 @@ func (mp *metaProcessor) ProcessBlock(
 
 	// Process Transactions
 	startTx := time.Now()
-	processResults, err := mp.txCoordinator.ProcessBlockTransactions(header, haveTime, mp.processingMode == core.ImportDb)
+	processResults, err := mp.txCoordinator.ProcessBlockTransactions(header, haveTime, isAgreedHistory)
 	mp.appStatusHandler.SetUInt64Value(
 		core.MetricTxProcessingDuration,
 		uint64(time.Since(startTx).Milliseconds()), // #nosec G115
@@ -245,6 +259,31 @@ func (mp *metaProcessor) ProcessBlock(
 	}
 
 	return nil
+}
+
+// revertProcessBlockOnError undoes what processBlock mutated when it failed: the epoch-sensitive
+// in-memory state, the state tries and, for an epoch start block, the proposal parameters
+func (mp *metaProcessor) revertProcessBlockOnError(
+	err error,
+	header *block.Block,
+	prevEpoch uint32,
+	prevCurrentHeader data.HeaderHandler,
+	restoreEpochTrigger func(),
+	restoreProposalParameters func(),
+) {
+	if err == nil {
+		return
+	}
+
+	log.Error("ProcessBlock revert: ", "error", err.Error())
+	// fork flags first: the revert reloads the proposal parameters and backfills
+	// the defaults of every fork active at the restored epoch, not the rejected one
+	mp.restoreEpochState(prevEpoch, prevCurrentHeader, restoreEpochTrigger)
+	mp.RevertStateToSnapshot(header)
+
+	if restoreProposalParameters != nil {
+		restoreProposalParameters()
+	}
 }
 
 // validateBlockAndRequestMissing wraps checkBlockValidity and, on an

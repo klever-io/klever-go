@@ -1,6 +1,7 @@
 package bls
 
 import (
+	"errors"
 	"strconv"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/consensus"
 	"github.com/klever-io/klever-go/core/consensus/slot"
+	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/tools"
@@ -395,6 +397,7 @@ func (sr *subslotBlock) processReceivedBlock(cnsDta *consensus.Message) bool {
 			"subslot", sr.Name(),
 			"error", err.Error())
 
+		sr.reportTimeoutDisagreement(header, err)
 		sr.SetSlotCanceled(true)
 
 		return false
@@ -410,6 +413,40 @@ func (sr *subslotBlock) processReceivedBlock(cnsDta *consensus.Message) bool {
 	}
 
 	return true
+}
+
+// reportTimeoutDisagreement logs and counts a proposal rejected because the leader and this node
+// disagree on a smart contract timeout. The rejection itself, cancelling the slot so nothing is
+// signed, is the same as for any other processing error; this only makes it visible. The node
+// keeps no state about it and catches up on the committed block through sync.
+func (sr *subslotBlock) reportTimeoutDisagreement(header data.HeaderHandler, err error) {
+	var mismatch *process.TxResultMismatchError
+	contract := ""
+	var txHash []byte
+	if errors.As(err, &mismatch) {
+		contract = mismatch.Contract
+		txHash = mismatch.TxHash
+	}
+
+	switch {
+	case errors.Is(err, process.ErrLocalExecutionTimeoutAbstain):
+		log.Info("abstaining from signing: local SC execution timeout, leader succeeded",
+			"slot", header.GetSlot(),
+			"nonce", header.GetNonce(),
+			"contract", contract,
+			"txHash", txHash)
+		sr.AppStatusHandler().Increment(core.MetricLocalTimeoutAbstainCount)
+		if contract != "" {
+			sr.AppStatusHandler().SetStringValue(core.MetricLocalTimeoutAbstainLastContract, contract)
+		}
+	case errors.Is(err, process.ErrLeaderTimeoutRefused):
+		log.Info("refusing to sign: leader recorded a SC timeout below the tolerance band",
+			"slot", header.GetSlot(),
+			"nonce", header.GetNonce(),
+			"contract", contract,
+			"txHash", txHash)
+		sr.AppStatusHandler().Increment(core.MetricLeaderTimeoutRefusedCount)
+	}
 }
 
 func (sr *subslotBlock) computeSubslotProcessingMetric(startTime time.Time, metric string) {

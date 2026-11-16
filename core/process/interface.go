@@ -262,6 +262,9 @@ type RequestHandler interface {
 type BlockProcessor interface {
 	SetProposalController(controller kapps.ActiveProposalController) error
 	ProcessBlock(header data.HeaderHandler, haveTime func() time.Duration) error
+	// ProcessSyncedBlock processes a block received through sync, which already carries the aggregated
+	// consensus signature, so its transactions run as agreed history (recorded results are reproduced)
+	ProcessSyncedBlock(header data.HeaderHandler, haveTime func() time.Duration) error
 	CommitBlock(header data.HeaderHandler) error
 	RevertStateToSnapshot(header data.HeaderHandler)
 	PruneStateOnRollback(currHeader data.HeaderHandler, prevHeader data.HeaderHandler)
@@ -453,7 +456,7 @@ type TransactionCoordinator interface {
 
 	RequestBlockTransactions(blk *block.Block)
 	IsDataPreparedForProcessing(haveTime func() time.Duration) error
-	ProcessBlockTransactions(blk *block.Block, haveTime func() time.Duration, isImportDB bool) (data.ProcessResults, error)
+	ProcessBlockTransactions(blk *block.Block, haveTime func() time.Duration, isAgreedHistory bool) (data.ProcessResults, error)
 	GetAllCurrentUsedTxs() map[string]data.TransactionHandler
 	GetAllCurrentLogs() []*data.LogData
 	SaveLogsToStorage() error

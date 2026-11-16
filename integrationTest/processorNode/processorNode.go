@@ -1550,14 +1550,15 @@ func (n *ProcessorNode) removeHeaderFromPools(hdr data.HeaderHandler) []byte {
 	return hash
 }
 
-// SyncNode tries to process and commit a block already stored in data pool with provided nonce
+// SyncNode tries to process and commit a block already stored in data pool with provided nonce.
+// Like the bootstrapper, it processes the block as agreed history (ProcessSyncedBlock).
 func (n *ProcessorNode) SyncNode(nonce uint64) error {
 	header, err := n.GetBlock(nonce)
 	if err != nil {
 		return err
 	}
 
-	err = n.BlockProcessor.ProcessBlock(
+	err = n.BlockProcessor.ProcessSyncedBlock(
 		header,
 		func() time.Duration {
 			return time.Second * 4

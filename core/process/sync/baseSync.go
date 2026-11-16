@@ -727,7 +727,9 @@ func (boot *baseBootstrap) syncBlock() error {
 
 	startProcessBlockTime := time.Now()
 	attemptSlotIndex = boot.slotManager.Index()
-	err = boot.blockProcessor.ProcessBlock(header, haveTime)
+	// the header passed interception, so it carries the aggregated consensus signature: process it
+	// as agreed history rather than re-judging it like a proposal
+	err = boot.blockProcessor.ProcessSyncedBlock(header, haveTime)
 	elapsedTime := time.Since(startProcessBlockTime)
 	log.Debug("elapsed time to process block",
 		"time [s]", elapsedTime,
@@ -737,8 +739,8 @@ func (boot *baseBootstrap) syncBlock() error {
 	}
 
 	// A slot-ahead failure here only postpones the sync and reverts the tries, leaving the
-	// in-memory state ProcessBlock advanced (epoch notifier, epoch start trigger, validators
-	// info) in place. That relies on ProcessBlock being idempotent for the same header when
+	// in-memory state ProcessSyncedBlock advanced (epoch notifier, epoch start trigger, validators
+	// info) in place. That relies on ProcessSyncedBlock being idempotent for the same header when
 	// it is retried; a different header failing for this nonce rolls back and realigns it.
 	startCommitBlockTime := time.Now()
 	attemptSlotIndex = boot.slotManager.Index()

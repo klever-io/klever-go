@@ -3972,3 +3972,63 @@ func TestMetaProcessor_NativeFPRTrim_AcrossTheForkActivationEpoch(t *testing.T) 
 	assert.Equal(t, []uint32{8, 9}, kfiEpochs)
 	assert.Equal(t, int64(3177+2662), h.klvBurned())
 }
+
+// A block reaching the node through sync already carries the aggregated consensus signature, so
+// its transactions must run as agreed history (Replay); a proposal validated during consensus keeps
+// the live Validator rules unless the whole node is replaying an import-db.
+func TestMetaProcessor_ProcessSyncedBlockRunsTransactionsAsAgreedHistory(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		processingMode core.NodeProcessingMode
+		synced         bool
+		wantAgreed     bool
+	}{
+		{name: "consensus proposal, normal node", processingMode: core.Normal, synced: false, wantAgreed: false},
+		{name: "synced block, normal node", processingMode: core.Normal, synced: true, wantAgreed: true},
+		{name: "consensus path, import-db node", processingMode: core.ImportDb, synced: false, wantAgreed: true},
+		{name: "synced block, import-db node", processingMode: core.ImportDb, synced: true, wantAgreed: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			arguments := createMockMetaArguments()
+			arguments.ProcessingMode = tt.processingMode
+
+			calls := 0
+			gotAgreed := false
+			arguments.ArgBaseProcessor.TxCoordinator = &mock.TransactionCoordinatorMock{
+				ProcessBlockTransactionsCalled: func(_ *block.Block, _ func() time.Duration, isAgreedHistory bool) (data.ProcessResults, error) {
+					calls++
+					gotAgreed = isAgreedHistory
+					return nil, nil
+				},
+				CreateAndProcessBlockTransactionsCalled: func(_ *block.Block, _ func() bool) (data.ProcessResults, error) {
+					return nil, assert.AnError
+				},
+			}
+
+			mp, err := blproc.NewMetaProcessor(arguments)
+			require.Nil(t, err)
+
+			pc, _ := kapps.NewProposalController(arguments.ForkController)
+			_ = mp.SetProposalController(pc)
+			metaHdr := &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1}}
+			_, err = mp.CreateBlock(metaHdr, func() bool { return true })
+			require.Nil(t, err)
+
+			if tt.synced {
+				err = mp.ProcessSyncedBlock(metaHdr, haveTime)
+			} else {
+				err = mp.ProcessBlock(metaHdr, haveTime)
+			}
+
+			require.Nil(t, err)
+			require.Equal(t, 1, calls, "ProcessBlockTransactions must be reached")
+			assert.Equal(t, tt.wantAgreed, gotAgreed)
+		})
+	}
+}

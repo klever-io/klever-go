@@ -37,7 +37,7 @@ var _ vmhost.VMHost = (*vmHost)(nil)
 const (
 	internalVMErrors = "internalVMErrors"
 
-	// importDBExecutionTimeout is used in ExecutionModeReplay (import-db replay). It is
+	// importDBExecutionTimeout is used in ExecutionModeReplay (import-db and sync replay). It is
 	// excessively permissive for any real call so that machine-speed differences never turn a
 	// network-accepted tx into a spurious timeout failure. Replay execution is bounded by gas,
 	// so a genuine infinite loop fails on out-of-gas rather than hanging for this long.

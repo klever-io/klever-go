@@ -252,6 +252,20 @@ const MetricCreatedProposedBlock = "klv_consensus_created_proposed_block"
 // subslot spare duration)
 const MetricProcessedProposedBlock = "klv_consensus_processed_proposed_block"
 
+// MetricLocalTimeoutAbstainCount counts, since the node process started (not persisted), the proposed blocks this
+// node abstained from signing because its own smart contract execution timed out on a transaction the leader recorded
+// as successful
+const MetricLocalTimeoutAbstainCount = "klv_consensus_local_timeout_abstain_count"
+
+// MetricLocalTimeoutAbstainLastContract is the address of the smart contract whose local execution timeout made this
+// node abstain most recently
+const MetricLocalTimeoutAbstainLastContract = "klv_consensus_local_timeout_abstain_last_contract"
+
+// MetricLeaderTimeoutRefusedCount counts, since the node process started (not persisted), the proposed blocks this
+// node refused to sign because the leader recorded a smart contract timeout for a transaction this node executed well
+// below the tolerance band
+const MetricLeaderTimeoutRefusedCount = "klv_consensus_leader_timeout_refused_count"
+
 // MetricRedundancyLevel is the redundancy level: -1 inactive, 0 main producer,
 // N>0 backup rank (lower N takes over sooner when upstream is silent).
 const MetricRedundancyLevel = "klv_redundancy_level" // #nosec G101: false positive

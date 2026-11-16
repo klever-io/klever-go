@@ -2,17 +2,21 @@ package bls_test
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	cMock "github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/consensus"
 	"github.com/klever-io/klever-go/core/consensus/mock"
 	"github.com/klever-io/klever-go/core/consensus/slot"
 	"github.com/klever-io/klever-go/core/consensus/slot/bls"
+	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func defaultSubslotForSRBlock(consensusState *slot.ConsensusState, ch chan bool,
@@ -809,4 +813,108 @@ func TestSubslotBlock_ReceivedBlockHeaderWithMatchingSlotShouldBeStored(t *testi
 
 	_ = sr.ReceivedBlockHeader(cnsMsg)
 	assert.NotNil(t, sr.Header, "a header matching the message slot must be accepted")
+}
+
+type statusRecorder struct {
+	mut        sync.Mutex
+	increments map[string]int
+	strings    map[string]string
+}
+
+func newStatusRecorder() (*statusRecorder, *cMock.AppStatusHandlerStub) {
+	rec := &statusRecorder{increments: map[string]int{}, strings: map[string]string{}}
+	stub := &cMock.AppStatusHandlerStub{
+		IncrementHandler: func(key string) {
+			rec.mut.Lock()
+			rec.increments[key]++
+			rec.mut.Unlock()
+		},
+		SetStringValueHandler: func(key string, value string) {
+			rec.mut.Lock()
+			rec.strings[key] = value
+			rec.mut.Unlock()
+		},
+		SetUInt64ValueHandler: func(_ string, _ uint64) {},
+		SetInt64ValueHandler:  func(_ string, _ int64) {},
+		AddUint64Handler:      func(_ string, _ uint64) {},
+		DecrementHandler:      func(_ string) {},
+	}
+	return rec, stub
+}
+
+// A proposal rejected over a smart contract timeout disagreement cancels the slot like any other
+// processing error, so this node never signs it. The live timeout reasons are additionally counted
+// in the status metrics; any other processing error leaves those metrics untouched.
+func TestSubslotBlock_ProcessReceivedBlockReportsTimeoutDisagreements(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		err              error
+		wantAbstain      int
+		wantRefused      int
+		wantLastContract string
+		// the abstention is counted, but an unknown contract must not overwrite the last known one
+		wantLastContractUnset bool
+	}{
+		{
+			name:        "local timeout abstain",
+			err:         &process.TxResultMismatchError{Reason: process.ErrLocalExecutionTimeoutAbstain, TxHash: []byte("tx"), Contract: "klv1contract"},
+			wantAbstain: 1, wantLastContract: "klv1contract",
+		},
+		{
+			name:        "local timeout abstain with unknown contract keeps the last contract",
+			err:         &process.TxResultMismatchError{Reason: process.ErrLocalExecutionTimeoutAbstain, TxHash: []byte("tx")},
+			wantAbstain: 1, wantLastContractUnset: true,
+		},
+		{
+			name:        "leader timeout refused",
+			err:         &process.TxResultMismatchError{Reason: process.ErrLeaderTimeoutRefused, TxHash: []byte("tx"), Contract: "klv1contract"},
+			wantRefused: 1,
+		},
+		{name: "plain result mismatch", err: process.ErrTransactionResultMismatch},
+		{name: "unrelated processing error", err: errors.New("unrelated")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			numSynced := 0
+			container := mock.InitConsensusCore()
+			container.SetBlockProcessor(&mock.BlockProcessorMock{
+				ProcessBlockCalled: func(_ data.HeaderHandler, _ func() time.Duration) error {
+					return tt.err
+				},
+				ProcessSyncedBlockCalled: func(_ data.HeaderHandler, _ func() time.Duration) error {
+					numSynced++
+					return nil
+				},
+			})
+			sr := *initSubslotBlock(nil, container)
+			rec, stub := newStatusRecorder()
+			require.NoError(t, sr.SetAppStatusHandler(stub))
+			sr.Header = &block.Block{Header: &block.BlockHeader{Nonce: 1}}
+
+			leader := sr.ConsensusGroup()[0]
+			cnsMsg := consensus.NewConsensusMessage(
+				[]byte("header hash"), nil, []byte("header"), []byte(leader), []byte("sig"),
+				int(bls.MtBlockHeader), 0, 0, chainID, nil, nil, nil, currentPid,
+			)
+
+			assert.False(t, sr.ProcessReceivedBlock(cnsMsg))
+			assert.True(t, sr.SlotCanceled, "the slot must be cancelled so nothing is signed")
+			assert.False(t, sr.IsJobDone(leader, bls.SrBlock))
+			assert.False(t, sr.IsSelfJobDone(bls.SrSignature))
+			assert.Equal(t, 0, numSynced, "consensus validation must use the live entry point")
+
+			rec.mut.Lock()
+			defer rec.mut.Unlock()
+			assert.Equal(t, tt.wantAbstain, rec.increments[core.MetricLocalTimeoutAbstainCount])
+			assert.Equal(t, tt.wantRefused, rec.increments[core.MetricLeaderTimeoutRefusedCount])
+			lastContract, set := rec.strings[core.MetricLocalTimeoutAbstainLastContract]
+			assert.Equal(t, tt.wantAbstain > 0 && !tt.wantLastContractUnset, set)
+			assert.Equal(t, tt.wantLastContract, lastContract)
+		})
+	}
 }

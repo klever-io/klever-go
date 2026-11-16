@@ -65,6 +65,11 @@ func (p *processor) ProcessBlock(header data.HeaderHandler, haveTime func() time
 	return nil
 }
 
+// ProcessSyncedBlock -
+func (p *processor) ProcessSyncedBlock(_ data.HeaderHandler, _ func() time.Duration) error {
+	return nil
+}
+
 // PruneStateOnRollback recreates thee state tries to the root hashes indicated by the provided header
 func (p *processor) PruneStateOnRollback(currHeader data.HeaderHandler, prevHeader data.HeaderHandler) {
 

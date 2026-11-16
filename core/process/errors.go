@@ -1,7 +1,9 @@
 package process
 
 import (
+	"encoding/hex"
 	"errors"
+	"fmt"
 
 	"github.com/klever-io/klever-go/common"
 )
@@ -463,6 +465,38 @@ var ErrTransactionResultMismatch = errors.New("transaction result does not match
 
 // ErrTransactionResultMismatchAcceptLeader signals that transaction execution result does not match consensus - accept leader
 var ErrTransactionResultMismatchAcceptLeader = errors.New("transaction result does not match consensus - accept leader")
+
+// ErrLocalExecutionTimeoutAbstain signals that, while validating a proposed block, the local smart
+// contract execution hit the VM timeout for a transaction the leader recorded as successful. The
+// node cannot vouch for that result, so it abstains from signing. It matches
+// ErrTransactionResultMismatch through errors.Is, so every caller that rejects a block on a result
+// mismatch keeps doing so.
+var ErrLocalExecutionTimeoutAbstain = fmt.Errorf("%w: local smart contract execution timed out where the leader succeeded",
+	ErrTransactionResultMismatch)
+
+// ErrLeaderTimeoutRefused signals that, while validating a proposed block, the leader recorded a
+// smart contract timeout for a transaction the local node executed well below the tolerance band.
+// It matches ErrTransactionResultMismatch through errors.Is.
+var ErrLeaderTimeoutRefused = fmt.Errorf("%w: leader recorded a smart contract timeout below the tolerance band",
+	ErrTransactionResultMismatch)
+
+// TxResultMismatchError carries the transaction and contract a result mismatch was detected on.
+// It unwraps to Reason, so errors.Is matches the reason and everything the reason wraps.
+type TxResultMismatchError struct {
+	Reason   error
+	TxHash   []byte
+	Contract string
+}
+
+// Error returns the reason, followed by the transaction hash and contract address
+func (e *TxResultMismatchError) Error() string {
+	return fmt.Sprintf("%v: tx %s, contract %s", e.Reason, hex.EncodeToString(e.TxHash), e.Contract)
+}
+
+// Unwrap returns the reason of the mismatch
+func (e *TxResultMismatchError) Unwrap() error {
+	return e.Reason
+}
 
 // ErrNilNetworkWatcher signals that a nil network watcher has been provided
 var ErrNilNetworkWatcher = errors.New("nil network watcher")
