@@ -20,18 +20,20 @@ const (
 
 	iTOsIndex = "itos"
 
-	marketplaceOrdersIndex = "marketplaceorders"
-	accountsIndex          = "accounts"
-	peersAccountsIndex     = "peersaccounts"
-	accountsKDAIndex       = "accountskda"
-	accountsHistoryIndex   = "accountshistory"
-	epochIndex             = "epoch"
-	kdaPoolsIndex          = "kdapools"
+	marketplaceOrdersIndex  = "marketplaceorders"
+	accountsIndex           = "accounts"
+	peersAccountsIndex      = "peersaccounts"
+	accountsKDAIndex        = "accountskda"
+	accountsHistoryIndex    = "accountshistory"
+	accountsKDAHistoryIndex = "accountskdahistory"
+	epochIndex              = "epoch"
+	kdaPoolsIndex           = "kdapools"
 
-	txPolicy              = "transactions_policy"
-	blockPolicy           = "blocks_policy"
-	ratingPolicy          = "rating_policy"
-	accountsHistoryPolicy = "accountshistory_policy"
+	txPolicy                 = "transactions_policy"
+	blockPolicy              = "blocks_policy"
+	ratingPolicy             = "rating_policy"
+	accountsHistoryPolicy    = "accountshistory_policy"
+	accountsKDAHistoryPolicy = "accountskdahistory_policy"
 
 	// BulkTopic is the identifier for the bulk requests metrics
 	bulkTopic string = "req_bulk"

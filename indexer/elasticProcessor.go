@@ -201,7 +201,7 @@ func (ei *elasticProcessor) initNoKibana(indexTemplates map[string]*bytes.Buffer
 
 // nolint: unused
 func (ei *elasticProcessor) createIndexPolicies(indexPolicies map[string]*bytes.Buffer) error {
-	indexesPolicies := []string{txPolicy, blockPolicy, ratingPolicy, accountsHistoryPolicy}
+	indexesPolicies := []string{txPolicy, blockPolicy, ratingPolicy, accountsHistoryPolicy, accountsKDAHistoryPolicy}
 	for _, indexPolicyName := range indexesPolicies {
 		indexPolicy := getTemplateByName(indexPolicyName, indexPolicies)
 		if indexPolicy != nil {
@@ -239,6 +239,7 @@ func (ei *elasticProcessor) createIndexTemplates(indexTemplates map[string]*byte
 		assetsIndex,
 		proposalsIndex,
 		accountsHistoryIndex,
+		accountsKDAHistoryIndex,
 		peersAccountsIndex,
 		kdaPoolsIndex,
 		iTOsIndex,
@@ -257,7 +258,7 @@ func (ei *elasticProcessor) createIndexTemplates(indexTemplates map[string]*byte
 }
 
 func (ei *elasticProcessor) createIndexes() error {
-	indexes := []string{txIndex, blockIndex, accountsIndex, accountsKDAIndex, assetsIndex, proposalsIndex, accountsHistoryIndex, peersAccountsIndex, kdaPoolsIndex, iTOsIndex}
+	indexes := []string{txIndex, blockIndex, accountsIndex, accountsKDAIndex, assetsIndex, proposalsIndex, accountsHistoryIndex, accountsKDAHistoryIndex, peersAccountsIndex, kdaPoolsIndex, iTOsIndex}
 	for _, index := range indexes {
 		indexName := fmt.Sprintf("%s-000001", index)
 		err := ei.elasticClient.CheckAndCreateIndex(indexName)
@@ -306,6 +307,7 @@ func (ei *elasticProcessor) createAliases() error {
 		assetsIndex,
 		proposalsIndex,
 		accountsHistoryIndex,
+		accountsKDAHistoryIndex,
 		peersAccountsIndex,
 		kdaPoolsIndex,
 		iTOsIndex,
@@ -384,13 +386,20 @@ func (ei *elasticProcessor) RemoveTransactions(blk nodeData.HeaderHandler) error
 	return ei.elasticClient.DoBulkRemove(txIndex, encodedTXsHashes)
 }
 
-// RemoveAccountsHistory will remove account history entries for a specific timestamp
+// RemoveAccountsHistory will remove the native and KDA account history entries for a specific timestamp
 func (ei *elasticProcessor) RemoveAccountsHistory(blockTimestamp int64) error {
-	if !ei.isIndexEnabled(accountsHistoryIndex) {
-		return nil
+	for _, index := range []string{accountsHistoryIndex, accountsKDAHistoryIndex} {
+		if !ei.isIndexEnabled(index) {
+			continue
+		}
+
+		err := ei.elasticClient.DoBulkRemoveByTimestamp(index, toMilliseconds(blockTimestamp))
+		if err != nil {
+			return err
+		}
 	}
 
-	return ei.elasticClient.DoBulkRemoveByTimestamp(accountsHistoryIndex, toMilliseconds(blockTimestamp))
+	return nil
 }
 
 // RevertAccountBalances reverts the accounts index to the current state from the account trie
@@ -1534,7 +1543,9 @@ func (ei *elasticProcessor) indexAlteredAccounts(
 	if err := serializeAccountsKDA(block.AccountsKDA, buffSlice); err != nil {
 		return err
 	}
-	// ei.saveAccountsKDAHistory(blockTimestamp, block.AccountsKDA)
+	if err := ei.saveAccountsKDAHistory(blockTimestamp, block.AccountsKDA, buffSlice); err != nil {
+		return err
+	}
 
 	return ei.indexResolvedAccounts(blockTimestamp, block.Accounts, buffSlice)
 }
@@ -1865,6 +1876,29 @@ func (ei *elasticProcessor) indexResolvedAccounts(
 	}
 
 	return ei.saveAccountsHistory(blockTimestamp, accountsInfo)
+}
+
+// saveAccountsKDAHistory writes one accountskdahistory row per altered (address, asset) into
+// the block's bulk buffer. A balance that dropped to zero is still written: unlike the
+// accountskda current state, which deletes the document, history keeps that point.
+func (ei *elasticProcessor) saveAccountsKDAHistory(blockTimestamp int64, accountsKDA []*data.AccountKDA, buffSlice *data.BufferSlice) error {
+	if !ei.isIndexEnabled(accountsKDAHistoryIndex) {
+		return nil
+	}
+
+	rows := make(map[string]*data.AccountBalanceHistory, len(accountsKDA))
+	for _, acc := range accountsKDA {
+		rows[fmt.Sprintf("%s-%s_%d", acc.AccountAddress, acc.AssetID, blockTimestamp)] = &data.AccountBalanceHistory{
+			Address:         acc.AccountAddress,
+			TokenIdentifier: acc.AssetID,
+			Balance:         acc.Balance,
+			FrozenBalance:   acc.FrozenBalance,
+			UnfrozenBalance: acc.UnfrozenBalance,
+			Timestamp:       toMilliseconds(blockTimestamp),
+		}
+	}
+
+	return serializeAccountsHistory(rows, buffSlice, accountsKDAHistoryIndex)
 }
 
 func (ei *elasticProcessor) saveAccountsHistory(blockTimestamp int64, accountsInfoMap map[string]*data.AccountInfo) error {
