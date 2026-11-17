@@ -306,10 +306,10 @@ func TestNewElasticProcessor_OnAFreshClusterWritesTheTransactionsTemplateTwiceIn
 	require.Equal(t, want, indexTemplates[txIndex].Bytes(), "start-up must leave the shared buffer intact")
 }
 
-// TestCreateSteps_ARefusalIsAnError pins that a template, index or alias the cluster refuses
-// stops start-up instead of being closed and forgotten, and that an index which exists by
-// the time the create arrives is not an error, since that is what the call wanted.
-func TestCreateSteps_ARefusalIsAnError(t *testing.T) {
+// TestCreateSteps_ARefusalIsNotAnError pins that a template, index or alias the cluster refuses
+// does not stop start-up, and that an index which exists by the time the create arrives is
+// not an error either. An unreachable cluster is still an error.
+func TestCreateSteps_ARefusalIsNotAnError(t *testing.T) {
 	t.Parallel()
 
 	t.Run("template", func(t *testing.T) {
@@ -318,9 +318,9 @@ func TestCreateSteps_ARefusalIsAnError(t *testing.T) {
 		cluster := &mappingCluster{rejectPut: true}
 		server := serve(t, cluster)
 
-		err := newMappingClient(t, server.URL).CheckAndCreateTemplate(txIndex, addedProperties.ToBuffer())
-		require.ErrorIs(t, err, ErrCouldNotCreateTemplate)
-		require.ErrorContains(t, err, "bad template", "the cluster's reason must reach the operator")
+		require.NoError(t, newMappingClient(t, server.URL).CheckAndCreateTemplate(txIndex, addedProperties.ToBuffer()))
+		require.Equal(t, []string{"HEAD /_template/transactions", "PUT /_template/transactions"}, cluster.seen(),
+			"the premise: the existence check said no, the create was sent, the cluster refused it")
 	})
 
 	t.Run("index", func(t *testing.T) {
@@ -329,9 +329,9 @@ func TestCreateSteps_ARefusalIsAnError(t *testing.T) {
 		cluster := &mappingCluster{rejectPut: true}
 		server := serve(t, cluster)
 
-		err := newMappingClient(t, server.URL).CheckAndCreateIndex("transactions-000001")
-		require.ErrorIs(t, err, ErrCouldNotCreateIndex)
-		require.ErrorContains(t, err, "bad index")
+		require.NoError(t, newMappingClient(t, server.URL).CheckAndCreateIndex("transactions-000001"))
+		require.Equal(t, []string{"HEAD /transactions-000001", "PUT /transactions-000001"}, cluster.seen(),
+			"the premise: the existence check said no, the create was sent, the cluster refused it")
 	})
 
 	t.Run("index that exists by the time the create arrives", func(t *testing.T) {
@@ -351,21 +351,21 @@ func TestCreateSteps_ARefusalIsAnError(t *testing.T) {
 		cluster := &mappingCluster{rejectPut: true}
 		server := serve(t, cluster)
 
-		err := newMappingClient(t, server.URL).CheckAndCreateAlias(txIndex, "transactions-000001")
-		require.ErrorIs(t, err, ErrCouldNotCreateAlias)
-		require.ErrorContains(t, err, "bad alias")
+		require.NoError(t, newMappingClient(t, server.URL).CheckAndCreateAlias(txIndex, "transactions-000001"))
+		require.Equal(t, []string{"HEAD /_alias/transactions", "PUT /transactions-000001/_aliases/transactions"}, cluster.seen(),
+			"the premise: the existence check said no, the create was sent, the cluster refused it")
 	})
 
-	t.Run("an unreachable cluster is an error naming the resource", func(t *testing.T) {
+	t.Run("an unreachable cluster is an error", func(t *testing.T) {
 		t.Parallel()
 
 		server := serve(t, &mappingCluster{})
 		server.Close()
 		client := newMappingClient(t, server.URL)
 
-		require.ErrorIs(t, client.CheckAndCreateTemplate(txIndex, addedProperties.ToBuffer()), ErrCouldNotCreateTemplate)
-		require.ErrorIs(t, client.CheckAndCreateIndex("transactions-000001"), ErrCouldNotCreateIndex)
-		require.ErrorIs(t, client.CheckAndCreateAlias(txIndex, "transactions-000001"), ErrCouldNotCreateAlias)
+		require.Error(t, client.CheckAndCreateTemplate(txIndex, addedProperties.ToBuffer()))
+		require.Error(t, client.CheckAndCreateIndex("transactions-000001"))
+		require.Error(t, client.CheckAndCreateAlias(txIndex, "transactions-000001"))
 	})
 }
 

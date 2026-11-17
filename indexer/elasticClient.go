@@ -567,18 +567,17 @@ func (ec *elasticClient) aliasExists(alias string) bool {
 	return exists(response, nil)
 }
 
-// createIndex creates an elasticsearch index. A refusal is an error: the first document
-// would otherwise create the index with a dynamic mapping and nothing would say why. An
-// index that exists by the time the create arrives, because the existence check answered
-// false on a transport error or another node created it first, is the outcome this call
-// wanted, and the response handler treats it as success.
+// CreateIndex creates an elasticsearch index
 func (ec *elasticClient) createIndex(index string) error {
 	res, err := ec.es.Indices.Create(index)
-	if err == nil {
-		err = parseResponse(res, nil, elasticDefaultErrorResponseHandler)
-	}
 	if err != nil {
-		return fmt.Errorf("%w: index %s: %w", ErrCouldNotCreateIndex, index, err)
+		return err
+	}
+
+	defer closeResponseBody(res, "elasticClient.createIndex")
+
+	if res.IsError() {
+		log.Warn("elasticClient.createIndex", "index", index, "response", res.String())
 	}
 
 	return nil
@@ -625,31 +624,33 @@ func (ec *elasticClient) createPolicy(policyName string, policy *bytes.Buffer) e
 	return nil
 }
 
-// createIndexTemplate creates an elasticsearch index template. A template the cluster
-// refuses is an error: indices created without it would type every field dynamically, and
-// nothing later would say why.
+// CreateIndexTemplate creates an elasticsearch index template
 func (ec *elasticClient) createIndexTemplate(templateName string, template io.Reader) error {
 	res, err := ec.es.Indices.PutTemplate(templateName, template)
-	if err == nil {
-		err = parseResponse(res, nil, elasticDefaultErrorResponseHandler)
-	}
 	if err != nil {
-		return fmt.Errorf("%w: template %s: %w", ErrCouldNotCreateTemplate, templateName, err)
+		return err
+	}
+
+	defer closeResponseBody(res, "elasticClient.createIndexTemplate")
+
+	if res.IsError() {
+		log.Warn("elasticClient.createIndexTemplate", "template", templateName, "response", res.String())
 	}
 
 	return nil
 }
 
-// createAlias creates an index alias. A refusal is an error, since every write and read
-// goes through the alias; an alias that already exists is treated as success by the
-// response handler.
+// CreateAlias creates an index alias
 func (ec *elasticClient) createAlias(alias string, index string) error {
 	res, err := ec.es.Indices.PutAlias([]string{index}, alias)
-	if err == nil {
-		err = parseResponse(res, nil, elasticDefaultErrorResponseHandler)
-	}
 	if err != nil {
-		return fmt.Errorf("%w: alias %s on %s: %w", ErrCouldNotCreateAlias, alias, index, err)
+		return err
+	}
+
+	defer closeResponseBody(res, "elasticClient.createAlias")
+
+	if res.IsError() {
+		log.Warn("elasticClient.createAlias", "alias", alias, "index", index, "response", res.String())
 	}
 
 	return nil
