@@ -15,7 +15,9 @@ import (
 	imock "github.com/klever-io/klever-go/integrationTest/mock"
 	kvmConfig "github.com/klever-io/klever-go/kvm/config"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/sharding/mock"
+	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/klever-io/klever-go/vmcommon/parsers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -208,6 +210,79 @@ func getWasmVMVersion(t testing.TB, container process.VirtualMachinesContainer) 
 	require.NotNil(t, vm)
 
 	return vm.GetVersion()
+}
+
+func TestVmContainerFactory_KeepsWasmVMWhenVersionMatchesHost(t *testing.T) {
+	for _, version := range []string{vmhost.VMVersion, "*"} {
+		t.Run(version, func(t *testing.T) {
+			epochNotifierInstance := notifier.NewGenericEpochNotifier()
+
+			args := createMockVMAccountsArguments()
+			args.Config = config.VirtualMachineConfig{
+				WasmVMVersions: []config.WasmVMVersionByEpoch{{StartEpoch: 0, Version: version}},
+			}
+			args.EpochNotifier = epochNotifierInstance
+			vmf, err := NewVMContainerFactory(args)
+			require.Nil(t, err)
+
+			container, err := vmf.Create()
+			require.Nil(t, err)
+			defer func() {
+				_ = container.Close()
+			}()
+			initialVM := getWasmVM(t, container)
+
+			vmf.EpochConfirmed(epochNotifierInstance.CurrentEpoch())
+			require.Same(t, initialVM, getWasmVM(t, container))
+
+			epochNotifierInstance.CheckEpoch(1)
+			require.Same(t, initialVM, getWasmVM(t, container))
+
+			epochNotifierInstance.CheckEpoch(999)
+			require.Same(t, initialVM, getWasmVM(t, container))
+		})
+	}
+}
+
+func TestVmContainerFactory_ReplacesWasmVMWhenVersionDiffersFromHost(t *testing.T) {
+	epochNotifierInstance := notifier.NewGenericEpochNotifier()
+
+	args := createMockVMAccountsArguments()
+	args.Config = config.VirtualMachineConfig{
+		WasmVMVersions: []config.WasmVMVersionByEpoch{{StartEpoch: 0, Version: "v1.0"}},
+	}
+	args.EpochNotifier = epochNotifierInstance
+	vmf, err := NewVMContainerFactory(args)
+	require.Nil(t, err)
+
+	container, err := vmf.Create()
+	require.Nil(t, err)
+	defer func() {
+		_ = container.Close()
+	}()
+	initialVM := getWasmVM(t, container)
+
+	epochNotifierInstance.CheckEpoch(1)
+	replacedVM := getWasmVM(t, container)
+	require.NotSame(t, initialVM, replacedVM)
+
+	epochNotifierInstance.CheckEpoch(2)
+	require.NotSame(t, replacedVM, getWasmVM(t, container))
+}
+
+func TestMatchesHostWasmVMVersion(t *testing.T) {
+	require.True(t, matchesHostWasmVMVersion(vmhost.VMVersion))
+	require.True(t, matchesHostWasmVMVersion("*"))
+	require.False(t, matchesHostWasmVMVersion("v1.0"))
+	require.False(t, matchesHostWasmVMVersion(""))
+}
+
+func getWasmVM(t testing.TB, container process.VirtualMachinesContainer) vmcommon.VMExecutionHandler {
+	vm, err := container.Get(common.WasmVirtualMachine)
+	require.Nil(t, err)
+	require.NotNil(t, vm)
+
+	return vm
 }
 
 func TestGetMatchingVersion(t *testing.T) {
