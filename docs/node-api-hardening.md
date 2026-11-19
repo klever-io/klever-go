@@ -84,11 +84,16 @@ Add `secured: true`, or set `open: false`, on each of them.
 
 **`/debug/pprof/*`** — registered only when the node runs with `--profile-mode` and `debug` `/pprof`
 is `open: true` in `api.yaml`. The shipped file has `open: false` and `secured: true`, so the routes
-stay off until an operator opens them. `secured: true` adds Basic Auth. Heap and goroutine profiles
-return sampled allocation stacks and goroutine stacks. `/debug/pprof/cmdline` is not served: the
-command line can carry `--ws-conn-api-key` or `--bugsnag-key`. A `seconds` value above 60 is refused.
-An `api.yaml` from before the `debug` package does not register the routes; with `--profile-mode`
-set, the node logs a warning (`network/api/api.go`). Keep the API on loopback while profiling.
+stay off until an operator opens them. `secured: true` adds Basic Auth. The auth handler is shared
+across routes, so any credential in `api.yaml` — including one handed to a monitor for
+`/node/heartbeatstatus` — can also pull heap and goroutine profiles once `/pprof` is open; keep it
+`open: false` except while profiling. Heap and goroutine profiles return sampled allocation stacks
+and goroutine stacks. `/debug/pprof/cmdline` is not served: the command line can carry
+`--ws-conn-api-key` or `--bugsnag-key`. A `seconds` value above 60 is refused. An `api.yaml` from
+before the `debug` package does not register the routes; with `--profile-mode` set, the node logs a
+warning (`network/api/api.go`). Loopback is not a safeguard on its own: the API serves
+`cors.Default()` (all origins), so a page the operator has open can read these profiles over
+`Access-Control-Allow-Origin: *`. Prefer `secured: true` whenever `/pprof` is open, even on loopback.
 
 **`/swagger/*`** — registered unconditionally when the API starts (`network/api/api.go`), before the
 `api.yaml` routes: no `open`/`secured` flag, no Basic Auth, and unlike `/debug/pprof/*` not even a
@@ -310,7 +315,7 @@ disabled unless you are actively tailing it.
 - [ ] `/node/debug`, `/node/peerinfo`, `/node/p2pstatus` and `/node/heartbeatstatus` secured or
       disabled — shipped secured, but an `api.yaml` from before the upgrade is not rewritten
 - [ ] Seednode `/peers` disabled or secured unless network topology is meant to be public
-- [ ] `--profile-mode` off, or `debug` `/pprof` left `open: false`, unless you are profiling. If it is open, keep `secured: true` unless the API is loopback-only
+- [ ] `--profile-mode` off, or `debug` `/pprof` left `open: false`, unless you are profiling. If it is open, keep `secured: true` — loopback is not enough on its own, since a page the operator has open can reach it through `cors.Default()`
 - [ ] `/swagger` blocked at the proxy if you do not want the API surface enumerated
 - [ ] `webSocketConnectionsPerIP` and `logWebSocketConnectionsPerIP` adjusted if behind a proxy
 - [ ] `logWebSocketConnections` sized for the deployment — `0` falls back to the built-in 32

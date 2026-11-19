@@ -263,7 +263,7 @@ func registerPprof(ws *gin.Engine, routesConfig config.APIRoutesConfig, authHand
 // hidePprofCmdline answers 404 on /cmdline: it returns the full argv, and the node takes
 // secrets as flags (--ws-conn-api-key, --bugsnag-key).
 func hidePprofCmdline(c *gin.Context) {
-	if c.FullPath() == "/debug/pprof/cmdline" {
+	if c.FullPath() == pprof.DefaultPrefix+"/cmdline" {
 		c.AbortWithStatus(http.StatusNotFound)
 	}
 }
@@ -279,7 +279,7 @@ func rejectLongPprof(c *gin.Context) {
 	if err != nil || sec <= maxPprofSeconds {
 		return
 	}
-	c.String(http.StatusBadRequest, "seconds must be at most 60")
+	c.String(http.StatusBadRequest, "seconds must be at most "+strconv.Itoa(maxPprofSeconds))
 	c.Abort()
 }
 

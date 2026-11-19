@@ -126,14 +126,7 @@ func subscribeStatus(t *testing.T, cfg config.APIRoutesConfig) int {
 
 func registeredRouteStatus(t *testing.T, cfg config.APIRoutesConfig, path string) int {
 	t.Helper()
-	ws := gin.New()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	RegisterRoutes(ctx, ws, cfg, &mock.Facade{})
-
-	resp := httptest.NewRecorder()
-	ws.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, path, nil))
-	return resp.Code
+	return pprofServe(t, false, cfg, httptest.NewRequest(http.MethodGet, path, nil)).Code
 }
 
 // secured:true must enforce auth before the upgrade — an unauthenticated handshake is
