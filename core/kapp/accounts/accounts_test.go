@@ -7910,6 +7910,7 @@ func TestFullySplitPercentageRoyalty_CannotMintPastSupply(t *testing.T) {
 		FixAuditChangesV5:    4,
 		FixAuditChangesV6:    5,
 		FixAuditChangesV7:    6,
+		FixAuditChangesV8:    7,
 	}
 	require.NoError(t, fixOff.Validate())
 

@@ -17,6 +17,7 @@ func TestEnableEpochs_Validate(t *testing.T) {
 		FixAuditChangesV5:    102,
 		FixAuditChangesV6:    103,
 		FixAuditChangesV7:    104,
+		FixAuditChangesV8:    105,
 	}.Validate())
 
 	assert.Error(t, config.EnableEpochs{
@@ -25,6 +26,7 @@ func TestEnableEpochs_Validate(t *testing.T) {
 		FixAuditChangesV5:    102,
 		FixAuditChangesV6:    103,
 		FixAuditChangesV7:    104,
+		FixAuditChangesV8:    105,
 	}.Validate(), "same epoch leaves an empty freeze window")
 	assert.Error(t, config.EnableEpochs{
 		FixMarketBuyOverflow: 100,
@@ -32,6 +34,7 @@ func TestEnableEpochs_Validate(t *testing.T) {
 		FixAuditChangesV5:    102,
 		FixAuditChangesV6:    103,
 		FixAuditChangesV7:    104,
+		FixAuditChangesV8:    105,
 	}.Validate(), "thaw before freeze leaves an empty freeze window")
 	assert.Error(t, config.EnableEpochs{FixMarketBuyOverflow: 100}.Validate(),
 		"thaw left at the placeholder leaves an empty freeze window")
@@ -50,6 +53,7 @@ func TestEnableEpochs_Validate_AuditChangesV5AfterV4(t *testing.T) {
 		FixAuditChangesV5:    101,
 		FixAuditChangesV6:    102,
 		FixAuditChangesV7:    103,
+		FixAuditChangesV8:    104,
 	}.Validate(), "sharing V4's epoch applies the V5 changes retroactively")
 	assert.Error(t, config.EnableEpochs{
 		FixMarketBuyOverflow: 100,
@@ -57,12 +61,14 @@ func TestEnableEpochs_Validate_AuditChangesV5AfterV4(t *testing.T) {
 		FixAuditChangesV5:    100,
 		FixAuditChangesV6:    102,
 		FixAuditChangesV7:    103,
+		FixAuditChangesV8:    104,
 	}.Validate(), "V5 before V4 applies the V5 changes retroactively")
 	assert.Error(t, config.EnableEpochs{
 		FixMarketBuyOverflow: 100,
 		FixAuditChangesV4:    101,
 		FixAuditChangesV6:    102,
 		FixAuditChangesV7:    103,
+		FixAuditChangesV8:    104,
 	}.Validate(), "V5 left at the placeholder activates from genesis")
 }
 
@@ -82,8 +88,8 @@ func TestEnableEpochs_Validate_SmartContractsNotBeforeProcessorFlowITOPrice(t *t
 func TestEnableEpochs_Validate_AuditChangesV6NotBeforeBigBucketsCompute(t *testing.T) {
 	t.Parallel()
 
-	assert.NoError(t, config.EnableEpochs{BigBucketsCompute: 1196, FixAuditChangesV6: 6200, FixAuditChangesV7: 6201}.Validate(), "mainnet schedule")
-	assert.NoError(t, config.EnableEpochs{BigBucketsCompute: 100, FixAuditChangesV6: 100, FixAuditChangesV7: 101}.Validate(),
+	assert.NoError(t, config.EnableEpochs{BigBucketsCompute: 1196, FixAuditChangesV6: 6200, FixAuditChangesV7: 6201, FixAuditChangesV8: 6202}.Validate(), "mainnet schedule")
+	assert.NoError(t, config.EnableEpochs{BigBucketsCompute: 100, FixAuditChangesV6: 100, FixAuditChangesV7: 101, FixAuditChangesV8: 102}.Validate(),
 		"V6 claims use the checked arithmetic from the first block of a shared epoch")
 
 	assert.Error(t, config.EnableEpochs{BigBucketsCompute: 101, FixAuditChangesV6: 100}.Validate(),
@@ -98,7 +104,7 @@ func TestEnableEpochs_Validate_AuditChangesV7AfterV6(t *testing.T) {
 	// V6 still at the placeholder is a template rather than a real schedule, so the
 	// ordering is not enforced against it.
 	assert.NoError(t, config.EnableEpochs{}.Validate(), "template placeholder")
-	assert.NoError(t, config.EnableEpochs{FixAuditChangesV7: 5}.Validate(), "V7 scheduled with V6 at the placeholder")
+	assert.NoError(t, config.EnableEpochs{FixAuditChangesV7: 5, FixAuditChangesV8: 6}.Validate(), "V7 scheduled with V6 at the placeholder")
 
 	assert.ErrorContains(t, config.EnableEpochs{
 		FixMarketBuyOverflow: 100,
@@ -123,4 +129,40 @@ func TestEnableEpochs_Validate_AuditChangesV7AfterV6(t *testing.T) {
 		FixAuditChangesV6:    103,
 	}.Validate(), "fixAuditChangesV7 (0) must be after fixAuditChangesV6 (103)",
 		"V7 left at the placeholder activates from genesis")
+}
+
+func TestEnableEpochs_Validate_AuditChangesV8AfterV7(t *testing.T) {
+	t.Parallel()
+
+	// V7 still at the placeholder is a template rather than a real schedule, so the
+	// ordering is not enforced against it.
+	assert.NoError(t, config.EnableEpochs{}.Validate(), "template placeholder")
+	assert.NoError(t, config.EnableEpochs{FixAuditChangesV8: 5}.Validate(), "V8 scheduled with V7 at the placeholder")
+
+	assert.ErrorContains(t, config.EnableEpochs{
+		FixMarketBuyOverflow: 100,
+		FixAuditChangesV4:    101,
+		FixAuditChangesV5:    102,
+		FixAuditChangesV6:    103,
+		FixAuditChangesV7:    104,
+		FixAuditChangesV8:    104,
+	}.Validate(), "fixAuditChangesV8 (104) must be after fixAuditChangesV7 (104)",
+		"sharing V7's epoch applies the V8 changes retroactively")
+	assert.ErrorContains(t, config.EnableEpochs{
+		FixMarketBuyOverflow: 100,
+		FixAuditChangesV4:    101,
+		FixAuditChangesV5:    102,
+		FixAuditChangesV6:    103,
+		FixAuditChangesV7:    104,
+		FixAuditChangesV8:    103,
+	}.Validate(), "fixAuditChangesV8 (103) must be after fixAuditChangesV7 (104)",
+		"V8 before V7 applies the V8 changes retroactively")
+	assert.ErrorContains(t, config.EnableEpochs{
+		FixMarketBuyOverflow: 100,
+		FixAuditChangesV4:    101,
+		FixAuditChangesV5:    102,
+		FixAuditChangesV6:    103,
+		FixAuditChangesV7:    104,
+	}.Validate(), "fixAuditChangesV8 (0) must be after fixAuditChangesV7 (104)",
+		"V8 left at the placeholder activates from genesis")
 }

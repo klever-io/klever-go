@@ -51,6 +51,7 @@ func TestForkController_FlagsToggleAtConfiguredEpoch(t *testing.T) {
 		FixAuditChangesV5:       14,
 		FixAuditChangesV6:       15,
 		FixAuditChangesV7:       16,
+		FixAuditChangesV8:       17,
 	}
 	fc := &forkController{enableEpochs: cfg}
 
@@ -75,6 +76,7 @@ func TestForkController_FlagsToggleAtConfiguredEpoch(t *testing.T) {
 		{"FixAuditChangesV5", cfg.FixAuditChangesV5, fc.FixAuditChangesV5},
 		{"FixAuditChangesV6", cfg.FixAuditChangesV6, fc.FixAuditChangesV6},
 		{"FixAuditChangesV7", cfg.FixAuditChangesV7, fc.FixAuditChangesV7},
+		{"FixAuditChangesV8", cfg.FixAuditChangesV8, fc.FixAuditChangesV8},
 	}
 
 	maxEpoch := uint32(0)
@@ -98,6 +100,7 @@ func TestForkController_InEpochGatesIgnoreConfirmedEpoch(t *testing.T) {
 		FixAuditChangesV5: 14,
 		FixAuditChangesV6: 15,
 		FixAuditChangesV7: 16,
+		FixAuditChangesV8: 17,
 	}
 	fc := &forkController{enableEpochs: cfg}
 	fc.EpochConfirmed(0)
@@ -105,10 +108,13 @@ func TestForkController_InEpochGatesIgnoreConfirmedEpoch(t *testing.T) {
 	require.False(t, fc.FixAuditChangesV5())
 	require.False(t, fc.FixAuditChangesV6())
 	require.False(t, fc.FixAuditChangesV7())
+	require.False(t, fc.FixAuditChangesV8())
 	require.False(t, fc.FixAuditChangesV5InEpoch(13))
 	require.True(t, fc.FixAuditChangesV5InEpoch(14))
 	require.False(t, fc.FixAuditChangesV6InEpoch(14))
 	require.True(t, fc.FixAuditChangesV6InEpoch(15))
 	require.False(t, fc.FixAuditChangesV7InEpoch(15))
 	require.True(t, fc.FixAuditChangesV7InEpoch(16))
+	require.False(t, fc.FixAuditChangesV8InEpoch(16))
+	require.True(t, fc.FixAuditChangesV8InEpoch(17))
 }
