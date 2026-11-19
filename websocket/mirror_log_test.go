@@ -20,21 +20,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// logArgCapture is a log observer and formatter in one: for lines with the given message
-// (and, when msg is set, the given "msg" field) it records the value that follows key, so
-// a test asserts on what the logger actually emitted for that field.
+// logArgCapture is a log observer and formatter in one: for the mirror's log line with the
+// given "msg" field it records the first value that follows key, so a test asserts on what
+// the logger actually emitted for that field.
 type logArgCapture struct {
-	message string
-	msg     string
-	key     string
-	mut     sync.Mutex
-	values  []string
+	msg   string
+	key   string
+	mut   sync.Mutex
+	value string
+	seen  bool
 }
 
 func (c *logArgCapture) Write(p []byte) (int, error) { return len(p), nil }
 
 func (c *logArgCapture) Output(line logger.LogLineHandler) []byte {
-	if line.GetMessage() != c.message {
+	if line.GetMessage() != postMirrorLogOp {
 		return nil
 	}
 	fields := map[string]string{}
@@ -42,12 +42,14 @@ func (c *logArgCapture) Output(line logger.LogLineHandler) []byte {
 	for i := 0; i+1 < len(args); i += 2 {
 		fields[args[i]] = decodeLogArg(args[i+1])
 	}
-	if c.msg != "" && fields["msg"] != c.msg {
+	if fields["msg"] != c.msg {
 		return nil
 	}
 	if value, ok := fields[c.key]; ok {
 		c.mut.Lock()
-		c.values = append(c.values, value)
+		if !c.seen {
+			c.value, c.seen = value, true
+		}
 		c.mut.Unlock()
 	}
 	return []byte{1}
@@ -58,10 +60,7 @@ func (c *logArgCapture) IsInterfaceNil() bool { return c == nil }
 func (c *logArgCapture) first() (string, bool) {
 	c.mut.Lock()
 	defer c.mut.Unlock()
-	if len(c.values) == 0 {
-		return "", false
-	}
-	return c.values[0], true
+	return c.value, c.seen
 }
 
 // decodeLogArg undoes the logger's hex encoding of text values. A value that does not
@@ -84,7 +83,7 @@ func decodeLogArg(value string) string {
 // and returns a getter for the first value of key it logged.
 func captureMirrorField(t *testing.T, msg, key string) func() (string, bool) {
 	t.Helper()
-	capture := &logArgCapture{message: postMirrorLogOp, msg: msg, key: key}
+	capture := &logArgCapture{msg: msg, key: key}
 	require.NoError(t, logger.AddLogObserver(capture, capture))
 	t.Cleanup(func() { assert.NoError(t, logger.RemoveLogObserver(capture)) })
 	return capture.first
