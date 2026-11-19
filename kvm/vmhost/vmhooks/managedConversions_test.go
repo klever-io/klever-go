@@ -1740,3 +1740,64 @@ func TestReadDestinationArguments_FixAuditV6_DestinationLength(t *testing.T) {
 		})
 	}
 }
+
+func TestReadKDATransfers_RepeatedValueHandleIsNotCopiedPerRecord(t *testing.T) {
+	t.Parallel()
+
+	const numRecords = 4
+	const vecHandle, tokenHandle, valueHandle = int32(1), int32(2), int32(3)
+
+	for _, fixAuditV6 := range []bool{false, true} {
+		name := "before FixAuditChangesV6"
+		if fixAuditV6 {
+			name = "from FixAuditChangesV6"
+		}
+
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			vec := make([]byte, 0, numRecords*kdaTransferLen)
+			for i := 0; i < numRecords; i++ {
+				record := make([]byte, kdaTransferLen)
+				binary.BigEndian.PutUint32(record[0:4], uint32(tokenHandle))
+				binary.BigEndian.PutUint32(record[12:16], uint32(valueHandle))
+				vec = append(vec, record...)
+			}
+			token := []byte("klv-0123")
+			handleValue := big.NewInt(10)
+
+			mockManagedTypes := &hostmock.ManagedTypesContextMock{
+				GetLengthCalled: func(handle int32) int32 {
+					switch handle {
+					case vecHandle:
+						return int32(len(vec))
+					case tokenHandle:
+						return int32(len(token))
+					}
+					return -1
+				},
+				GetBytesCalled: func(handle int32) ([]byte, error) {
+					switch handle {
+					case vecHandle:
+						return append([]byte(nil), vec...), nil
+					case tokenHandle:
+						return append([]byte(nil), token...), nil
+					}
+					return nil, vmhost.ErrNoManagedBufferUnderThisHandle
+				},
+				GetBigIntCalled: func(handle int32) (*big.Int, error) {
+					return handleValue, nil
+				},
+			}
+			metering := kdaTransfersMetering(1_000_000_000)
+
+			res, err := readKDATransfers(kdaTransfersHost(mockManagedTypes, metering, fixAuditV6), vecHandle)
+
+			require.NoError(t, err)
+			require.Len(t, res, numRecords)
+			for _, transfer := range res {
+				require.Same(t, handleValue, transfer.KDAValue)
+			}
+		})
+	}
+}

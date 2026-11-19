@@ -502,7 +502,7 @@ func (context *runtimeContext) SetMaxInstanceStackSize(maxInstances uint64) {
 // from the provided ContractCallInput.
 func (context *runtimeContext) InitStateFromContractCallInput(input *vmcommon.ContractCallInput) {
 	context.SetVMInput(input)
-	context.codeAddress = input.RecipientAddr
+	context.codeAddress = bytes.Clone(input.RecipientAddr)
 	context.callFunction = input.Function
 
 	logRuntime.Trace("init state from call input",
@@ -622,7 +622,7 @@ func (context *runtimeContext) SetVMInput(vmInput *vmcommon.ContractCallInput) {
 
 	context.vmInput = &vmcommon.ContractCallInput{
 		VMInput:       internalVMInput,
-		RecipientAddr: vmInput.RecipientAddr,
+		RecipientAddr: bytes.Clone(vmInput.RecipientAddr),
 		Function:      vmInput.Function,
 	}
 
@@ -676,7 +676,7 @@ func (context *runtimeContext) GetContextAddress() []byte {
 
 // SetCodeAddress sets the given address as the scAddress for the current context.
 func (context *runtimeContext) SetCodeAddress(scAddress []byte) {
-	context.codeAddress = scAddress
+	context.codeAddress = bytes.Clone(scAddress)
 }
 
 // GetCurrentTxHash returns the hash of the current transaction, as specified by the current VMInput.

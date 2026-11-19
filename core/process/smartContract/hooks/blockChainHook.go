@@ -896,8 +896,8 @@ func addOutputTransferToVMOutput(
 ) {
 	outTransfer := vmcommon.OutputTransfer{
 		Index:         index,
-		SenderAddress: senderAddress,
-		RcvAddr:       recipient,
+		SenderAddress: bytes.Clone(senderAddress),
+		RcvAddr:       bytes.Clone(recipient),
 		KDATransfers:  kdaTransfer.Clone(),
 	}
 
@@ -908,7 +908,7 @@ func addOutputTransferToVMOutput(
 	outAcc, ok := vmOutput.OutputAccounts[string(recipient)]
 	if !ok {
 		vmOutput.OutputAccounts[string(recipient)] = &vmcommon.OutputAccount{
-			Address:         recipient,
+			Address:         bytes.Clone(recipient),
 			OutputTransfers: []vmcommon.OutputTransfer{outTransfer},
 		}
 		return
