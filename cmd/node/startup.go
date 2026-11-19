@@ -1030,6 +1030,10 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		currentNode.GetPeerHonestyHandler(),
 		currentNode.GetHeartbeatHandler(),
 	}
+	if !check.IfNil(processComponents.CompiledCodeWarmer) {
+		// KLC-3001: stop the warm-up worker before the stores and tries it reads are closed
+		backgroundClosers = append(backgroundClosers, processComponents.CompiledCodeWarmer)
+	}
 
 	log.Trace("creating klever node facade")
 	restAPIServerDebugMode := ctx.GlobalBool(restAPIDebug.Name)

@@ -53,3 +53,8 @@ func (adb *AccountsDB) TryLockMutOp() bool {
 	adb.mutOp.Unlock()
 	return true
 }
+
+// NumTrackedDataTries returns how many data tries the adapter tracks for the next Commit
+func (adb *AccountsDB) NumTrackedDataTries() int {
+	return len(adb.dataTries.GetAll())
+}

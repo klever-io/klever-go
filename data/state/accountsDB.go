@@ -646,6 +646,34 @@ func (adb *AccountsDB) getAccount(address []byte) (AccountHandler, error) {
 	return acnt, nil
 }
 
+// GetAccountCodeHash returns the code hash of an existing account. Unlike GetExistingAccount
+// it does not load the account's data trie, so it leaves the data tries tracked for the next
+// Commit untouched; it is meant for readers outside block processing (KLC-3001). An account
+// that is not a user account, or has no code, yields an empty hash.
+func (adb *AccountsDB) GetAccountCodeHash(address []byte) ([]byte, error) {
+	adb.mutOp.Lock()
+	defer adb.mutOp.Unlock()
+
+	if len(address) == 0 {
+		return nil, fmt.Errorf("%w in GetAccountCodeHash", common.ErrNilAddress)
+	}
+
+	acnt, err := adb.getAccount(address)
+	if err != nil {
+		return nil, err
+	}
+	if check.IfNil(acnt) {
+		return nil, common.ErrAccNotFound
+	}
+
+	userAccount, ok := acnt.(UserAccountHandler)
+	if !ok {
+		return nil, nil
+	}
+
+	return userAccount.GetCodeHash(), nil
+}
+
 // GetExistingAccount returns an existing account if exists or nil if missing
 func (adb *AccountsDB) GetExistingAccount(address []byte) (AccountHandler, error) {
 	adb.mutOp.Lock()

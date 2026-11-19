@@ -7,7 +7,6 @@ import (
 	builtinMath "math"
 
 	logger "github.com/klever-io/klever-go-logger"
-	"github.com/klever-io/klever-go/kvm/config"
 	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/kvm/wasmbytes"
@@ -212,20 +211,16 @@ func (context *runtimeContext) startWasmerInstance(contract []byte, gasLimit uin
 // They must stay identical: the same contract has to compile the same way whether it
 // comes from bytecode or from the compiled-code cache, or the two paths could meter
 // the same call differently.
+//
+// KLC-3001: the body lives in BuildCompilationOptions so the compiled-code warmer
+// builds byte-for-byte the same options from the same gas schedule and fork flags.
 func (context *runtimeContext) compilationOptions(gasLimit uint64) executor.CompilationOptions {
-	gasSchedule := context.host.Metering().GasSchedule()
-
-	return executor.CompilationOptions{
-		GasLimit:                gasLimit,
-		UnmeteredLocals:         uint64(gasSchedule.WASMOpcodeCost.LocalsUnmetered),
-		MaxMemoryGrow:           uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrow),
-		MaxMemoryGrowDelta:      uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrowDelta),
-		MaxDeclaredTableSize:    context.effectiveMaxDeclaredTableSize(gasSchedule),
-		TableInitPerElementCost: context.effectiveTableInitPerElementCost(gasSchedule),
-		OpcodeTrace:             false,
-		Metering:                true,
-		RuntimeBreakpoints:      true,
-	}
+	return BuildCompilationOptions(
+		context.host.Metering().GasSchedule(),
+		context.isTableCheckActive(),
+		context.isTableInitPerElementChargeActive(),
+		gasLimit,
+	)
 }
 
 func (context *runtimeContext) makeInstanceFromCompiledCode(gasLimit uint64, newCode bool) (bool, error) {
@@ -272,21 +267,6 @@ func (context *runtimeContext) isTableCheckActive() bool {
 	return !check.IfNil(forkController) && forkController.FixAuditChangesV4()
 }
 
-// effectiveMaxDeclaredTableSize returns the table-maximum cap to pass to the
-// executor for this instantiation. The executor has no fork-epoch awareness
-// of its own (see KLC-2526 / KLR-19): it always enforces whatever value it is
-// given, on every instantiation, which is what makes it safe to call
-// unconditionally without risking a consensus split during rollout - nodes
-// on the old binary never see this parameter at all, and nodes on the new
-// binary only start passing the real cap once FixAuditChangesV4 is reached
-// network-wide. Before that, math.MaxUint64 disables the check entirely.
-func (context *runtimeContext) effectiveMaxDeclaredTableSize(gasSchedule *config.GasCost) uint64 {
-	if !context.isTableCheckActive() {
-		return builtinMath.MaxUint64
-	}
-	return uint64(gasSchedule.WASMOpcodeCost.MaxDeclaredTableSize)
-}
-
 // isTableInitPerElementChargeActive reports whether table.init is priced by the
 // number of elements it copies. This activates one fork later than the declared
 // table cap above: that cap already shipped with FixAuditChangesV4, while
@@ -295,17 +275,6 @@ func (context *runtimeContext) effectiveMaxDeclaredTableSize(gasSchedule *config
 func (context *runtimeContext) isTableInitPerElementChargeActive() bool {
 	forkController := context.host.ForkController()
 	return !check.IfNil(forkController) && forkController.FixAuditChangesV5()
-}
-
-// effectiveTableInitPerElementCost returns the per-element table.init price to
-// hand the executor for this instantiation. 0 means "charge the flat opcode cost
-// only", which is exactly the pre-fork behaviour, so the executor stays
-// unconditional and fork-unaware just as it does for the table cap.
-func (context *runtimeContext) effectiveTableInitPerElementCost(gasSchedule *config.GasCost) uint64 {
-	if !context.isTableInitPerElementChargeActive() {
-		return 0
-	}
-	return uint64(gasSchedule.WASMOpcodeCost.TableInitPerElement)
 }
 
 // verifyTableDeclarationIfActive runs the declared-table-size check against the

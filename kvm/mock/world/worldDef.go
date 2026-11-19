@@ -72,6 +72,9 @@ type MockWorld struct {
 	OtherVMOutputMap           map[string]*vmcommon.VMOutput
 	MockAsset                  *kapps.KDAData
 	KAppController             kapp.KAppController
+
+	compiledCodeGeneration uint64
+	clearedHandlers        []func()
 }
 
 var marshalizer = marshal.NewProtoMarshalizer()
