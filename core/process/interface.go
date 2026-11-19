@@ -666,6 +666,9 @@ type BlockChainHookHandler interface {
 	IsPayable(sndAddress []byte, recvAddress []byte) (bool, error)
 	DeleteCompiledCode(codeHash []byte)
 	ClearCompiledCodes()
+	CompiledCodeGeneration() uint64
+	SaveCompiledCodeIfCurrent(generation uint64, isCurrent func() bool, codeHash []byte, code []byte) bool
+	RegisterCompiledCodesClearedHandler(handler func())
 	ExecuteSmartContractCallOnOtherVM(input *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error)
 	TransferValueOnly(destination []byte, sender []byte, value *big.Int) error
 	KDATransfer(sender []byte, tc *transaction.TransferContract) error

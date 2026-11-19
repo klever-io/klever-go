@@ -65,3 +65,8 @@ func (adb *AccountsDB) TryLockMutPrune() bool {
 
 // MaxHistoricalProofWalks exports the cap on historical-root proofs in flight.
 const MaxHistoricalProofWalks = maxHistoricalProofWalks
+
+// NumTrackedDataTries returns how many data tries the adapter tracks for the next Commit
+func (adb *AccountsDB) NumTrackedDataTries() int {
+	return len(adb.dataTries.GetAll())
+}

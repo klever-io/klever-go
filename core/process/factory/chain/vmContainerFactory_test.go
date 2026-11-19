@@ -281,3 +281,64 @@ func TestGetMatchingVersion(t *testing.T) {
 		})
 	}
 }
+
+// KLC-3001: the factory asks the compiled-code warmer to rescan after a gas schedule change
+// and after a VM replacement. It is a backstop: the hook's cleared handler has already asked
+// for one when the compiled codes were cleared, so no ordering against the VMs is implied.
+
+func TestVmContainerFactory_GasScheduleChangeCallsRescanTrigger(t *testing.T) {
+	t.Parallel()
+
+	args := createMockVMAccountsArguments()
+	vmf, _ := NewVMContainerFactory(args)
+	require.NotNil(t, vmf)
+	container, err := vmf.Create()
+	require.Nil(t, err)
+	defer func() { _ = container.Close() }()
+
+	numRescans := 0
+	vmf.SetCompiledCodeRescanTrigger(func() { numRescans++ })
+
+	vmf.GasScheduleChange(kvmConfig.MakeGasMapForTests())
+	assert.Equal(t, 1, numRescans)
+}
+
+func TestVmContainerFactory_NilRescanTriggerIsANoOp(t *testing.T) {
+	t.Parallel()
+
+	args := createMockVMAccountsArguments()
+	vmf, _ := NewVMContainerFactory(args)
+	require.NotNil(t, vmf)
+	container, err := vmf.Create()
+	require.Nil(t, err)
+	defer func() { _ = container.Close() }()
+
+	vmf.SetCompiledCodeRescanTrigger(func() { require.Fail(t, "the trigger was reset to nil") })
+	vmf.SetCompiledCodeRescanTrigger(nil)
+	require.NotPanics(t, func() { vmf.GasScheduleChange(kvmConfig.MakeGasMapForTests()) })
+}
+
+func TestVmContainerFactory_VMReplacementCallsRescanTrigger(t *testing.T) {
+	epochNotifierInstance := notifier.NewGenericEpochNotifier()
+
+	args := createMockVMAccountsArguments()
+	args.EpochNotifier = epochNotifierInstance
+	args.Config.WasmVMVersions = []config.WasmVMVersionByEpoch{
+		{StartEpoch: 0, Version: "v1.5"},
+		{StartEpoch: 10, Version: "v9.9"}, // differs from the host version, so it forces a replace
+	}
+	vmf, _ := NewVMContainerFactory(args)
+	require.NotNil(t, vmf)
+	container, err := vmf.Create()
+	require.Nil(t, err)
+	defer func() { _ = container.Close() }()
+
+	numRescans := 0
+	vmf.SetCompiledCodeRescanTrigger(func() { numRescans++ })
+
+	epochNotifierInstance.CheckEpoch(5)
+	assert.Equal(t, 0, numRescans, "no replacement, no rescan")
+
+	epochNotifierInstance.CheckEpoch(10)
+	assert.Equal(t, 1, numRescans)
+}

@@ -302,6 +302,35 @@ func (b *MockWorld) GetCompiledCode(codeHash []byte) (bool, []byte) {
 // ClearCompiledCodes -
 func (b *MockWorld) ClearCompiledCodes() {
 	b.CompiledCode = make(map[string][]byte)
+	b.compiledCodeGeneration++
+	for _, handler := range b.clearedHandlers {
+		handler()
+	}
+}
+
+// CompiledCodeGeneration -
+func (b *MockWorld) CompiledCodeGeneration() uint64 {
+	return b.compiledCodeGeneration
+}
+
+// SaveCompiledCodeIfCurrent -
+func (b *MockWorld) SaveCompiledCodeIfCurrent(generation uint64, isCurrent func() bool, codeHash []byte, code []byte) bool {
+	if generation != b.compiledCodeGeneration {
+		return false
+	}
+	if isCurrent != nil && !isCurrent() {
+		return false
+	}
+	b.SaveCompiledCode(codeHash, code)
+	return true
+}
+
+// RegisterCompiledCodesClearedHandler -
+func (b *MockWorld) RegisterCompiledCodesClearedHandler(handler func()) {
+	if handler == nil {
+		return
+	}
+	b.clearedHandlers = append(b.clearedHandlers, handler)
 }
 
 // TransferValueOnly -
