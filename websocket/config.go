@@ -18,6 +18,8 @@ const (
 	// IP and node-wide when unset; the unit is one (address, connection) pair.
 	defaultMaxAddressesPerIP = 100000
 	defaultMaxTotalAddresses = 2000000
+	// defaultMaxAddressesPerIPv6Prefix48 caps the pairs of every IPv6 source inside one /48.
+	defaultMaxAddressesPerIPv6Prefix48 = 400000
 
 	// minMaxMessageSize is the floor (and default) for the inbound frame read limit;
 	// gorilla's default is unlimited (GHSA-4fwh-wrm6-97xm, GAP#2). resolve raises it to
@@ -69,6 +71,9 @@ type Limits struct {
 	// source IP and node-wide (0 = defaults). Raised to keep perClient <= perIP <= total.
 	MaxAddressesPerIP int
 	MaxTotalAddresses int
+	// MaxAddressesPerIPv6Prefix48 budgets every IPv6 source inside one /48 (0 = default, capped
+	// at the total). Raised to keep perIP <= per-/48 <= total.
+	MaxAddressesPerIPv6Prefix48 int
 	// PostWorkers bounds concurrent postWSConnection mirror requests; 0 uses
 	// defaultPostWorkerCount.
 	PostWorkers int
@@ -89,17 +94,18 @@ type Limits struct {
 
 // resolvedLimits holds the effective limits after defaults are applied.
 type resolvedLimits struct {
-	maxAddressesPerSubscribe int
-	maxAddressesPerClient    int
-	maxAddressesPerIP        int
-	maxTotalAddresses        int
-	maxMessageSize           int64
-	postWorkers              int
-	postQueueSize            int
-	pingPeriod               time.Duration
-	pongWait                 time.Duration
-	subscribeRatePerSec      int
-	subscribeBurst           int
+	maxAddressesPerSubscribe    int
+	maxAddressesPerClient       int
+	maxAddressesPerIP           int
+	maxAddressesPerIPv6Prefix48 int
+	maxTotalAddresses           int
+	maxMessageSize              int64
+	postWorkers                 int
+	postQueueSize               int
+	pingPeriod                  time.Duration
+	pongWait                    time.Duration
+	subscribeRatePerSec         int
+	subscribeBurst              int
 }
 
 func (l Limits) resolve() resolvedLimits {
@@ -129,6 +135,16 @@ func (l Limits) resolve() resolvedLimits {
 	}
 	if total < perIP {
 		total = perIP
+	}
+	perPrefix48 := l.MaxAddressesPerIPv6Prefix48
+	if perPrefix48 <= 0 {
+		perPrefix48 = min(defaultMaxAddressesPerIPv6Prefix48, total)
+	}
+	if perPrefix48 < perIP {
+		perPrefix48 = perIP
+	}
+	if total < perPrefix48 {
+		total = perPrefix48
 	}
 
 	readLimit := int64(minMaxMessageSize)
@@ -173,16 +189,17 @@ func (l Limits) resolve() resolvedLimits {
 	}
 
 	return resolvedLimits{
-		maxAddressesPerSubscribe: perSubscribe,
-		maxAddressesPerClient:    perClient,
-		maxAddressesPerIP:        perIP,
-		maxTotalAddresses:        total,
-		maxMessageSize:           readLimit,
-		postWorkers:              postWorkers,
-		postQueueSize:            postQueueSize,
-		pingPeriod:               pingPeriod,
-		pongWait:                 pongWait,
-		subscribeRatePerSec:      subscribeRate,
-		subscribeBurst:           subscribeBurst,
+		maxAddressesPerSubscribe:    perSubscribe,
+		maxAddressesPerClient:       perClient,
+		maxAddressesPerIP:           perIP,
+		maxAddressesPerIPv6Prefix48: perPrefix48,
+		maxTotalAddresses:           total,
+		maxMessageSize:              readLimit,
+		postWorkers:                 postWorkers,
+		postQueueSize:               postQueueSize,
+		pingPeriod:                  pingPeriod,
+		pongWait:                    pongWait,
+		subscribeRatePerSec:         subscribeRate,
+		subscribeBurst:              subscribeBurst,
 	}
 }

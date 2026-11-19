@@ -27,6 +27,7 @@ type MainAPIHandler interface {
 	WSMaxAddressesPerClient() uint32
 	WSMaxAddressesPerIP() uint32
 	WSMaxTotalAddresses() uint32
+	WSMaxAddressesPerIPv6Prefix48() uint32
 	WSSubscribeRatePerSec() uint32
 	WSSubscribeBurst() uint32
 	WSPostWorkers() uint32

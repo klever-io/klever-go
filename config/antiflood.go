@@ -78,6 +78,9 @@ type WebServerAntifloodConfig struct {
 	// 0 = built-in default.
 	WebSocketMaxAddressesPerIP uint32 `yaml:"webSocketMaxAddressesPerIP"`
 	WebSocketMaxTotalAddresses uint32 `yaml:"webSocketMaxTotalAddresses"`
+	// WebSocketMaxAddressesPerIPv6Prefix48 caps watched addresses across every IPv6 source in one
+	// /48. 0 = built-in default (capped at the total).
+	WebSocketMaxAddressesPerIPv6Prefix48 uint32 `yaml:"webSocketMaxAddressesPerIPv6Prefix48"`
 	// WebSocketSubscribeRatePerSec and WebSocketSubscribeBurst rate-limit subscribe/unsubscribe
 	// frames per connection (token bucket). 0 = built-in default.
 	WebSocketSubscribeRatePerSec uint32 `yaml:"webSocketSubscribeRatePerSec"`

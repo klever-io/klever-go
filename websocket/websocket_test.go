@@ -22,6 +22,7 @@ import (
 	"github.com/klever-io/klever-go/indexer/data"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 )
 
 type mockFacade struct {
@@ -78,7 +79,7 @@ func newTestClient(hub *SocketHub) *client {
 		out:              make(chan interface{}, 10),
 		alive:            true,
 		sem:              make(chan struct{}, maxWorkers),
-		subscribeLimiter: newSubscribeLimiter(hub.limits),
+		subscribeLimiter: rate.NewLimiter(rate.Limit(hub.limits.subscribeRatePerSec), hub.limits.subscribeBurst),
 	}
 }
 

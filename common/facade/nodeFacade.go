@@ -429,6 +429,12 @@ func (nf *nodeFacade) WSMaxTotalAddresses() uint32 {
 	return nf.wsAntifloodConfig.WebSocketMaxTotalAddresses
 }
 
+// WSMaxAddressesPerIPv6Prefix48 returns the IPv6 /48 address budget for /subscribe (0 = built-in
+// default).
+func (nf *nodeFacade) WSMaxAddressesPerIPv6Prefix48() uint32 {
+	return nf.wsAntifloodConfig.WebSocketMaxAddressesPerIPv6Prefix48
+}
+
 // WSSubscribeRatePerSec returns the per-connection subscribe/unsubscribe rate for /subscribe
 // (0 = built-in default).
 func (nf *nodeFacade) WSSubscribeRatePerSec() uint32 {

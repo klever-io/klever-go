@@ -142,6 +142,11 @@ func (f *Facade) WSMaxTotalAddresses() uint32 {
 	return 0
 }
 
+// WSMaxAddressesPerIPv6Prefix48 -
+func (f *Facade) WSMaxAddressesPerIPv6Prefix48() uint32 {
+	return 0
+}
+
 // WSSubscribeRatePerSec -
 func (f *Facade) WSSubscribeRatePerSec() uint32 {
 	return 0

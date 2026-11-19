@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -24,13 +25,15 @@ type client struct {
 	sem       chan struct{}
 	// ipKey is the per-IP address budget key (IPv6 by /56, see remoteIPKey).
 	ipKey string
+	// prefix48Key is the IPv6 /48 address budget key; "" for IPv4, which skips that tier.
+	prefix48Key string
 	// subscribeLimiter rate-limits subscribe/unsubscribe frames; only loopIn uses it.
 	subscribeLimiter *rate.Limiter
 }
 
 // NewClient creates a client and starts its read and write loops. The caller registers it with the hub.
 func NewClient(conn *ws.Conn, hub *SocketHub) *client {
-	client := &client{conn: conn, hub: hub, ipKey: remoteIPKey(conn.RemoteAddr()), out: make(chan interface{}, outChannelSize), alive: true, sem: make(chan struct{}, maxWorkers), subscribeLimiter: newSubscribeLimiter(hub.limits)}
+	client := &client{conn: conn, hub: hub, ipKey: remoteIPKey(conn.RemoteAddr()), prefix48Key: remotePrefix48Key(conn.RemoteAddr()), out: make(chan interface{}, outChannelSize), alive: true, sem: make(chan struct{}, maxWorkers), subscribeLimiter: rate.NewLimiter(rate.Limit(hub.limits.subscribeRatePerSec), hub.limits.subscribeBurst)}
 	client.ctx, client.cancel = context.WithCancel(context.Background())
 	go client.loopIn()
 	go client.loopOut()
@@ -38,14 +41,12 @@ func NewClient(conn *ws.Conn, hub *SocketHub) *client {
 	return client
 }
 
-// newSubscribeLimiter builds one connection's subscribe/unsubscribe token bucket.
-func newSubscribeLimiter(l resolvedLimits) *rate.Limiter {
-	return rate.NewLimiter(rate.Limit(l.subscribeRatePerSec), l.subscribeBurst)
-}
-
-// addressBudgetIPv6Bits keys the per-IP address budget on a /56, coarser than the /64
-// connection limiter, so one customer allocation cannot fill the node-wide budget.
-const addressBudgetIPv6Bits = 56
+// addressBudgetIPv6Bits keys the per-IP address budget on a /56 (one source); a /48 has its
+// own tier, and the node-wide budget is still a lockout surface (docs/node-api-hardening.md).
+const (
+	addressBudgetIPv6Bits         = 56
+	addressBudgetIPv6Prefix48Bits = 48
+)
 
 // remoteIPKey is the per-IP address budget key for addr.
 func remoteIPKey(addr net.Addr) string {
@@ -53,6 +54,19 @@ func remoteIPKey(addr net.Addr) string {
 		return ""
 	}
 	return shared.RemoteIPKey(addr.String(), addressBudgetIPv6Bits)
+}
+
+// remotePrefix48Key is the IPv6 /48 address budget key for addr, or "" when it is not IPv6.
+func remotePrefix48Key(addr net.Addr) string {
+	if addr == nil {
+		return ""
+	}
+	key := shared.RemoteIPKey(addr.String(), addressBudgetIPv6Prefix48Bits)
+	// IPv4, NAT64 and unparseable hosts are not keyed as IPv6 prefixes.
+	if ip, err := netip.ParseAddr(key); err != nil || ip.Is4() {
+		return ""
+	}
+	return key
 }
 
 func (c *client) IsAlive() bool {

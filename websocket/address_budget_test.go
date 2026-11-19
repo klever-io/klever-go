@@ -1,13 +1,13 @@
 package websocket
 
 import (
+	"fmt"
 	"maps"
 	"net"
 	"testing"
 
 	logger "github.com/klever-io/klever-go-logger"
 	indexer "github.com/klever-io/klever-go/indexer"
-	"github.com/klever-io/klever-go/network/api/shared"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -134,18 +134,6 @@ func TestAddressBudget_DeleteAllClearsCounters(t *testing.T) {
 	assert.Empty(t, s.perIP)
 }
 
-func TestRemoteIPKey_BucketsIPv6By56(t *testing.T) {
-	a := remoteIPKey(&net.TCPAddr{IP: net.ParseIP("2001:db8:1:201::1"), Port: 1111})
-	b := remoteIPKey(&net.TCPAddr{IP: net.ParseIP("2001:db8:1:2ff:ffff::9"), Port: 2222})
-	assert.Equal(t, "2001:db8:1:200::", a)
-	assert.Equal(t, a, b, "two /64s inside one /56 are one address budget")
-	assert.NotEqual(t, shared.IPBucket("2001:db8:1:201::1"), shared.IPBucket("2001:db8:1:2ff::9"), "the connection limiter still keys them apart")
-	assert.NotEqual(t, a, remoteIPKey(&net.TCPAddr{IP: net.ParseIP("2001:db8:1:301::1"), Port: 1}))
-
-	assert.Equal(t, "192.0.2.7", remoteIPKey(&net.TCPAddr{IP: net.ParseIP("192.0.2.7"), Port: 1}))
-	assert.Equal(t, "192.0.2.7", remoteIPKey(&net.TCPAddr{IP: net.ParseIP("::ffff:192.0.2.7"), Port: 2}))
-}
-
 func TestAddressBudget_PerIPSharedAcrossOneIPv6Slash56(t *testing.T) {
 	hub := NewHub("", "", nil, Limits{MaxAddressesPerSubscribe: 2, MaxAddressesPerClient: 2, MaxAddressesPerIP: 2, MaxTotalAddresses: 100})
 	first := &net.TCPAddr{IP: net.ParseIP("2001:db8:1:201::1"), Port: 1}
@@ -181,10 +169,12 @@ func TestLogRejectedInsertion_NamesTheBudget(t *testing.T) {
 
 	newTestHub(nil).LogRejectedInsertion("ws.budgetProbe", ErrPerIPAddressBudgetExhausted)
 	newTestHub(nil).LogRejectedInsertion("ws.budgetProbe", ErrGlobalAddressBudgetExhausted)
+	newTestHub(nil).LogRejectedInsertion("ws.budgetProbe", errPrefix48BudgetExhausted)
 
 	out := observed.String()
 	assert.Contains(t, out, "per-ip")
 	assert.Contains(t, out, "node-wide")
+	assert.Contains(t, out, "per-ipv6-48")
 }
 
 // requireIndexConsistent checks addr is in clientAddrs[c] iff c is in addressSubscription[addr].
@@ -201,6 +191,11 @@ func requireIndexConsistent(t *testing.T, hub *SocketHub) {
 			pairs++
 		}
 	}
+	for addr, peak := range hub.addrSubPeak {
+		clients, ok := hub.addressSubscription[addr]
+		require.True(t, ok, "address peak %s outlived its subscriber map", addr)
+		require.GreaterOrEqual(t, peak, len(clients))
+	}
 	indexed := 0
 	for c, addrs := range hub.clientAddrs {
 		require.NotEmpty(t, addrs, "an emptied client index must be dropped")
@@ -212,6 +207,54 @@ func requireIndexConsistent(t *testing.T, hub *SocketHub) {
 	}
 	require.Equal(t, pairs, indexed)
 	require.Equal(t, pairs, hub.totalAddresses)
+	for c, peak := range hub.clientAddrPeak {
+		addrs, ok := hub.clientAddrs[c]
+		require.True(t, ok, "a peak must not outlive its client index")
+		require.GreaterOrEqual(t, peak, len(addrs))
+	}
+}
+
+func TestClientAddrs_ChurnRebuildsDrainedIndex(t *testing.T) {
+	hub := newTestHub(nil)
+	c := ipClient(hub, "1.2.3.4")
+	const n, keep = 5000, 3
+	addrs := make([]string, n)
+	for i := range addrs {
+		addrs[i] = fmt.Sprintf("addr-%d", i)
+	}
+	require.NoError(t, hub.HandleClientInsertion(accounts, addrs, c))
+	hub.mu.RLock()
+	require.Equal(t, n, hub.clientAddrPeak[c])
+	before := fmt.Sprintf("%p", hub.clientAddrs[c])
+	hub.mu.RUnlock()
+
+	for i := keep; i < n; i += 500 {
+		hub.HandleClientRemoval(accounts, addrs[i:min(i+500, n)], c)
+		requireIndexConsistent(t, hub)
+	}
+
+	hub.mu.RLock()
+	defer hub.mu.RUnlock()
+	assert.Len(t, hub.clientAddrs[c], keep)
+	assert.Less(t, hub.clientAddrPeak[c], clientAddrsRebuildFloor, "the drained index must have been rebuilt")
+	assert.NotEqual(t, before, fmt.Sprintf("%p", hub.clientAddrs[c]), "the rebuild must allocate a fresh map")
+	assert.Equal(t, keep, hub.totalAddresses)
+}
+
+func TestClientAddrs_SmallIndexIsNotRebuilt(t *testing.T) {
+	hub := newTestHub(nil)
+	c := ipClient(hub, "1.2.3.4")
+	require.NoError(t, hub.HandleClientInsertion(accounts, []string{"a", "b", "c", "d", "e"}, c))
+	hub.HandleClientRemoval(accounts, []string{"a", "b", "c", "d"}, c)
+	hub.mu.RLock()
+	assert.Equal(t, 5, hub.clientAddrPeak[c], "below the floor a drained index keeps its peak")
+	hub.mu.RUnlock()
+
+	hub.HandleClientRemoval(accounts, []string{"e"}, c)
+	requireIndexConsistent(t, hub)
+	hub.mu.RLock()
+	defer hub.mu.RUnlock()
+	assert.NotContains(t, hub.clientAddrPeak, c, "an emptied index drops its peak")
 }
 
 func TestHandleClientDelete_RemovesOnlyThatClientsPairs(t *testing.T) {
@@ -240,10 +283,93 @@ func TestHandleClientDelete_RemovesOnlyThatClientsPairs(t *testing.T) {
 	assert.Equal(t, map[string]int{"2.2.2.2": 2}, hub.ipAddresses)
 }
 
+// addrClient keys a client by remote as NewClient does.
+func addrClient(hub *SocketHub, remote net.Addr) *client {
+	c := newTestClient(hub)
+	c.ipKey, c.prefix48Key = remoteIPKey(remote), remotePrefix48Key(remote)
+	return c
+}
+
+func v6(host string) net.Addr { return &net.TCPAddr{IP: net.ParseIP(host), Port: 1} }
+
+func TestAddressBudget_IPv6Prefix48CapsSibling56s(t *testing.T) {
+	hub := NewHub("", "", nil, Limits{MaxAddressesPerSubscribe: 2, MaxAddressesPerClient: 2, MaxAddressesPerIP: 2, MaxAddressesPerIPv6Prefix48: 6, MaxTotalAddresses: 100})
+	var held []*client
+	for _, host := range []string{"2001:db8:1:100::1", "2001:db8:1:200::1", "2001:db8:1:300::1"} {
+		c := addrClient(hub, v6(host))
+		require.NoError(t, hub.HandleClientInsertion(accounts, []string{"a", "b"}, c), host)
+		held = append(held, c)
+	}
+
+	fourth := v6("2001:db8:1:400::1")
+	require.ErrorIs(t, hub.PrecheckAddressBudget(accounts, []string{"a"}, fourth), errPrefix48BudgetExhausted)
+	c4 := addrClient(hub, fourth)
+	before := snapshotBudget(hub, c4)
+	err := hub.HandleClientInsertion(accounts, []string{"a"}, c4)
+	require.ErrorIs(t, err, errPrefix48BudgetExhausted)
+	require.ErrorIs(t, err, ErrPerIPAddressBudgetExhausted, "peers see the per-IP refusal")
+	assert.Equal(t, "address subscription budget reached", err.Error())
+	assert.Equal(t, before, snapshotBudget(hub, c4), "a refused insertion must leave every counter unchanged")
+
+	otherPrefix48 := v6("2001:db8:2:100::1")
+	require.NoError(t, hub.PrecheckAddressBudget(accounts, []string{"a"}, otherPrefix48))
+	require.NoError(t, hub.HandleClientInsertion(accounts, []string{"a"}, addrClient(hub, otherPrefix48)), "another /48 has its own budget")
+
+	hub.mu.RLock()
+	assert.Equal(t, map[string]int{"2001:db8:1::": 6, "2001:db8:2::": 1}, hub.prefix48Addresses)
+	hub.mu.RUnlock()
+
+	// A released pair frees /48 budget for a sibling /56.
+	hub.HandleClientRemoval(accounts, []string{"a"}, held[0])
+	require.NoError(t, hub.HandleClientInsertion(accounts, []string{"a"}, c4))
+	hub.mu.RLock()
+	assert.Equal(t, 6, hub.prefix48Addresses["2001:db8:1::"])
+	hub.mu.RUnlock()
+}
+
+func TestAddressBudget_IPv6Prefix48ReleasesOnTeardown(t *testing.T) {
+	hub := newTestHub(nil)
+	c1 := newConnClient(hub, upgradedConn(t))
+	c1.ipKey, c1.prefix48Key = remoteIPKey(v6("2001:db8:1:100::1")), remotePrefix48Key(v6("2001:db8:1:100::1"))
+	c2 := newConnClient(hub, upgradedConn(t))
+	c2.ipKey, c2.prefix48Key = remoteIPKey(v6("2001:db8:1:200::1")), remotePrefix48Key(v6("2001:db8:1:200::1"))
+	require.NoError(t, hub.HandleClientInsertion(accounts, []string{"a", "b"}, c1))
+	require.NoError(t, hub.HandleClientInsertion(accounts, []string{"a"}, c2))
+
+	hub.handleClientDelete(c1)
+	hub.mu.RLock()
+	assert.Equal(t, map[string]int{"2001:db8:1::": 1}, hub.prefix48Addresses)
+	hub.mu.RUnlock()
+
+	hub.deleteAll()
+	hub.mu.RLock()
+	defer hub.mu.RUnlock()
+	assert.Empty(t, hub.prefix48Addresses)
+	assert.Empty(t, hub.clientAddrPeak)
+}
+
+func TestAddressBudget_IPv4SkipsThePrefix48Tier(t *testing.T) {
+	for _, host := range []string{"192.0.2.7", "::ffff:192.0.2.7", "64:ff9b::c000:207"} {
+		assert.Empty(t, remotePrefix48Key(v6(host)), host)
+	}
+	assert.Equal(t, "2001:db8:1::", remotePrefix48Key(v6("2001:db8:1:2ff::9")))
+	assert.Empty(t, remotePrefix48Key(nil))
+
+	hub := NewHub("", "", nil, Limits{MaxAddressesPerSubscribe: 2, MaxAddressesPerClient: 2, MaxAddressesPerIP: 2, MaxAddressesPerIPv6Prefix48: 2, MaxTotalAddresses: 100})
+	for _, host := range []string{"192.0.2.1", "192.0.2.2", "192.0.2.3"} {
+		require.NoError(t, hub.HandleClientInsertion(accounts, []string{"a", "b"}, addrClient(hub, v6(host))), host)
+	}
+	hub.mu.RLock()
+	defer hub.mu.RUnlock()
+	assert.Empty(t, hub.prefix48Addresses)
+	assert.Equal(t, 6, hub.totalAddresses)
+}
+
 func TestNewClient_SetsIPKeyFromRemoteAddr(t *testing.T) {
 	_, c := dialLiveClient(t, newTestHub(nil))
 	t.Cleanup(c.Close)
 	assert.Equal(t, "127.0.0.1", c.ipKey)
+	assert.Empty(t, c.prefix48Key)
 }
 
 func TestLimits_Resolve_AddressBudgetDefaultsAndClamps(t *testing.T) {
@@ -252,10 +378,19 @@ func TestLimits_Resolve_AddressBudgetDefaultsAndClamps(t *testing.T) {
 	assert.Equal(t, defaultMaxTotalAddresses, r.maxTotalAddresses)
 	assert.Equal(t, 100000, defaultMaxAddressesPerIP)
 	assert.Equal(t, 2000000, defaultMaxTotalAddresses)
+	assert.Equal(t, 400000, r.maxAddressesPerIPv6Prefix48)
 
 	r = Limits{MaxAddressesPerSubscribe: 1, MaxAddressesPerClient: 1, MaxAddressesPerIP: 7, MaxTotalAddresses: 9}.resolve()
 	assert.Equal(t, 7, r.maxAddressesPerIP)
 	assert.Equal(t, 9, r.maxTotalAddresses)
+	assert.Equal(t, 9, r.maxAddressesPerIPv6Prefix48, "an unset /48 budget is capped at the total")
+
+	// perIP <= per-/48 <= total: a low /48 is raised to perIP, a high one raises the total.
+	r = Limits{MaxAddressesPerSubscribe: 1, MaxAddressesPerClient: 1, MaxAddressesPerIP: 7, MaxAddressesPerIPv6Prefix48: 3, MaxTotalAddresses: 9}.resolve()
+	assert.Equal(t, 7, r.maxAddressesPerIPv6Prefix48)
+	r = Limits{MaxAddressesPerSubscribe: 1, MaxAddressesPerClient: 1, MaxAddressesPerIP: 7, MaxAddressesPerIPv6Prefix48: 12, MaxTotalAddresses: 9}.resolve()
+	assert.Equal(t, 12, r.maxAddressesPerIPv6Prefix48)
+	assert.Equal(t, 12, r.maxTotalAddresses)
 
 	// perClient <= perIP <= total, raised from below.
 	r = Limits{MaxAddressesPerSubscribe: 10, MaxAddressesPerClient: 20, MaxAddressesPerIP: 5, MaxTotalAddresses: 3}.resolve()
@@ -295,4 +430,56 @@ func TestPrecheckAddressBudget(t *testing.T) {
 	require.ErrorIs(t, hub.PrecheckAddressBudget(accounts, []string{"c", "d"}, other), ErrGlobalAddressBudgetExhausted)
 	require.NoError(t, hub.PrecheckAddressBudget(accounts, []string{"c", "c"}, other), "duplicates count once")
 	require.NoError(t, hub.PrecheckAddressBudget([]indexer.EventType{indexer.BLOCKS}, []string{"c"}, same), "blocks-only ignores addresses")
+}
+
+func addrSubState(hub *SocketHub, addr string) (string, int, int) {
+	hub.mu.RLock()
+	defer hub.mu.RUnlock()
+	m := hub.addressSubscription[addr]
+	return fmt.Sprintf("%p", m), len(m), hub.addrSubPeak[addr]
+}
+
+func TestAddrSub_UnsubscribeChurnRebuildsSharedAddress(t *testing.T) {
+	hub := newTestHub(nil)
+	clients := make([]*client, 64)
+	for i := range clients {
+		clients[i] = ipClient(hub, fmt.Sprintf("10.0.0.%d", i))
+		require.NoError(t, hub.HandleClientInsertion(accounts, []string{"shared"}, clients[i]))
+	}
+	before, _, peak := addrSubState(hub, "shared")
+	require.Equal(t, 64, peak)
+
+	for _, c := range clients[1:] {
+		hub.HandleClientRemoval(accounts, []string{"shared"}, c)
+	}
+	after, live, peak := addrSubState(hub, "shared")
+	assert.Equal(t, 1, live)
+	assert.Less(t, peak, addrSubRebuildFloor, "a drained subscriber map must be rebuilt")
+	assert.NotEqual(t, before, after, "the rebuild must swap in a fresh map")
+	requireIndexConsistent(t, hub)
+}
+
+func TestAddrSub_TeardownChurnRebuildsSharedAddress(t *testing.T) {
+	hub := newTestHub(nil)
+	clients := make([]*client, 32)
+	for i := range clients {
+		clients[i] = liveIPClient(t, hub, fmt.Sprintf("10.0.1.%d", i))
+		require.NoError(t, hub.HandleClientInsertion(accounts, []string{"shared"}, clients[i]))
+	}
+	before, _, _ := addrSubState(hub, "shared")
+
+	for _, c := range clients[1:] {
+		hub.RemoveClient(c)
+	}
+	after, live, peak := addrSubState(hub, "shared")
+	assert.Equal(t, 1, live)
+	assert.Less(t, peak, addrSubRebuildFloor)
+	assert.NotEqual(t, before, after)
+	requireIndexConsistent(t, hub)
+
+	hub.RemoveClient(clients[0])
+	_, live, peak = addrSubState(hub, "shared")
+	assert.Zero(t, live)
+	assert.Zero(t, peak, "the peak must go with the emptied address")
+	requireIndexConsistent(t, hub)
 }

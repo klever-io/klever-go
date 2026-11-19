@@ -192,6 +192,7 @@ func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.API
 			hubLimits.MaxAddressesPerClient = wsocket.ClampUint32ToInt(apiHandler.WSMaxAddressesPerClient())
 			hubLimits.MaxAddressesPerIP = wsocket.ClampUint32ToInt(apiHandler.WSMaxAddressesPerIP())
 			hubLimits.MaxTotalAddresses = wsocket.ClampUint32ToInt(apiHandler.WSMaxTotalAddresses())
+			hubLimits.MaxAddressesPerIPv6Prefix48 = wsocket.ClampUint32ToInt(apiHandler.WSMaxAddressesPerIPv6Prefix48())
 			hubLimits.SubscribeRatePerSec = wsocket.ClampUint32ToInt(apiHandler.WSSubscribeRatePerSec())
 			hubLimits.SubscribeBurst = wsocket.ClampUint32ToInt(apiHandler.WSSubscribeBurst())
 			hubLimits.PostWorkers = wsocket.ClampUint32ToInt(apiHandler.WSPostWorkers())
