@@ -417,6 +417,30 @@ func (nf *nodeFacade) WSMaxAddressesPerClient() uint32 {
 	return nf.wsAntifloodConfig.WebSocketMaxAddressesPerClient
 }
 
+// WSMaxAddressesPerIP returns the per-source-IP address budget for /subscribe (0 = built-in
+// default).
+func (nf *nodeFacade) WSMaxAddressesPerIP() uint32 {
+	return nf.wsAntifloodConfig.WebSocketMaxAddressesPerIP
+}
+
+// WSMaxTotalAddresses returns the node-wide address budget for /subscribe (0 = built-in
+// default).
+func (nf *nodeFacade) WSMaxTotalAddresses() uint32 {
+	return nf.wsAntifloodConfig.WebSocketMaxTotalAddresses
+}
+
+// WSSubscribeRatePerSec returns the per-connection subscribe/unsubscribe rate for /subscribe
+// (0 = built-in default).
+func (nf *nodeFacade) WSSubscribeRatePerSec() uint32 {
+	return nf.wsAntifloodConfig.WebSocketSubscribeRatePerSec
+}
+
+// WSSubscribeBurst returns the per-connection subscribe/unsubscribe burst for /subscribe
+// (0 = built-in default).
+func (nf *nodeFacade) WSSubscribeBurst() uint32 {
+	return nf.wsAntifloodConfig.WebSocketSubscribeBurst
+}
+
 // WSPostWorkers returns the cap on concurrent postWSConnection mirror requests
 // (0 = built-in default).
 func (nf *nodeFacade) WSPostWorkers() uint32 {

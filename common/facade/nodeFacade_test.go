@@ -53,6 +53,10 @@ func TestNodeFacade_WSLimitGetters(t *testing.T) {
 	args.WsAntifloodConfig.LogWebSocketConnectionsPerIP = 13
 	args.WsAntifloodConfig.WebSocketMaxAddressesPerSubscribe = 78
 	args.WsAntifloodConfig.WebSocketMaxAddressesPerClient = 9012
+	args.WsAntifloodConfig.WebSocketMaxAddressesPerIP = 345678
+	args.WsAntifloodConfig.WebSocketMaxTotalAddresses = 9876543
+	args.WsAntifloodConfig.WebSocketSubscribeRatePerSec = 21
+	args.WsAntifloodConfig.WebSocketSubscribeBurst = 43
 	args.WsAntifloodConfig.WebSocketPostWorkers = 34
 	args.WsAntifloodConfig.WebSocketPostQueueSize = 5678
 
@@ -65,6 +69,10 @@ func TestNodeFacade_WSLimitGetters(t *testing.T) {
 	require.Equal(t, uint32(13), nf.LogWSMaxConnectionsPerIP())
 	require.Equal(t, uint32(78), nf.WSMaxAddressesPerSubscribe())
 	require.Equal(t, uint32(9012), nf.WSMaxAddressesPerClient())
+	require.Equal(t, uint32(345678), nf.WSMaxAddressesPerIP())
+	require.Equal(t, uint32(9876543), nf.WSMaxTotalAddresses())
+	require.Equal(t, uint32(21), nf.WSSubscribeRatePerSec())
+	require.Equal(t, uint32(43), nf.WSSubscribeBurst())
 	require.Equal(t, uint32(34), nf.WSPostWorkers())
 	require.Equal(t, uint32(5678), nf.WSPostQueueSize())
 }

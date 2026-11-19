@@ -269,3 +269,44 @@ func TestSubscribe_Secured(t *testing.T) {
 	require.Equal(t, http.StatusSwitchingProtocols, resp2.StatusCode)
 	_ = conn.Close()
 }
+
+func TestSubscribe_AddressBudgetReportsTheReasonThenCloses(t *testing.T) {
+	hub := socket.NewHub("", "", nil, socket.Limits{MaxAddressesPerSubscribe: 2, MaxAddressesPerClient: 2, MaxAddressesPerIP: 2, MaxTotalAddresses: 2})
+	addr, cleanup := startTestServerOpts(t, hub, wsocket.SubscribeOptions{})
+	defer cleanup()
+
+	holder, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/subscribe", nil)
+	require.NoError(t, err)
+	defer holder.Close()
+	require.NoError(t, holder.WriteJSON(map[string]interface{}{"subscribed_types": []string{"accounts"}, "addresses": []string{"a", "b"}}))
+
+	// The holder's insertion is asynchronous; retry until the budget it fills is seen.
+	var rejected *websocket.Conn
+	require.Eventually(t, func() bool {
+		conn, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/subscribe", nil)
+		if err != nil {
+			return false
+		}
+		var rejection map[string]string
+		_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+		if conn.WriteJSON(map[string]interface{}{"subscribed_types": []string{"accounts"}, "addresses": []string{"c"}}) != nil ||
+			conn.ReadJSON(&rejection) != nil || !strings.Contains(rejection["error"], "budget") {
+			_ = conn.Close()
+			return false
+		}
+		rejected = conn
+		return true
+	}, 5*time.Second, 50*time.Millisecond, "the peer must be told the budget is full")
+	defer rejected.Close()
+	// Asserted on the test goroutine: Eventually runs the condition on its own.
+	requireClosed(t, rejected, "a subscribe past the address budget must be closed, not registered")
+}
+
+func TestRemoteIP_KeysIPv6By64(t *testing.T) {
+	a := &http.Request{RemoteAddr: "[2001:db8:1:201::1]:1111"}
+	b := &http.Request{RemoteAddr: "[2001:db8:1:202::1]:2222"}
+	assert.Equal(t, "2001:db8:1:201::", wsocket.RemoteIP(a))
+	assert.NotEqual(t, wsocket.RemoteIP(a), wsocket.RemoteIP(b), "the connection limiter keys each /64 apart")
+	assert.Equal(t, "2001:db8:1:201::", wsocket.RemoteIP(&http.Request{RemoteAddr: "2001:db8:1:201::1"}), "a bare host still buckets")
+	assert.Equal(t, "192.0.2.7", wsocket.RemoteIP(&http.Request{RemoteAddr: "192.0.2.7:1"}))
+}

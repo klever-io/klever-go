@@ -14,6 +14,11 @@ const (
 	// defaultMaxAddressesPerClient caps total addresses watched per connection when unset.
 	defaultMaxAddressesPerClient = 50000
 
+	// defaultMaxAddressesPerIP and defaultMaxTotalAddresses cap watched addresses per source
+	// IP and node-wide when unset; the unit is one (address, connection) pair.
+	defaultMaxAddressesPerIP = 100000
+	defaultMaxTotalAddresses = 2000000
+
 	// minMaxMessageSize is the floor (and default) for the inbound frame read limit;
 	// gorilla's default is unlimited (GHSA-4fwh-wrm6-97xm, GAP#2). resolve raises it to
 	// fit a larger per-subscribe address cap.
@@ -47,6 +52,11 @@ const (
 	// answer a server ping before it elapses.
 	defaultPingPeriod = 15 * time.Second
 	defaultPongWait   = 30 * time.Second
+
+	// defaultSubscribeRatePerSec/defaultSubscribeBurst bound how fast one connection may send
+	// subscribe/unsubscribe frames (token bucket) when unset.
+	defaultSubscribeRatePerSec = 10
+	defaultSubscribeBurst      = 20
 )
 
 // Limits bounds /subscribe resource usage. Zero-valued fields fall back to safe
@@ -55,6 +65,10 @@ const (
 type Limits struct {
 	MaxAddressesPerSubscribe int
 	MaxAddressesPerClient    int
+	// MaxAddressesPerIP and MaxTotalAddresses budget watched addresses across connections, per
+	// source IP and node-wide (0 = defaults). Raised to keep perClient <= perIP <= total.
+	MaxAddressesPerIP int
+	MaxTotalAddresses int
 	// PostWorkers bounds concurrent postWSConnection mirror requests; 0 uses
 	// defaultPostWorkerCount.
 	PostWorkers int
@@ -67,17 +81,25 @@ type Limits struct {
 	// dedicated hub instead of mutating shared state.
 	PingPeriod time.Duration
 	PongWait   time.Duration
+	// SubscribeRatePerSec/SubscribeBurst rate-limit subscribe/unsubscribe frames per connection
+	// (0 = defaults). Burst is raised to at least the rate.
+	SubscribeRatePerSec int
+	SubscribeBurst      int
 }
 
 // resolvedLimits holds the effective limits after defaults are applied.
 type resolvedLimits struct {
 	maxAddressesPerSubscribe int
 	maxAddressesPerClient    int
+	maxAddressesPerIP        int
+	maxTotalAddresses        int
 	maxMessageSize           int64
 	postWorkers              int
 	postQueueSize            int
 	pingPeriod               time.Duration
 	pongWait                 time.Duration
+	subscribeRatePerSec      int
+	subscribeBurst           int
 }
 
 func (l Limits) resolve() resolvedLimits {
@@ -93,6 +115,20 @@ func (l Limits) resolve() resolvedLimits {
 	// never fit); clamp it up so a fresh client's first subscribe always fits.
 	if perClient < perSubscribe {
 		perClient = perSubscribe
+	}
+	perIP := l.MaxAddressesPerIP
+	if perIP <= 0 {
+		perIP = defaultMaxAddressesPerIP
+	}
+	if perIP < perClient {
+		perIP = perClient
+	}
+	total := l.MaxTotalAddresses
+	if total <= 0 {
+		total = defaultMaxTotalAddresses
+	}
+	if total < perIP {
+		total = perIP
 	}
 
 	readLimit := int64(minMaxMessageSize)
@@ -123,13 +159,30 @@ func (l Limits) resolve() resolvedLimits {
 		pongWait = pingPeriod * 2
 	}
 
+	subscribeRate := l.SubscribeRatePerSec
+	if subscribeRate <= 0 {
+		subscribeRate = defaultSubscribeRatePerSec
+	}
+	subscribeBurst := l.SubscribeBurst
+	if subscribeBurst <= 0 {
+		subscribeBurst = defaultSubscribeBurst
+	}
+	// Keep at least one second of quota in the bucket, so a client may send it in one go.
+	if subscribeBurst < subscribeRate {
+		subscribeBurst = subscribeRate
+	}
+
 	return resolvedLimits{
 		maxAddressesPerSubscribe: perSubscribe,
 		maxAddressesPerClient:    perClient,
+		maxAddressesPerIP:        perIP,
+		maxTotalAddresses:        total,
 		maxMessageSize:           readLimit,
 		postWorkers:              postWorkers,
 		postQueueSize:            postQueueSize,
 		pingPeriod:               pingPeriod,
 		pongWait:                 pongWait,
+		subscribeRatePerSec:      subscribeRate,
+		subscribeBurst:           subscribeBurst,
 	}
 }

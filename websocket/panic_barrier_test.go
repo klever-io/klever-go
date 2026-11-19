@@ -226,11 +226,11 @@ func assertClientDeregistered(t *testing.T, hub *SocketHub, c *client) {
 	_, inClients := hub.clients[c]
 	_, inBlocks := hub.blockSubscription[c]
 	_, inTxs := hub.transactionSubscription[c]
-	_, inAddrs := hub.clientAddresses[c]
+	_, inAddrs := hub.clientAddrs[c]
 	assert.False(t, inClients, "closed client must leave hub.clients")
 	assert.False(t, inBlocks, "closed client must leave blockSubscription")
 	assert.False(t, inTxs, "closed client must leave transactionSubscription")
-	assert.False(t, inAddrs, "closed client must leave clientAddresses")
+	assert.False(t, inAddrs, "closed client must leave clientAddrs")
 	for addr, subs := range hub.addressSubscription {
 		_, ok := subs[c]
 		assert.Falsef(t, ok, "closed client still subscribed to %s", addr)

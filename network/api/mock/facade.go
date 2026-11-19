@@ -132,6 +132,26 @@ func (f *Facade) WSMaxAddressesPerClient() uint32 {
 	return 0
 }
 
+// WSMaxAddressesPerIP -
+func (f *Facade) WSMaxAddressesPerIP() uint32 {
+	return 0
+}
+
+// WSMaxTotalAddresses -
+func (f *Facade) WSMaxTotalAddresses() uint32 {
+	return 0
+}
+
+// WSSubscribeRatePerSec -
+func (f *Facade) WSSubscribeRatePerSec() uint32 {
+	return 0
+}
+
+// WSSubscribeBurst -
+func (f *Facade) WSSubscribeBurst() uint32 {
+	return 0
+}
+
 // WSPostWorkers -
 func (f *Facade) WSPostWorkers() uint32 {
 	return 0

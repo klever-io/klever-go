@@ -9,6 +9,8 @@ import (
 	"time"
 
 	ws "github.com/gorilla/websocket"
+	"github.com/klever-io/klever-go/network/api/shared"
+	"golang.org/x/time/rate"
 )
 
 type client struct {
@@ -20,16 +22,37 @@ type client struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	sem       chan struct{}
+	// ipKey is the per-IP address budget key (IPv6 by /56, see remoteIPKey).
+	ipKey string
+	// subscribeLimiter rate-limits subscribe/unsubscribe frames; only loopIn uses it.
+	subscribeLimiter *rate.Limiter
 }
 
 // NewClient creates a client and starts its read and write loops. The caller registers it with the hub.
 func NewClient(conn *ws.Conn, hub *SocketHub) *client {
-	client := &client{conn: conn, hub: hub, out: make(chan interface{}, outChannelSize), alive: true, sem: make(chan struct{}, maxWorkers)}
+	client := &client{conn: conn, hub: hub, ipKey: remoteIPKey(conn.RemoteAddr()), out: make(chan interface{}, outChannelSize), alive: true, sem: make(chan struct{}, maxWorkers), subscribeLimiter: newSubscribeLimiter(hub.limits)}
 	client.ctx, client.cancel = context.WithCancel(context.Background())
 	go client.loopIn()
 	go client.loopOut()
 
 	return client
+}
+
+// newSubscribeLimiter builds one connection's subscribe/unsubscribe token bucket.
+func newSubscribeLimiter(l resolvedLimits) *rate.Limiter {
+	return rate.NewLimiter(rate.Limit(l.subscribeRatePerSec), l.subscribeBurst)
+}
+
+// addressBudgetIPv6Bits keys the per-IP address budget on a /56, coarser than the /64
+// connection limiter, so one customer allocation cannot fill the node-wide budget.
+const addressBudgetIPv6Bits = 56
+
+// remoteIPKey is the per-IP address budget key for addr.
+func remoteIPKey(addr net.Addr) string {
+	if addr == nil {
+		return ""
+	}
+	return shared.RemoteIPKey(addr.String(), addressBudgetIPv6Bits)
 }
 
 func (c *client) IsAlive() bool {
@@ -175,6 +198,11 @@ func (c *client) loopIn() {
 		var req WSRequest
 		if err := json.Unmarshal(message, &req); err != nil {
 			c.send(WSResponse{Error: "invalid json: " + err.Error()})
+			continue
+		}
+		// Over-rate subscribe/unsubscribe frames never reach the hub mutex. Not logged: the peer sets the rate.
+		if (req.Method == MethodSubscribe || req.Method == MethodUnsubscribe) && !c.subscribeLimiter.Allow() {
+			c.send(WSResponse{ID: req.ID, Error: ErrSubscribeRateLimited.Error()})
 			continue
 		}
 		// Acquire a worker slot, but abandon the read loop if the connection is torn
