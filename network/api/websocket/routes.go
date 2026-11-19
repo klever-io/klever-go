@@ -216,6 +216,7 @@ func processSubscription(conn *gorilla.Conn, hub *websocket.SocketHub, release f
 
 	// Best effort: a full per-IP or node-wide budget is a normal outcome now, so answer it here.
 	if err := hub.PrecheckAddressBudget(parsedTypes, req.Addresses, conn.RemoteAddr()); err != nil {
+		hub.LogRejectedInsertion(subscribeOp, err)
 		rejectHandshake(conn, err.Error())
 		return
 	}

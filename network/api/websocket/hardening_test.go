@@ -1,17 +1,21 @@
 package websocket_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/indexer"
 	wsocket "github.com/klever-io/klever-go/network/api/websocket"
 	socket "github.com/klever-io/klever-go/websocket"
 	"github.com/stretchr/testify/assert"
@@ -300,6 +304,58 @@ func TestSubscribe_AddressBudgetReportsTheReasonThenCloses(t *testing.T) {
 	defer rejected.Close()
 	// Asserted on the test goroutine: Eventually runs the condition on its own.
 	requireClosed(t, rejected, "a subscribe past the address budget must be closed, not registered")
+}
+
+// logBuffer collects log output; the log subsystem is global, so writes are concurrent.
+type logBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *logBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *logBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func TestSubscribe_PrecheckRefusalIsLogged(t *testing.T) {
+	hub := socket.NewHub("", "", nil, socket.Limits{MaxAddressesPerSubscribe: 2, MaxAddressesPerClient: 2, MaxAddressesPerIP: 2, MaxTotalAddresses: 2})
+	addr, cleanup := startTestServerOpts(t, hub, wsocket.SubscribeOptions{})
+	defer cleanup()
+
+	holder, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/subscribe", nil)
+	require.NoError(t, err)
+	defer holder.Close()
+	require.NoError(t, holder.WriteJSON(map[string]interface{}{"subscribed_types": []string{"accounts"}, "addresses": []string{"a", "b"}}))
+	// Once the holder is inserted, the next subscribe is refused at the precheck.
+	local := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}
+	require.Eventually(t, func() bool {
+		return hub.PrecheckAddressBudget([]indexer.EventType{indexer.ACCOUNTS}, []string{"c"}, local) != nil
+	}, 5*time.Second, 20*time.Millisecond)
+
+	var observed logBuffer
+	require.NoError(t, logger.AddLogObserver(&observed, &logger.PlainFormatter{}))
+	t.Cleanup(func() { assert.NoError(t, logger.RemoveLogObserver(&observed)) })
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/subscribe", nil)
+	require.NoError(t, err)
+	defer conn.Close()
+	require.NoError(t, conn.WriteJSON(map[string]interface{}{"subscribed_types": []string{"accounts"}, "addresses": []string{"c"}}))
+	var rejection map[string]string
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(3*time.Second)))
+	require.NoError(t, conn.ReadJSON(&rejection))
+	require.Contains(t, rejection["error"], "budget")
+
+	// Logged before the rejection frame is written, so it is already in the buffer.
+	out := observed.String()
+	assert.Contains(t, out, "ws.Subscribe")
+	assert.Contains(t, out, "per-ip")
 }
 
 func TestRemoteIP_KeysIPv6By64(t *testing.T) {
