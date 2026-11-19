@@ -710,3 +710,31 @@ func TestStorageContext_PopDiscardIfStackIsEmptyShouldNotPanic(t *testing.T) {
 
 	require.Equal(t, 0, len(storageCtx.stateStack))
 }
+
+func TestStorageContext_SetAddress_KeepsItsOwnCopy(t *testing.T) {
+	t.Parallel()
+
+	host := &contextmock.VMHostMock{}
+	storageCtx, _ := NewStorageContext(host, &contextmock.BlockchainHookStub{}, reservedTestPrefix)
+
+	t.Run("mutating the source leaves the address unchanged", func(t *testing.T) {
+		address := []byte("address")
+		storageCtx.SetAddress(address)
+		overwriteBytes(address)
+
+		require.Equal(t, []byte("address"), storageCtx.address)
+	})
+
+	t.Run("nil address stays nil", func(t *testing.T) {
+		storageCtx.SetAddress(nil)
+
+		require.Nil(t, storageCtx.address)
+	})
+
+	t.Run("empty address stays empty and not nil", func(t *testing.T) {
+		storageCtx.SetAddress([]byte{})
+
+		require.NotNil(t, storageCtx.address)
+		require.Empty(t, storageCtx.address)
+	})
+}

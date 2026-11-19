@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"math/big"
 	"testing"
 
 	commonMock "github.com/klever-io/klever-go/common/mock"
@@ -13,6 +14,7 @@ import (
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	hostmock "github.com/klever-io/klever-go/kvm/vmhost/mock"
+	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -476,5 +478,139 @@ func TestVMHooksImpl_extractIndirectContractCallArguments_functionNameLength(t *
 
 		require.NoError(t, extract(host, vmhost.MaxFunctionNameLength))
 		assert.Equal(t, uint64(1000), host.Metering().GasLeft())
+	})
+}
+
+func TestPrepareIndirectContractCallInput_KeepsItsOwnCopies(t *testing.T) {
+	t.Parallel()
+
+	t.Run("recipient address is independent of the destination", func(t *testing.T) {
+		t.Parallel()
+
+		host := newInternalMockVMHost()
+		destination := []byte("destination-address")
+
+		input, err := prepareIndirectContractCallInput(host, []byte("sender"), big.NewInt(0), 100, destination, []byte("fn"), nil, 0)
+		require.NoError(t, err)
+
+		destination[0] = 'X'
+
+		require.Equal(t, []byte("destination-address"), input.RecipientAddr)
+	})
+
+	t.Run("call value is independent of the source big int", func(t *testing.T) {
+		t.Parallel()
+
+		host := newInternalMockVMHost()
+		value := big.NewInt(25)
+
+		input, err := prepareIndirectContractCallInput(host, []byte("sender"), value, 100, []byte("destination"), []byte("fn"), nil, 0)
+		require.NoError(t, err)
+		require.Len(t, input.KDATransfers, 1)
+
+		value.SetInt64(999)
+
+		require.Equal(t, big.NewInt(25), input.KDATransfers[0].KDAValue)
+		require.NotSame(t, value, input.KDATransfers[0].KDAValue)
+	})
+
+	t.Run("negative call value stays negative", func(t *testing.T) {
+		t.Parallel()
+
+		input, err := prepareIndirectContractCallInput(newInternalMockVMHost(), []byte("sender"), big.NewInt(-25), 100, []byte("destination"), []byte("fn"), nil, 0)
+		require.NoError(t, err)
+		require.Len(t, input.KDATransfers, 1)
+
+		require.Negative(t, input.KDATransfers[0].KDAValue.Sign())
+		require.Equal(t, big.NewInt(-25), input.KDATransfers[0].KDAValue)
+	})
+
+	t.Run("nil destination stays nil", func(t *testing.T) {
+		t.Parallel()
+
+		input, err := prepareIndirectContractCallInput(newInternalMockVMHost(), []byte("sender"), big.NewInt(0), 100, nil, []byte("fn"), nil, 0)
+		require.NoError(t, err)
+
+		require.Nil(t, input.RecipientAddr)
+	})
+
+	t.Run("empty destination stays empty and non-nil", func(t *testing.T) {
+		t.Parallel()
+
+		input, err := prepareIndirectContractCallInput(newInternalMockVMHost(), []byte("sender"), big.NewInt(0), 100, []byte{}, []byte("fn"), nil, 0)
+		require.NoError(t, err)
+
+		require.NotNil(t, input.RecipientAddr)
+		require.Empty(t, input.RecipientAddr)
+	})
+
+	t.Run("zero value appends no transfer", func(t *testing.T) {
+		t.Parallel()
+
+		input, err := prepareIndirectContractCallInput(newInternalMockVMHost(), []byte("sender"), big.NewInt(0), 100, []byte("destination"), []byte("fn"), nil, 0)
+		require.NoError(t, err)
+
+		require.Empty(t, input.KDATransfers)
+	})
+}
+
+func TestCreateContract_KeepsItsOwnCallValue(t *testing.T) {
+	t.Parallel()
+
+	t.Run("call value is independent of the source big int", func(t *testing.T) {
+		t.Parallel()
+
+		host := newInternalMockVMHost()
+		var captured *vmcommon.ContractCreateInput
+		host.CreateNewContractCalled = func(input *vmcommon.ContractCreateInput, createContractCallType int) ([]byte, error) {
+			captured = input
+			return []byte("new-address"), nil
+		}
+		value := big.NewInt(25)
+
+		_, err := createContract([]byte("sender"), nil, value, 100, []byte("code"), []byte("metadata"), host, CreateContract)
+		require.NoError(t, err)
+		require.NotNil(t, captured)
+		require.Len(t, captured.KDATransfers, 1)
+
+		value.SetInt64(999)
+
+		require.Equal(t, big.NewInt(25), captured.KDATransfers[0].KDAValue)
+		require.NotSame(t, value, captured.KDATransfers[0].KDAValue)
+	})
+
+	t.Run("negative call value stays negative", func(t *testing.T) {
+		t.Parallel()
+
+		host := newInternalMockVMHost()
+		var captured *vmcommon.ContractCreateInput
+		host.CreateNewContractCalled = func(input *vmcommon.ContractCreateInput, createContractCallType int) ([]byte, error) {
+			captured = input
+			return []byte("new-address"), nil
+		}
+
+		_, err := createContract([]byte("sender"), nil, big.NewInt(-25), 100, []byte("code"), []byte("metadata"), host, CreateContract)
+		require.NoError(t, err)
+		require.NotNil(t, captured)
+		require.Len(t, captured.KDATransfers, 1)
+
+		require.Negative(t, captured.KDATransfers[0].KDAValue.Sign())
+		require.Equal(t, big.NewInt(-25), captured.KDATransfers[0].KDAValue)
+	})
+
+	t.Run("zero value appends no transfer", func(t *testing.T) {
+		t.Parallel()
+
+		host := newInternalMockVMHost()
+		var captured *vmcommon.ContractCreateInput
+		host.CreateNewContractCalled = func(input *vmcommon.ContractCreateInput, createContractCallType int) ([]byte, error) {
+			captured = input
+			return []byte("new-address"), nil
+		}
+
+		_, err := createContract([]byte("sender"), nil, big.NewInt(0), 100, []byte("code"), []byte("metadata"), host, CreateContract)
+		require.NoError(t, err)
+		require.NotNil(t, captured)
+		require.Empty(t, captured.KDATransfers)
 	})
 }
