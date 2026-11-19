@@ -217,15 +217,24 @@ restricting the port to the proxy host.
 | `webSocketConnectionsPerIP` | per-source-IP cap for `/subscribe` | unlimited |
 | `webSocketMaxAddressesPerSubscribe` | addresses accepted in one subscribe call | use the built-in default |
 | `webSocketMaxAddressesPerClient` | total addresses one connection may watch | use the built-in default |
+| `webSocketMaxAddressesPerIP` | total addresses all connections from one source IP may watch (raise toward the total behind a proxy) | use the built-in default |
+| `webSocketMaxTotalAddresses` | total addresses all `/subscribe` connections on the node may watch | use the built-in default |
+| `webSocketSubscribeRatePerSec` | subscribe/unsubscribe frames one connection may send per second (default 10) | use the built-in default |
+| `webSocketSubscribeBurst` | subscribe/unsubscribe frames one connection may send at once (default 20, raised to at least the rate) | use the built-in default |
 | `logWebSocketConnections` | node-wide cap on live `/log` connections | use the built-in default |
 | `logWebSocketConnectionsPerIP` | per-source-IP cap for `/log` | unlimited |
 | `logWebSocketAllowedOrigins` | browser origins allowed to open `/log` | block every browser origin |
 
+> **Upgrade note — proxied nodes.** Behind a reverse proxy every client shares the proxy's IP, so the
+> per-IP address budget (`webSocketMaxAddressesPerIP`, default 100,000) is effectively node-wide: one
+> client can fill it for everyone. Raise it up to `webSocketMaxTotalAddresses`, including on nodes
+> upgraded with an older `config.yaml`. The budget keys IPv6 sources by `/56`, not `/64`.
+
 Note the split in the last column. `webSocketConnections`, `webSocketConnectionsPerIP` and
-`logWebSocketConnectionsPerIP` treat `0` as unlimited. The two address caps and
-`logWebSocketConnections` fall back to their built-in defaults on `0` (the fields are unsigned, so
-there is no negative to reject), so they **cannot be disabled** — to lift them, set an explicit
-high value rather than `0`.
+`logWebSocketConnectionsPerIP` treat `0` as unlimited. The address caps and budgets, the subscribe
+rate limit and `logWebSocketConnections` fall back to their built-in defaults on `0` (the fields are
+unsigned, so there is no negative to reject), so they **cannot be disabled** — to lift them, set an
+explicit high value rather than `0`.
 
 `logWebSocketConnections` is in the second group on purpose. Before the `/log` cap existed,
 streaming ran on the request goroutine and so held a `simultaneousRequests` slot for the whole
@@ -235,6 +244,14 @@ slot is released at the upgrade, so treating `0` as unlimited would leave a node
 `config.yaml` predating the key *weaker* than before. It falls back to 32 instead, and the node
 logs a warning at startup when that happens. The per-IP cap keeps `0` = unlimited because behind a
 proxy it has to be disableable; the node-wide cap still bounds the route when it is off.
+
+A subscribe or unsubscribe frame over its connection's rate is not applied and gets the reply
+`subscribe rate limit exceeded`; `get_transaction` and `get_block` are not counted.
+
+**Public deployments.** On a node that serves `/subscribe` to the internet, also set `GOMEMLIMIT`
+(a soft heap limit, e.g. 80% of the memory given to the node) and add `secured: true` to
+`/subscribe` unless it is meant to be a public feed. Both are a last line of defence, not the fix:
+size the limits above first.
 
 The `/log` caps are deliberately far smaller than `/subscribe`'s (32/8 versus 4096/1024). Every
 live `/log` connection registers a process-global log observer, so each log line is formatted and
@@ -253,7 +270,8 @@ them together. Raise them, or set them to `0` to disable, for proxied deployment
 per-client limits at the proxy instead. `logWebSocketConnectionsPerIP` is the one that bites first:
 at its default of 8, a proxied deployment reaches the per-IP limit long before the node-wide 32.
 
-Per-IP caps (and the `sameSourceRequests` throttler) bucket IPv6 sources by their `/64` prefix.
+Per-IP caps (and the `sameSourceRequests` throttler) bucket IPv6 sources by their `/64` prefix,
+except the per-IP address budget, which uses `/56` so one allocation cannot fill the node-wide budget.
 Keying on the full `/128` would let anyone holding a routed `/64` pick a fresh source address per
 connection and walk past every per-IP limit. `/64` is a reduction, not an identity: it is the
 smallest prefix ISPs delegate, but `/56` and `/48` are common, so one customer can still hold 256
