@@ -714,7 +714,7 @@ virtualMachine:
     wasmerSIGSEGVPassthrough: false # must be false for release
     wasmVMVersions:
       - startEpoch: 0
-        version: "v1.0"
+        version: "v1.5"
     # Precompiles the wasm module of every smart contract called by a transaction entering the
     # pool, on a background worker, so the first call after a node start or a gas schedule or
     # VM change restores a module instead of compiling it inside the execution timeout. It
@@ -738,7 +738,7 @@ virtualMachine:
     wasmerSIGSEGVPassthrough: false # must be false for release
     wasmVMVersions:
       - startEpoch: 0
-        version: "v1.0"
+        version: "v1.5"
 
   gasConfig:
     # The following values define the maximum amount of gas to be allocated for VM Queries coming from API

@@ -102,8 +102,28 @@ func NewVMContainerFactory(args ArgVMContainerFactory) (*vmContainerFactory, err
 	if err != nil {
 		return nil, err
 	}
+	vmf.warnOnUnmatchedWasmVMVersions()
 
 	return vmf, nil
+}
+
+func (vmf *vmContainerFactory) warnOnUnmatchedWasmVMVersions() {
+	for _, ver := range vmf.wasmVMVersions {
+		if matchesHostWasmVMVersion(ver.Version) {
+			continue
+		}
+
+		logVMContainerFactory.Warn("configured Wasm VM version differs from the VM host version, "+
+			"the Wasm VM is rebuilt at node start and at every epoch change while this entry is active",
+			"configured version", ver.Version,
+			"start epoch", ver.StartEpoch,
+			"host version", wasmvm10.VMVersion,
+		)
+	}
+}
+
+func matchesHostWasmVMVersion(version string) bool {
+	return version == "*" || version == wasmvm10.VMVersion
 }
 
 func (vmf *vmContainerFactory) sortWasmVMVersions() {
