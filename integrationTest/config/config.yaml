@@ -579,9 +579,9 @@ virtualMachine:
     wasmerSIGSEGVPassthrough: false # must be false for release
     wasmVMVersions:
       - startEpoch: 0
-        version: "v1.0"
+        version: "v1.5"
       - startEpoch: 1
-        version: "v1.0"
+        version: "v1.5"
 
   querying:
     numConcurrentVMs: 1
@@ -589,9 +589,9 @@ virtualMachine:
     wasmerSIGSEGVPassthrough: false # must be false for release
     wasmVMVersions:
       - startEpoch: 0
-        version: "v1.0"
+        version: "v1.5"
       - startEpoch: 1
-        version: "v1.0"
+        version: "v1.5"
 
   gasConfig:
     # The following values define the maximum amount of gas to be allocated for VM Queries coming from API
