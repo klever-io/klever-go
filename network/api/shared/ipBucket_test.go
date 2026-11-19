@@ -52,3 +52,44 @@ func TestIPBucket(t *testing.T) {
 		})
 	}
 }
+
+func TestIPBucketBits(t *testing.T) {
+	t.Parallel()
+
+	// Two /64s inside one /56 share a /56 key but not a /64 one.
+	assert.Equal(t, "2001:db8:abcd:1200::", shared.IPBucketBits("2001:db8:abcd:1201::1", 56))
+	assert.Equal(t, "2001:db8:abcd:1200::", shared.IPBucketBits("2001:db8:abcd:12ff::9", 56))
+	assert.Equal(t, "2001:db8:abcd:1300::", shared.IPBucketBits("2001:db8:abcd:1301::1", 56))
+	assert.Equal(t, shared.IPBucket("2001:db8:abcd:1201::1"), shared.IPBucketBits("2001:db8:abcd:1201::1", shared.IPv6BucketBits))
+
+	// IPv4, IPv4-mapped, NAT64 and junk ignore the IPv6 prefix length.
+	assert.Equal(t, "203.0.113.7", shared.IPBucketBits("203.0.113.7", 56))
+	assert.Equal(t, "203.0.113.7", shared.IPBucketBits("::ffff:203.0.113.7", 56))
+	assert.Equal(t, "203.0.113.7", shared.IPBucketBits("64:ff9b::cb00:7107", 56))
+	assert.Equal(t, "bad address", shared.IPBucketBits("bad address", 56))
+}
+
+func TestRemoteIPKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, remote, expected string
+		bits                   int
+	}{
+		{name: "IPv4 host:port", remote: "203.0.113.7:1234", bits: 64, expected: "203.0.113.7"},
+		{name: "IPv4 ignores the IPv6 bits", remote: "203.0.113.7:1234", bits: 56, expected: "203.0.113.7"},
+		{name: "IPv6 host:port by /64", remote: "[2001:db8:abcd:1201::1]:1", bits: 64, expected: "2001:db8:abcd:1201::"},
+		{name: "IPv6 host:port by /56", remote: "[2001:db8:abcd:1201::1]:1", bits: 56, expected: "2001:db8:abcd:1200::"},
+		{name: "zoned link-local host:port", remote: "[fe80::1%eth0]:1", bits: 64, expected: "fe80::"},
+		{name: "bare IPv4 host", remote: "203.0.113.7", bits: 64, expected: "203.0.113.7"},
+		{name: "bare IPv6 host", remote: "2001:db8:abcd:1201::1", bits: 56, expected: "2001:db8:abcd:1200::"},
+		{name: "junk is returned verbatim", remote: "bad address", bits: 64, expected: "bad address"},
+		{name: "empty", remote: "", bits: 64, expected: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, shared.RemoteIPKey(tt.remote, tt.bits))
+		})
+	}
+}
