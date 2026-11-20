@@ -2,6 +2,8 @@ package state_test
 
 import (
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -14,9 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// KLC-3001: GetAccountCodeHash is the read the compiled-code warmer uses off the block path.
+// KLC-3001: GetAccountCode is the read the compiled-code warmer uses off the block path.
 // Unlike GetExistingAccount it must not load the account's data trie, which would add a trie
-// the block never touched to the set the consensus adapter tracks and Commit iterates.
+// the block never touched to the set the consensus adapter tracks and Commit iterates. And it
+// must read the account and its code under one hold of the adapter lock: RecreateTrie swaps
+// the main trie under that lock.
 
 func newAccountsDBWithContract(t *testing.T) (*state.AccountsDB, []byte, []byte) {
 	t.Helper()
@@ -48,25 +52,41 @@ func newAccountsDBWithContract(t *testing.T) (*state.AccountsDB, []byte, []byte)
 	return adb, address, hasher.Compute(string(code))
 }
 
-func TestAccountsDB_GetAccountCodeHashReturnsTheCodeHash(t *testing.T) {
+func TestAccountsDB_GetAccountCodeReturnsTheCode(t *testing.T) {
 	t.Parallel()
 
 	adb, address, codeHash := newAccountsDBWithContract(t)
 
-	got, err := adb.GetAccountCodeHash(address)
+	got, err := adb.GetAccountCode(address)
 	require.NoError(t, err)
-	require.Equal(t, codeHash, got)
-	require.Equal(t, []byte("contract code"), adb.GetCode(got))
+	require.Equal(t, []byte("contract code"), got)
+	require.Equal(t, adb.GetCode(codeHash), got)
 }
 
-func TestAccountsDB_GetAccountCodeHashDoesNotTrackTheDataTrie(t *testing.T) {
+func TestAccountsDB_GetAccountCodeOfAnAccountWithoutCode(t *testing.T) {
+	t.Parallel()
+
+	adb, _, _ := newAccountsDBWithContract(t)
+
+	address := make([]byte, 32)
+	address[31] = 8
+	account, err := adb.LoadAccount(address)
+	require.NoError(t, err)
+	require.NoError(t, adb.SaveAccount(account))
+
+	got, err := adb.GetAccountCode(address)
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+func TestAccountsDB_GetAccountCodeDoesNotTrackTheDataTrie(t *testing.T) {
 	t.Parallel()
 
 	adb, address, _ := newAccountsDBWithContract(t)
 
-	_, err := adb.GetAccountCodeHash(address)
+	_, err := adb.GetAccountCode(address)
 	require.NoError(t, err)
-	require.Equal(t, 0, adb.NumTrackedDataTries(), "the code hash read must not load the data trie")
+	require.Equal(t, 0, adb.NumTrackedDataTries(), "the code read must not load the data trie")
 	require.Equal(t, 0, adb.JournalLen())
 
 	// control: the consensus read does track it, so the assertion above is meaningful
@@ -75,29 +95,74 @@ func TestAccountsDB_GetAccountCodeHashDoesNotTrackTheDataTrie(t *testing.T) {
 	require.Equal(t, 1, adb.NumTrackedDataTries())
 }
 
-func TestAccountsDB_GetAccountCodeHashMissingAccount(t *testing.T) {
+// TestAccountsDB_GetAccountCodeIsSafeAgainstRecreateTrie must run under -race. Reading the code
+// hash and then the code in two separate calls left the second read of adb.mainTrie outside
+// the lock RecreateTrie swaps it under, and the race detector reported it on that sequence.
+func TestAccountsDB_GetAccountCodeIsSafeAgainstRecreateTrie(t *testing.T) {
+	t.Parallel()
+
+	adb, address, _ := newAccountsDBWithContract(t)
+	rootHash, err := adb.RootHash()
+	require.NoError(t, err)
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < 20000; i++ {
+			code, errRead := adb.GetAccountCode(address)
+			if errRead != nil || len(code) == 0 {
+				errs <- fmt.Errorf("iteration %d: code %q, error %v", i, code, errRead)
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < 20000; i++ {
+			errRecreate := adb.RecreateTrie(rootHash)
+			if errRecreate != nil {
+				errs <- errRecreate
+				return
+			}
+		}
+	}()
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for errLoop := range errs {
+		require.NoError(t, errLoop)
+	}
+}
+
+func TestAccountsDB_GetAccountCodeMissingAccount(t *testing.T) {
 	t.Parallel()
 
 	adb, _, _ := newAccountsDBWithContract(t)
 
 	missing := make([]byte, 32)
 	missing[0] = 1
-	got, err := adb.GetAccountCodeHash(missing)
+	got, err := adb.GetAccountCode(missing)
 	require.Nil(t, got)
 	require.True(t, errors.Is(err, common.ErrAccNotFound), "got %v", err)
 }
 
-func TestAccountsDB_GetAccountCodeHashEmptyAddress(t *testing.T) {
+func TestAccountsDB_GetAccountCodeEmptyAddress(t *testing.T) {
 	t.Parallel()
 
 	adb, _, _ := newAccountsDBWithContract(t)
 
-	got, err := adb.GetAccountCodeHash(nil)
+	got, err := adb.GetAccountCode(nil)
 	require.Nil(t, got)
 	require.True(t, errors.Is(err, common.ErrNilAddress), "got %v", err)
 }
 
-func TestAccountsDB_GetAccountCodeHashTrieError(t *testing.T) {
+func TestAccountsDB_GetAccountCodeTrieError(t *testing.T) {
 	t.Parallel()
 
 	errTrie := errors.New("trie failure")
@@ -113,7 +178,7 @@ func TestAccountsDB_GetAccountCodeHashTrieError(t *testing.T) {
 	}
 	adb := generateAccountDBFromTrie(trieStub)
 
-	got, err := adb.GetAccountCodeHash(make([]byte, 32))
+	got, err := adb.GetAccountCode(make([]byte, 32))
 	require.Nil(t, got)
 	require.True(t, errors.Is(err, errTrie), "got %v", err)
 }

@@ -12,12 +12,12 @@ type TxPool interface {
 	IsInterfaceNil() bool
 }
 
-// AccountsReader reads contract code from the accounts adapter. GetAccountCodeHash must not
-// load the account's data trie (state.AccountsDB.GetAccountCodeHash does not), so the
-// warmer's reads never change what the consensus adapter tracks for the next Commit.
+// AccountsReader reads contract code from the accounts adapter. GetAccountCode must read the
+// account and its code under one hold of the adapter lock and must not load the account's data
+// trie (state.AccountsDB.GetAccountCode does both), so the warmer's reads neither race a trie
+// swap nor change what the consensus adapter tracks for the next Commit.
 type AccountsReader interface {
-	GetAccountCodeHash(address []byte) ([]byte, error)
-	GetCode(codeHash []byte) []byte
+	GetAccountCode(address []byte) ([]byte, error)
 	IsInterfaceNil() bool
 }
 
