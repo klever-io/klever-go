@@ -52,6 +52,9 @@ type BlockchainHookStub struct {
 	SetCurrentHeaderCalled                  func(hdr data.HeaderHandler)
 	GetSFTMetaCalled                        func(tokenID []byte, nonce uint64) (*kapps.MetaV2, error)
 	IncreaseNonceCalled                     func(address []byte) error
+	CompiledCodeGenerationCalled            func() uint64
+	SaveCompiledCodeIfCurrentCalled         func(generation uint64, isCurrent func() bool, codeHash []byte, code []byte) bool
+	RegisterCompiledCodesClearedCalled      func(handler func())
 }
 
 func (b *BlockchainHookStub) GetSFTMeta(tokenID []byte, nonce uint64) (*kapps.MetaV2, error) {
@@ -278,6 +281,33 @@ func (b *BlockchainHookStub) KDATransfer(sender []byte, tc *transaction.Transfer
 
 // ClearCompiledCodes mocked method
 func (b *BlockchainHookStub) ClearCompiledCodes() {
+}
+
+// CompiledCodeGeneration mocked method
+func (b *BlockchainHookStub) CompiledCodeGeneration() uint64 {
+	if b.CompiledCodeGenerationCalled != nil {
+		return b.CompiledCodeGenerationCalled()
+	}
+	return 0
+}
+
+// SaveCompiledCodeIfCurrent mocked method, defaults to SaveCompiledCode when isCurrent holds
+func (b *BlockchainHookStub) SaveCompiledCodeIfCurrent(generation uint64, isCurrent func() bool, codeHash []byte, code []byte) bool {
+	if b.SaveCompiledCodeIfCurrentCalled != nil {
+		return b.SaveCompiledCodeIfCurrentCalled(generation, isCurrent, codeHash, code)
+	}
+	if isCurrent != nil && !isCurrent() {
+		return false
+	}
+	b.SaveCompiledCode(codeHash, code)
+	return true
+}
+
+// RegisterCompiledCodesClearedHandler mocked method
+func (b *BlockchainHookStub) RegisterCompiledCodesClearedHandler(handler func()) {
+	if b.RegisterCompiledCodesClearedCalled != nil {
+		b.RegisterCompiledCodesClearedCalled(handler)
+	}
 }
 
 // ExecuteSmartContractCallOnOtherVM -

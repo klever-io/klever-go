@@ -27,6 +27,7 @@ import (
 	"github.com/klever-io/klever-go/core/process/smartContract/builtInFunctions"
 	"github.com/klever-io/klever-go/core/process/smartContract/hooks"
 	"github.com/klever-io/klever-go/core/process/smartContract/hooks/counters"
+	"github.com/klever-io/klever-go/core/process/smartContract/warmup"
 	processSync "github.com/klever-io/klever-go/core/process/sync"
 	"github.com/klever-io/klever-go/core/process/throttle"
 	"github.com/klever-io/klever-go/core/process/transaction"
@@ -244,6 +245,9 @@ type Process struct {
 	HeaderSigVerifier       HeaderSigVerifierHandler
 	HeaderIntegrityVerifier HeaderIntegrityVerifierHandler
 	ForkController          core.ForkController
+	// CompiledCodeWarmer precompiles the modules of contracts called by pending transactions
+	// (KLC-3001); it runs a goroutine and must be closed on shutdown
+	CompiledCodeWarmer warmup.CompiledCodeWarmer
 }
 
 func createHeaderSigVerifier(args *ProcessComponentsFactoryArgs) (*headerCheck.HeaderSigVerifier, error) {
@@ -351,7 +355,7 @@ func createBaseProcessor(
 	headerSigVerifier HeaderSigVerifierHandler,
 	headerIntegrityVerifier HeaderIntegrityVerifierHandler,
 	epochStartTrigger eventNotifier.TriggerHandler,
-) (*Process, error) {
+) (_ *Process, retErr error) {
 	validatorStatisticsProcessor, err := newValidatorStatisticsProcessor(args)
 	if err != nil {
 		return nil, err
@@ -421,7 +425,7 @@ func createBaseProcessor(
 		Marshalizer:            args.coreData.InternalMarshalizer,
 	}
 
-	blockProcessor, transactionProcessor, err := newBlockProcessor(
+	blockProcessor, transactionProcessor, compiledCodeWarmer, err := newBlockProcessor(
 		args,
 		requestHandler,
 		forkDetector,
@@ -435,6 +439,11 @@ func createBaseProcessor(
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if retErr != nil && !check.IfNil(compiledCodeWarmer) {
+			log.LogIfError(compiledCodeWarmer.Close())
+		}
+	}()
 
 	txSimulator, err := txsimulator.NewTransactionSimulator(*txSimulatorProcessorArgs)
 	if err != nil {
@@ -463,6 +472,7 @@ func createBaseProcessor(
 		HeaderIntegrityVerifier: headerIntegrityVerifier,
 		SlotManager:             args.slotManager,
 		ForkController:          args.forkController,
+		CompiledCodeWarmer:      compiledCodeWarmer,
 	}, nil
 }
 
@@ -819,10 +829,10 @@ func newBlockProcessor(
 	txSimulatorProcessorArgs *txsimulator.ArgsTxSimulator,
 	headerIntegrityVerifier HeaderIntegrityVerifierHandler,
 	indexRating bool,
-) (process.BlockProcessor, process.TransactionProcessor, error) {
+) (process.BlockProcessor, process.TransactionProcessor, warmup.CompiledCodeWarmer, error) {
 	txFeeHandler, err := postprocess.NewFeeAccumulator()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	wasmVMChangeLocker := &sync.RWMutex{}
@@ -833,84 +843,18 @@ func newBlockProcessor(
 	}
 	gasScheduleNotifier, err := notifier.NewGasScheduleNotifier(argsGasScheduleNotifier)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	argsBuiltIn := builtInFunctions.ArgsCreateBuiltInFunctionContainer{
-		AccountsCacher:  processArgs.accountsCacher,
-		KAppController:  processArgs.state.KAppController,
-		GasSchedule:     gasScheduleNotifier,
-		MapDNSAddresses: make(map[string]struct{}),
-		Marshalizer:     processArgs.coreData.InternalMarshalizer,
-		EpochNotifier:   processArgs.epochNotifier,
-		ForkController:  processArgs.forkController,
-	}
-
-	builtInFuncFactory, err := builtInFunctions.CreateBuiltInFunctionsFactory(argsBuiltIn)
+	vmComponents, err := createMainVMComponents(processArgs, gasScheduleNotifier)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-
-	kdaTransferParser, err := parsers.NewKDATransferParser(processArgs.coreData.InternalMarshalizer)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	counter, err := counters.NewUsageCounter(kdaTransferParser, processArgs.forkController)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	argsHook := hooks.ArgBlockChainHook{
-		AccountsCacher:     processArgs.accountsCacher,
-		KAppController:     processArgs.state.KAppController,
-		PubkeyConv:         processArgs.state.AddressPubkeyConverter,
-		StorageService:     processArgs.data.Store,
-		BlockChain:         processArgs.data.Blkc,
-		Marshalizer:        processArgs.coreData.InternalMarshalizer,
-		Uint64Converter:    processArgs.coreData.Uint64ByteSliceConverter,
-		BuiltInFunctions:   builtInFuncFactory.BuiltInFunctionContainer(),
-		DataPool:           processArgs.data.Datapool,
-		CompiledSCPool:     processArgs.data.Datapool.SmartContracts(),
-		EpochNotifier:      processArgs.epochNotifier,
-		ForkController:     processArgs.forkController,
-		GasSchedule:        gasScheduleNotifier,
-		ConfigSCStorage:    processArgs.mainConfig.Storages.SmartContractsStorage,
-		NilCompiledSCStore: false,
-		Counter:            counter,
-		WorkingDir:         processArgs.workingDir,
-	}
-
-	blockChainHookImpl, err := hooks.NewBlockChainHookImpl(argsHook)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	argsNewVMFactory := chain.ArgVMContainerFactory{
-		BlockChainHook:     blockChainHookImpl,
-		BuiltInFunctions:   argsHook.BuiltInFunctions,
-		Config:             processArgs.mainConfig.VirtualMachine.Execution,
-		EpochNotifier:      processArgs.epochNotifier,
-		ForkController:     processArgs.forkController,
-		WasmVMChangeLocker: processArgs.coreData.WasmVMChangeLocker,
-		KDATransferParser:  kdaTransferParser,
-		Hasher:             processArgs.coreData.Hasher,
-		GasSchedule:        gasScheduleNotifier,
-	}
-	virtualMachineFactory, err := chain.NewVMContainerFactory(argsNewVMFactory)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	err = builtInFuncFactory.SetPayableHandler(virtualMachineFactory.BlockChainHookImpl())
-	if err != nil {
-		return nil, nil, err
-	}
-
-	vmContainer, err := virtualMachineFactory.Create()
-	if err != nil {
-		return nil, nil, err
-	}
+	builtInFuncFactory := vmComponents.builtInFuncFactory
+	kdaTransferParser := vmComponents.kdaTransferParser
+	blockChainHookImpl := vmComponents.blockChainHook
+	virtualMachineFactory := vmComponents.vmFactory
+	vmContainer := vmComponents.vmContainer
 
 	argsParser := smartContract.NewArgumentParser()
 	argsNewSCProcessor := smartContract.ArgsNewSmartContractProcessor{
@@ -933,12 +877,12 @@ func newBlockProcessor(
 	}
 	scProcessor, err := smartContract.NewSmartContractProcessor(argsNewSCProcessor)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	err = createMetaTxSimulatorProcessor(txSimulatorProcessorArgs, processArgs, argsNewSCProcessor, kdaTransferParser, gasScheduleNotifier)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	args := transaction.ArgsNewTxProcessor{
@@ -960,7 +904,7 @@ func newBlockProcessor(
 
 	txProcessor, err := transaction.NewTxProcessor(args)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	txPreProcessor, err := preprocess.NewTransactionPreprocessor(
@@ -978,7 +922,7 @@ func newBlockProcessor(
 		processArgs.forkController,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	txCoordinator, err := coordinator.NewTransactionCoordinator(
@@ -995,12 +939,12 @@ func newBlockProcessor(
 		scProcessor,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	blockSizeThrottler, err := throttle.NewBlockSizeThrottle(processArgs.minSizeInBytes, processArgs.maxSizeInBytes)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	genesisHdr := processArgs.data.Blkc.GetGenesisHeader()
@@ -1015,7 +959,7 @@ func newBlockProcessor(
 	}
 	epochStartDataCreator, err := epochStart.NewEpochStartData(argsEpochStartData)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	accountsDb := make(map[state.AccountsDbIdentifier]state.AccountsAdapter)
@@ -1061,15 +1005,178 @@ func newBlockProcessor(
 
 	processor, err := block.NewMetaProcessor(arguments)
 	if err != nil {
-		return nil, nil, errors.New("could not create block processor: " + err.Error())
+		return nil, nil, nil, errors.New("could not create block processor: " + err.Error())
 	}
 
 	err = processor.SetAppStatusHandler(processArgs.coreData.StatusHandler)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	return processor, txProcessor, nil
+	// KLC-3001: created last, after Create() registered the factory on the gas schedule notifier
+	// (see the warmup package documentation for the lock order), so no later step in this
+	// function can fail and leave its goroutine running. Only the main block processor gets one;
+	// the simulator shares the compiled-code pool and benefits from it.
+	compiledCodeWarmer, err := createCompiledCodeWarmer(processArgs, blockChainHookImpl, gasScheduleNotifier, virtualMachineFactory)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return processor, txProcessor, compiledCodeWarmer, nil
+}
+
+// mainVMContainerFactory is the part of the main VM container factory newBlockProcessor uses
+type mainVMContainerFactory interface {
+	process.VirtualMachinesContainerFactory
+	SetCompiledCodeRescanTrigger(trigger func())
+}
+
+// mainVMComponents holds the VM components of the main block processor
+type mainVMComponents struct {
+	builtInFuncFactory vmcommon.BuiltInFunctionFactory
+	kdaTransferParser  vmcommon.KDATransferParser
+	blockChainHook     *hooks.BlockChainHookImpl
+	vmFactory          mainVMContainerFactory
+	vmContainer        process.VirtualMachinesContainer
+}
+
+// createMainVMComponents creates the built-in functions, the blockchain hook and the VM container
+// of the main block processor. Create() registers the VM container factory on the gas schedule
+// notifier, so the compiled-code warmer must only be created after this returns.
+func createMainVMComponents(
+	processArgs *ProcessComponentsFactoryArgs,
+	gasScheduleNotifier core.GasScheduleNotifier,
+) (*mainVMComponents, error) {
+	argsBuiltIn := builtInFunctions.ArgsCreateBuiltInFunctionContainer{
+		AccountsCacher:  processArgs.accountsCacher,
+		KAppController:  processArgs.state.KAppController,
+		GasSchedule:     gasScheduleNotifier,
+		MapDNSAddresses: make(map[string]struct{}),
+		Marshalizer:     processArgs.coreData.InternalMarshalizer,
+		EpochNotifier:   processArgs.epochNotifier,
+		ForkController:  processArgs.forkController,
+	}
+
+	builtInFuncFactory, err := builtInFunctions.CreateBuiltInFunctionsFactory(argsBuiltIn)
+	if err != nil {
+		return nil, err
+	}
+
+	kdaTransferParser, err := parsers.NewKDATransferParser(processArgs.coreData.InternalMarshalizer)
+	if err != nil {
+		return nil, err
+	}
+
+	counter, err := counters.NewUsageCounter(kdaTransferParser, processArgs.forkController)
+	if err != nil {
+		return nil, err
+	}
+
+	argsHook := hooks.ArgBlockChainHook{
+		AccountsCacher:     processArgs.accountsCacher,
+		KAppController:     processArgs.state.KAppController,
+		PubkeyConv:         processArgs.state.AddressPubkeyConverter,
+		StorageService:     processArgs.data.Store,
+		BlockChain:         processArgs.data.Blkc,
+		Marshalizer:        processArgs.coreData.InternalMarshalizer,
+		Uint64Converter:    processArgs.coreData.Uint64ByteSliceConverter,
+		BuiltInFunctions:   builtInFuncFactory.BuiltInFunctionContainer(),
+		DataPool:           processArgs.data.Datapool,
+		CompiledSCPool:     processArgs.data.Datapool.SmartContracts(),
+		EpochNotifier:      processArgs.epochNotifier,
+		ForkController:     processArgs.forkController,
+		GasSchedule:        gasScheduleNotifier,
+		ConfigSCStorage:    processArgs.mainConfig.Storages.SmartContractsStorage,
+		NilCompiledSCStore: false,
+		Counter:            counter,
+		WorkingDir:         processArgs.workingDir,
+	}
+
+	blockChainHookImpl, err := hooks.NewBlockChainHookImpl(argsHook)
+	if err != nil {
+		return nil, err
+	}
+
+	argsNewVMFactory := chain.ArgVMContainerFactory{
+		BlockChainHook:     blockChainHookImpl,
+		BuiltInFunctions:   argsHook.BuiltInFunctions,
+		Config:             processArgs.mainConfig.VirtualMachine.Execution,
+		EpochNotifier:      processArgs.epochNotifier,
+		ForkController:     processArgs.forkController,
+		WasmVMChangeLocker: processArgs.coreData.WasmVMChangeLocker,
+		KDATransferParser:  kdaTransferParser,
+		Hasher:             processArgs.coreData.Hasher,
+		GasSchedule:        gasScheduleNotifier,
+	}
+	virtualMachineFactory, err := chain.NewVMContainerFactory(argsNewVMFactory)
+	if err != nil {
+		return nil, err
+	}
+
+	err = builtInFuncFactory.SetPayableHandler(virtualMachineFactory.BlockChainHookImpl())
+	if err != nil {
+		return nil, err
+	}
+
+	vmContainer, err := virtualMachineFactory.Create()
+	if err != nil {
+		return nil, err
+	}
+
+	return &mainVMComponents{
+		builtInFuncFactory: builtInFuncFactory,
+		kdaTransferParser:  kdaTransferParser,
+		blockChainHook:     blockChainHookImpl,
+		vmFactory:          virtualMachineFactory,
+		vmContainer:        vmContainer,
+	}, nil
+}
+
+// createCompiledCodeWarmer creates the KLC-3001 compiled-code warmer, unless the
+// virtualMachine.execution.compiledCodeWarmUp setting turns it off. It reads contract code
+// through GetAccountCode, which holds the adapter lock for the whole read and leaves the
+// consensus adapter's tracked data tries alone; an accounts adapter without it gets no warmer.
+// No warmer only means cold first calls, as before.
+func createCompiledCodeWarmer(
+	processArgs *ProcessComponentsFactoryArgs,
+	compiledCode warmup.CompiledCodeCache,
+	gasScheduleNotifier core.GasScheduleNotifier,
+	rescanTriggerSetter compiledCodeRescanTriggerSetter,
+) (warmup.CompiledCodeWarmer, error) {
+	if !processArgs.mainConfig.VirtualMachine.Execution.CompiledCodeWarmUp.IsEnabled() {
+		log.Info("compiled-code warm-up disabled by virtualMachine.execution.compiledCodeWarmUp")
+		return nil, nil
+	}
+
+	accounts, ok := processArgs.state.AccountsAdapter.(warmup.AccountsReader)
+	if !ok || check.IfNil(accounts) {
+		log.Warn("compiled-code warm-up disabled: the accounts adapter cannot read contract code without loading data tries")
+		return nil, nil
+	}
+
+	warmer, err := warmup.NewCompiledCodeWarmer(warmup.ArgsCompiledCodeWarmer{
+		TxPool:        processArgs.data.Datapool.Transactions(),
+		Accounts:      accounts,
+		CompiledCode:  compiledCode,
+		GasSchedule:   gasScheduleNotifier,
+		ForkFlags:     processArgs.forkController,
+		Hasher:        processArgs.coreData.Hasher,
+		StatusHandler: processArgs.coreData.StatusHandler,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !check.IfNil(rescanTriggerSetter) {
+		rescanTriggerSetter.SetCompiledCodeRescanTrigger(warmer.TriggerRescan)
+	}
+
+	return warmer, nil
+}
+
+// compiledCodeRescanTriggerSetter is the part of the VM container factory the warmer wiring needs
+type compiledCodeRescanTriggerSetter interface {
+	SetCompiledCodeRescanTrigger(trigger func())
+	IsInterfaceNil() bool
 }
 
 func indexGenesisAccounts(startTime int64, accountsAdapter state.AccountsAdapter, eventsProcessor process.EventsProcessor, marshalizer marshal.Marshalizer) error {
