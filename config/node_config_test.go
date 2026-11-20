@@ -10,8 +10,9 @@ import (
 
 // TestNodeConfig_ResourceManagerIsScaled guards KLC-2417: regular nodes cap unknown inbound peers
 // at maxUnprotectedInboundConns and keep the remaining inbound slots for validators, so they must
-// ship a scaled ResourceManager whose inbound ceiling (64 + scaledMemoryMiB/16) leaves room for the
-// validator set above that cap, instead of libp2p's auto-scaled default (128 inbound on an 8 GB
+// ship a scaled ResourceManager whose inbound ceiling for established connections (64 +
+// scaledMemoryMiB/16; the transient slots for handshaking connections come on top) leaves room for
+// the validator set above that cap, instead of libp2p's auto-scaled default (128 inbound on an 8 GB
 // host). Loads the shipped file the way cmd/node does.
 func TestNodeConfig_ResourceManagerIsScaled(t *testing.T) {
 	cfg, err := config.LoadFromPath(filepath.Join("node", "config.yaml"))
@@ -20,7 +21,7 @@ func TestNodeConfig_ResourceManagerIsScaled(t *testing.T) {
 	rm := cfg.P2P.ResourceManager
 	require.Equal(t, config.ResourceManagerStrategyScaled, rm.Strategy,
 		"node must ship the scaled ResourceManager, not libp2p's auto-scaled default or null")
-	require.Equal(t, 4096, rm.ScaledMemoryMiB, "4096 MiB gives 320 inbound / 640 total connections")
+	require.Equal(t, 4096, rm.ScaledMemoryMiB, "4096 MiB gives 320 inbound slots for established connections")
 	require.Zero(t, rm.MaxConnsPerIPv4, "per-IP limits stay at libp2p defaults on regular nodes")
 	require.Zero(t, rm.MaxConnsPerIPv6Subnet, "per-IP limits stay at libp2p defaults on regular nodes")
 	require.Zero(t, rm.ConnRatePerSec, "connection rate limits stay at libp2p defaults on regular nodes")
@@ -34,8 +35,9 @@ const validatorInboundHeadroom = 200
 // TestNodeConfig_ConnectionManagerDefaults guards the shipped connectionManager section. A trim
 // closes only unprotected, out-of-grace peers and stops at lowWater of them; protected peers come
 // on top. So lowWater is the inbound budget of unprotected peers, and lowWater plus the protected
-// validators must fit in the scaled ResourceManager's 64 + scaledMemoryMiB/16 inbound slots, or an
-// attacker's unprotected connections can keep validators out without ever being trimmed.
+// validators must fit in the scaled ResourceManager's 64 + scaledMemoryMiB/16 inbound slots for
+// established connections (scaledLimits adds the handshaking connections' transient slots on top),
+// or an attacker's unprotected connections can keep validators out without ever being trimmed.
 func TestNodeConfig_ConnectionManagerDefaults(t *testing.T) {
 	cfg, err := config.LoadFromPath(filepath.Join("node", "config.yaml"))
 	require.NoError(t, err)

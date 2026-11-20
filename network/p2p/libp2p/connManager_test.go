@@ -238,30 +238,37 @@ func TestGracePeriodWarning(t *testing.T) {
 }
 
 func TestConnManagerLimitWarnings(t *testing.T) {
-	assert.Empty(t, libp2p.ConnManagerLimitWarnings(100, 300, 100, 320, 640), "the shipped defaults fit")
-	assert.Empty(t, libp2p.ConnManagerLimitWarnings(100, 640, 100, 320, 640), "highWater equal to the total limit is still reachable")
+	assert.Empty(t, libp2p.ConnManagerLimitWarnings(100, 300, 100, 416, 96, 736), "the shipped defaults fit")
+	assert.Empty(t, libp2p.ConnManagerLimitWarnings(100, 736, 100, 416, 96, 736), "highWater equal to the total limit is still reachable")
 
-	warnings := libp2p.ConnManagerLimitWarnings(100, 641, 100, 320, 640)
+	warnings := libp2p.ConnManagerLimitWarnings(100, 737, 100, 416, 96, 736)
 	require.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0], "never trims")
 
-	warnings = libp2p.ConnManagerLimitWarnings(320, 400, 100, 320, 640)
+	warnings = libp2p.ConnManagerLimitWarnings(416, 500, 100, 416, 96, 736)
 	require.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0], "lowWater (320)")
+	assert.Contains(t, warnings[0], "lowWater (416)")
 
-	warnings = libp2p.ConnManagerLimitWarnings(100, 300, 320, 320, 640)
+	warnings = libp2p.ConnManagerLimitWarnings(100, 300, 416, 416, 96, 736)
 	require.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0], "maxUnprotectedInboundConns (320)")
+	assert.Contains(t, warnings[0], "maxUnprotectedInboundConns (416)")
 
-	assert.Len(t, libp2p.ConnManagerLimitWarnings(200, 300, 150, 128, 256), 3,
+	assert.Len(t, libp2p.ConnManagerLimitWarnings(200, 300, 150, 128, 0, 256), 3,
 		"an 8 GB host on libp2p auto-scale fits none of the three")
 
 	// Explicit "default" on an 8 GB host: 128 inbound and the default cap of 100 leave 28 slots for
 	// about 200 validators.
-	warnings = libp2p.ConnManagerLimitWarnings(50, 250, 100, 128, 256)
+	warnings = libp2p.ConnManagerLimitWarnings(50, 250, 100, 128, 0, 256)
 	require.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0], "only 28 inbound slots are left for validators")
-	assert.Empty(t, libp2p.ConnManagerLimitWarnings(100, 300, 120, 320, 640), "exactly 200 slots left is enough")
+	assert.Empty(t, libp2p.ConnManagerLimitWarnings(100, 300, 120, 416, 96, 736), "exactly 200 slots left is enough")
+
+	// The limits before the transient inbound slots were added: handshaking connections take 96 of
+	// the 320, which leaves validators 124.
+	warnings = libp2p.ConnManagerLimitWarnings(100, 300, 100, 320, 96, 640)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "only 124 inbound slots are left for validators")
+	assert.Contains(t, warnings[0], "minus 96 handshaking connections")
 }
 
 func TestScaledLimits_RegularNodesLimitInboundConnsPerPeer(t *testing.T) {
@@ -272,7 +279,24 @@ func TestScaledLimits_RegularNodesLimitInboundConnsPerPeer(t *testing.T) {
 	assert.Equal(t, rcmgr.LimitVal(4), regular.PeerDefault.ConnsInbound)
 	assert.Equal(t, rcmgr.LimitVal(8), seed.PeerDefault.ConnsInbound, "seeds keep libp2p's 8")
 	assert.Equal(t, seed.PeerDefault.Conns, regular.PeerDefault.Conns, "the per-peer total keeps libp2p's value")
-	assert.Equal(t, seed.System, regular.System, "system limits are unchanged")
+	assert.Equal(t, seed.Transient, regular.Transient, "transient limits are unchanged")
+}
+
+func TestScaledLimits_RegularNodesAddTransientInboundToSystem(t *testing.T) {
+	for _, mib := range []int64{4096, 8192, 16384} {
+		regular := libp2p.ScaledLimits(mib<<20, 4096, false).ToPartialLimitConfig()
+		seed := libp2p.ScaledLimits(mib<<20, 4096, true).ToPartialLimitConfig()
+
+		transient := regular.Transient.ConnsInbound
+		assert.Equal(t, seed.System.ConnsInbound+transient, regular.System.ConnsInbound, "%d MiB", mib)
+		assert.Equal(t, seed.System.Conns+transient, regular.System.Conns, "%d MiB", mib)
+		assert.Equal(t, seed.System.ConnsOutbound, regular.System.ConnsOutbound, "%d MiB", mib)
+	}
+
+	regular := libp2p.ScaledLimits(4096<<20, 4096, false).ToPartialLimitConfig()
+	assert.Equal(t, rcmgr.LimitVal(416), regular.System.ConnsInbound)
+	assert.Equal(t, rcmgr.LimitVal(736), regular.System.Conns)
+	assert.Equal(t, rcmgr.LimitVal(96), regular.Transient.ConnsInbound)
 }
 
 func peerInboundLimit(t *testing.T, mes interface {
@@ -328,8 +352,15 @@ func TestSystemConnLimits(t *testing.T) {
 
 	inbound, total, ok := libp2p.SystemConnLimits(rm)
 	require.True(t, ok)
-	assert.Equal(t, 320, inbound)
-	assert.Equal(t, 640, total)
+	assert.Equal(t, 416, inbound)
+	assert.Equal(t, 736, total)
+
+	transient, ok := libp2p.TransientConnsInbound(rm)
+	require.True(t, ok)
+	assert.Equal(t, 96, transient)
+
+	_, ok = libp2p.TransientConnsInbound(&network.NullResourceManager{})
+	assert.False(t, ok)
 }
 
 func newLocalPeerHost(t *testing.T) host.Host {

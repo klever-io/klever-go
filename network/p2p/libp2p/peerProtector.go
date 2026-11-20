@@ -138,8 +138,15 @@ type inboundCandidate struct {
 //
 // The pass only acts above the cap. At the cap, the connection gater evicts at admission instead
 // (see evictionCandidate): a new non-exempt inbound connection gets in only by displacing a class 1
-// peer, so the cap never locks newcomers out behind peers that failed to identify themselves.
-// Observers and young unknown peers are never evicted.
+// peer or, when there is none, the newest observer that has been connected longer than
+// unknownPeerIdentificationWindow. So the cap never locks newcomers out behind peers that failed to
+// identify themselves, nor behind observer identities that cost one self-signed heartbeat each:
+// holding the cap with observers takes continuous reconnects, and established observers, the
+// oldest, are displaced last. Young unknown peers are never evicted.
+//
+// A validator protected by an earlier pass stays protected while it is connected and the resolver
+// only reports it as unknown, so a resolver cache miss does not expose it to the cap; an observer
+// reading or a disconnect unprotects it.
 type peerProtector struct {
 	mut                        sync.Mutex
 	cm                         connmgr.ConnManager
@@ -202,7 +209,7 @@ func (pp *peerProtector) runPass() peerProtectorPassResult {
 
 	for _, pid := range peers {
 		connected[pid] = struct{}{}
-		peerType := resolver.GetPeerInfo(core.PeerID(pid)).PeerType
+		peerType := pp.passPeerType(resolver, pid)
 		peerTypes[pid] = peerType
 
 		switch peerType {
@@ -219,8 +226,8 @@ func (pp *peerProtector) runPass() peerProtectorPassResult {
 		}
 	}
 
-	// Peers protected last pass that are no longer connected validators: demoted to observer or
-	// unknown, or disconnected (whose entry would otherwise leak).
+	// Peers protected last pass that are no longer connected validators: demoted to observer, or
+	// disconnected (whose entry would otherwise leak).
 	for pid := range pp.protected {
 		if _, ok := protected[pid]; ok {
 			continue
@@ -246,6 +253,22 @@ func (pp *peerProtector) runPass() peerProtectorPassResult {
 	pp.enforceInboundCap(peers, peerTypes, &res)
 
 	return res
+}
+
+// passPeerType is pid's type for this pass. A validator protected last pass stays a validator while
+// it is connected and the resolver merely stops knowing it (its entry evicted from the resolver's
+// cache, for instance); only an observer reading, or a disconnect, unprotects it. Called with mut
+// held.
+func (pp *peerProtector) passPeerType(resolver p2p.PeerShardResolver, pid peer.ID) core.P2PPeerType {
+	peerType := resolver.GetPeerInfo(core.PeerID(pid)).PeerType
+	if peerType != core.UnknownPeer {
+		return peerType
+	}
+	if _, wasProtected := pp.protected[pid]; wasProtected {
+		return core.ValidatorPeer
+	}
+
+	return peerType
 }
 
 // enforceInboundCap closes unprotected inbound peers, in the order described on peerProtector,
@@ -370,10 +393,7 @@ func (pp *peerProtector) closeExcessInbound(candidates []inboundCandidate, total
 
 // closeInboundConns closes the inbound connections among conns, all to pid.
 func closeInboundConns(conns []network.Conn, pid peer.ID) {
-	for _, conn := range conns {
-		if conn.Stat().Direction != network.DirInbound {
-			continue
-		}
+	for _, conn := range inboundOnly(conns) {
 		if err := conn.Close(); err != nil {
 			log.Debug("peer protector: closing unprotected inbound connection", "pid", pid.String(), "error", err)
 		}
@@ -407,34 +427,50 @@ func (pp *peerProtector) admitInbound(pid peer.ID) bool {
 	return len(victim) > 0 && count-len(victim) < pp.maxUnprotectedInboundConns
 }
 
+// evictionVictim is the newest eviction candidate of one class.
+type evictionVictim struct {
+	conns        []network.Conn
+	firstInbound time.Time
+}
+
+func (v *evictionVictim) offer(conns []network.Conn, firstInbound time.Time) {
+	if len(v.conns) == 0 || firstInbound.After(v.firstInbound) {
+		v.conns, v.firstInbound = conns, firstInbound
+	}
+}
+
 // evictionCandidate returns the inbound connections of the peer whose eviction may admit a new
-// inbound connection from pid at a full cap, or nil: the class 1 peer (unknown, first inbound
-// connection older than identificationWindow) that connected last, other than pid and not carrying
-// validatorProtectionTag. Peers with a connection for which skip returns true (being evicted
-// already) are passed over. It does not take mut.
+// inbound connection from pid at a full cap, or nil. Only peers other than pid, not carrying
+// validatorProtectionTag, whose first inbound connection is older than identificationWindow
+// qualify: the class 1 peer (unknown) that connected last or, when there is none, the observer that
+// connected last. Peers with a connection for which skip returns true (being evicted already) are
+// passed over. It does not take mut.
 func (pp *peerProtector) evictionCandidate(pid peer.ID, skip func(network.Conn) bool) []network.Conn {
 	identifiedBy := pp.now().Add(-pp.identificationWindow)
 	var resolver p2p.PeerShardResolver
 
-	var victim []network.Conn
-	var victimFirstInbound time.Time
+	var unknown, observer evictionVictim
 	for _, candidate := range pp.net.Peers() {
 		inbound, firstInbound, ok := pp.staleInboundConns(candidate, pid, identifiedBy, skip)
-		if !ok || (len(victim) > 0 && !firstInbound.After(victimFirstInbound)) {
+		if !ok {
 			continue
 		}
 		if resolver == nil {
 			resolver = pp.resolver()
 		}
-		peerType := resolver.GetPeerInfo(core.PeerID(candidate)).PeerType
-		if peerType == core.ValidatorPeer || peerType == core.ObserverPeer {
-			continue
+		switch resolver.GetPeerInfo(core.PeerID(candidate)).PeerType {
+		case core.ValidatorPeer:
+		case core.ObserverPeer:
+			observer.offer(inbound, firstInbound)
+		default:
+			unknown.offer(inbound, firstInbound)
 		}
-		victim = inbound
-		victimFirstInbound = firstInbound
 	}
 
-	return victim
+	if len(unknown.conns) > 0 {
+		return unknown.conns
+	}
+	return observer.conns
 }
 
 // staleInboundConns returns candidate's inbound connections and when the oldest was opened, and
@@ -450,34 +486,21 @@ func (pp *peerProtector) staleInboundConns(
 	if candidate == pid || pp.cm.IsProtected(candidate, validatorProtectionTag) {
 		return nil, time.Time{}, false
 	}
-	conns := pp.net.ConnsToPeer(candidate)
-	firstInbound, inboundConns := inboundConnStats(conns)
-	if inboundConns == 0 || firstInbound.After(identifiedBy) {
+	inbound := inboundOnly(pp.net.ConnsToPeer(candidate))
+	if len(inbound) == 0 {
 		return nil, time.Time{}, false
 	}
-	inbound, skipped := inboundConnsOf(conns, skip)
-	if skipped {
+	firstInbound := oldestOpened(inbound)
+	if firstInbound.After(identifiedBy) {
 		return nil, time.Time{}, false
+	}
+	for _, conn := range inbound {
+		if skip != nil && skip(conn) {
+			return nil, time.Time{}, false
+		}
 	}
 
 	return inbound, firstInbound, true
-}
-
-// inboundConnsOf returns the inbound connections among conns, and whether skip returned true for
-// any of them.
-func inboundConnsOf(conns []network.Conn, skip func(network.Conn) bool) ([]network.Conn, bool) {
-	inbound := make([]network.Conn, 0, len(conns))
-	for _, conn := range conns {
-		if conn.Stat().Direction != network.DirInbound {
-			continue
-		}
-		if skip != nil && skip(conn) {
-			return nil, true
-		}
-		inbound = append(inbound, conn)
-	}
-
-	return inbound, false
 }
 
 // capEnforcedNow reports whether the cap is armed and past its warm-up.
@@ -506,10 +529,8 @@ func (pp *peerProtector) unprotectedInboundConns() map[network.Conn]struct{} {
 		if pp.cm.IsProtected(pid, validatorProtectionTag) {
 			continue
 		}
-		for _, conn := range pp.net.ConnsToPeer(pid) {
-			if conn.Stat().Direction == network.DirInbound {
-				conns[conn] = struct{}{}
-			}
+		for _, conn := range inboundOnly(pp.net.ConnsToPeer(pid)) {
+			conns[conn] = struct{}{}
 		}
 	}
 
@@ -519,20 +540,32 @@ func (pp *peerProtector) unprotectedInboundConns() map[network.Conn]struct{} {
 // inboundConnStats returns when the oldest inbound connection among conns was opened and how many
 // inbound connections there are.
 func inboundConnStats(conns []network.Conn) (time.Time, int) {
-	var first time.Time
-	count := 0
+	inbound := inboundOnly(conns)
+	return oldestOpened(inbound), len(inbound)
+}
+
+// inboundOnly returns the inbound connections among conns.
+func inboundOnly(conns []network.Conn) []network.Conn {
+	inbound := make([]network.Conn, 0, len(conns))
 	for _, conn := range conns {
-		stat := conn.Stat()
-		if stat.Direction != network.DirInbound {
-			continue
+		if conn.Stat().Direction == network.DirInbound {
+			inbound = append(inbound, conn)
 		}
-		if count == 0 || stat.Opened.Before(first) {
-			first = stat.Opened
-		}
-		count++
 	}
 
-	return first, count
+	return inbound
+}
+
+// oldestOpened returns when the oldest of conns was opened, or the zero time when conns is empty.
+func oldestOpened(conns []network.Conn) time.Time {
+	var first time.Time
+	for i, conn := range conns {
+		if opened := conn.Stat().Opened; i == 0 || opened.Before(first) {
+			first = opened
+		}
+	}
+
+	return first
 }
 
 // start runs a pass immediately and then every interval until ctx is done.
