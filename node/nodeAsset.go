@@ -39,7 +39,7 @@ func (n *Node) GetAsset(assetID string) (*kapps.KDAData, error) {
 	if err != nil {
 		// The API writes this error into the response, so keep trie and unmarshal details in the log.
 		if !errors.Is(err, common.ErrAssetNotFound) {
-			log.Debug("GetAsset", "asset", tokenID, "error", err)
+			log.Warn("GetAsset: could not read asset data", "asset", string(tokenID), "error", err)
 		}
 		return &kapps.KDAData{}, common.ErrAssetNotFound
 	}
@@ -107,9 +107,6 @@ func (n *Node) GetKDAFeePool(id string) (*kdafeespool.KDAFeesPoolData, error) {
 	poolBytes, err := kdaPoolKapp.DataTrieTracker().RetrieveValue([]byte(kdaData.ID))
 	if err != nil {
 		return kdaPool, err
-	}
-	if len(poolBytes) == 0 {
-		return kdaPool, common.ErrAssetPoolNotFound
 	}
 
 	err = n.internalMarshalizer.Unmarshal(kdaPool, poolBytes)

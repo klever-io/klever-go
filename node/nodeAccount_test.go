@@ -971,7 +971,8 @@ func TestGetAvailableClaimList(t *testing.T) {
 func TestNode_LookupsReportMissingStateAsNotFound(t *testing.T) {
 	t.Parallel()
 
-	assetBytes, _ := getMarshalizer().Marshal(&kapps.KDAData{ID: []byte("KDA-1Q2W")})
+	assetBytes, err := getMarshalizer().Marshal(&kapps.KDAData{ID: []byte("KDA-1Q2W")})
+	require.NoError(t, err)
 	assetKey := string(kdautils.ToKDAKey([]byte("KDA-1Q2W"), nil))
 	// A real trie returns (nil, nil) for a missing key.
 	onlyAsset := func(key []byte) ([]byte, error) {
@@ -992,7 +993,6 @@ func TestNode_LookupsReportMissingStateAsNotFound(t *testing.T) {
 		{"unknown asset", onlyAsset, func(n *node.Node) (any, error) { return n.GetAsset("NOPE-1Q2W") }, common.ErrAssetNotFound},
 		{"asset trie error is not leaked", failing, func(n *node.Node) (any, error) { return n.GetAsset("KDA-1Q2W") }, common.ErrAssetNotFound},
 		{"pool of an unknown asset", onlyAsset, func(n *node.Node) (any, error) { return n.GetKDAFeePool("NOPE-1Q2W") }, common.ErrAssetNotFound},
-		{"asset without a pool", onlyAsset, func(n *node.Node) (any, error) { return n.GetKDAFeePool("KDA-1Q2W") }, common.ErrAssetPoolNotFound},
 		{"unknown marketplace", onlyAsset, func(n *node.Node) (any, error) { return n.GetMarketplace("deadbeefdeadbeef") }, common.ErrMarketplaceNotFound},
 	}
 	for _, tt := range tests {
@@ -1007,4 +1007,27 @@ func TestNode_LookupsReportMissingStateAsNotFound(t *testing.T) {
 			require.NotContains(t, err.Error(), "deadbeef")
 		})
 	}
+}
+
+// A KDA fee pool is opt-in: an existing asset without one is a normal state,
+// answered as an empty pool, not as an error.
+func TestNode_GetKDAFeePool_AssetWithoutPoolIsNotAnError(t *testing.T) {
+	t.Parallel()
+
+	assetBytes, err := getMarshalizer().Marshal(&kapps.KDAData{ID: []byte("KDA-1Q2W")})
+	require.NoError(t, err)
+	assetKey := string(kdautils.ToKDAKey([]byte("KDA-1Q2W"), nil))
+	n, err := createNodeWithOptions(t, nodeTestOptions{kappsAdapter: createKappsDBWithTrieValue(func(key []byte) ([]byte, error) {
+		if string(key) == assetKey {
+			return assetBytes, nil
+		}
+		return nil, nil
+	})})
+	require.NoError(t, err)
+
+	pool, err := n.GetKDAFeePool("KDA-1Q2W")
+	require.NoError(t, err)
+	require.NotNil(t, pool)
+	require.Empty(t, pool.KDA)
+	require.False(t, pool.Active)
 }
