@@ -83,6 +83,9 @@ const (
 	// warmupGasLimit is the GasLimit compilation option used by the warmer. It is a value the
 	// cold path itself can pass; the restoring call's own limit is the one enforced.
 	warmupGasLimit = uint64(core.MaxGasLimitPerTx)
+	// logKeyAddress and logKeyError are the log field names the warmer uses
+	logKeyAddress = "address"
+	logKeyError   = "error"
 )
 
 const (
@@ -422,7 +425,7 @@ func (w *compiledCodeWarmer) warm(address []byte) {
 	code, err := w.readCode(address)
 	if err != nil {
 		w.numErrors.Add(1)
-		log.Debug("compiledCodeWarmer: cannot read contract code", "address", address, "error", err)
+		log.Debug("compiledCodeWarmer: cannot read contract code", logKeyAddress, address, logKeyError, err)
 		return
 	}
 
@@ -442,7 +445,7 @@ func (w *compiledCodeWarmer) warm(address []byte) {
 		} else {
 			w.numErrors.Add(1)
 		}
-		log.Debug("compiledCodeWarmer: contract not warmed", "address", address, "error", err)
+		log.Debug("compiledCodeWarmer: contract not warmed", logKeyAddress, address, logKeyError, err)
 		return
 	}
 
@@ -450,7 +453,7 @@ func (w *compiledCodeWarmer) warm(address []byte) {
 	compiledFor, err := w.currentFingerprint()
 	if err != nil {
 		w.numErrors.Add(1)
-		log.Debug("compiledCodeWarmer: cannot build the compilation inputs", "error", err)
+		log.Debug("compiledCodeWarmer: cannot build the compilation inputs", logKeyError, err)
 		return
 	}
 	w.ensureExecutorOpcodeCosts(&compiledFor.opcodes)
@@ -461,7 +464,7 @@ func (w *compiledCodeWarmer) warm(address []byte) {
 	w.compileTimeNs.Add(int64(duration))
 	if err != nil {
 		w.numErrors.Add(1)
-		log.Debug("compiledCodeWarmer: compile failed", "address", address, "error", err)
+		log.Debug("compiledCodeWarmer: compile failed", logKeyAddress, address, logKeyError, err)
 		return
 	}
 
@@ -472,12 +475,12 @@ func (w *compiledCodeWarmer) warm(address []byte) {
 	saved := w.compiledCode.SaveCompiledCodeIfCurrent(generation, isCurrent, codeHash, compiled)
 	if !saved {
 		w.numDiscardedStale.Add(1)
-		log.Debug("compiledCodeWarmer: discarded module compiled for a stale cache", "address", address)
+		log.Debug("compiledCodeWarmer: discarded module compiled for a stale cache", logKeyAddress, address)
 		return
 	}
 
 	w.numCompiled.Add(1)
-	log.Debug("compiledCodeWarmer: module precompiled", "address", address, "codeHash", codeHash, "duration", duration)
+	log.Debug("compiledCodeWarmer: module precompiled", logKeyAddress, address, "codeHash", codeHash, "duration", duration)
 }
 
 func (w *compiledCodeWarmer) readCode(address []byte) ([]byte, error) {
