@@ -20,8 +20,8 @@ const inboundCapRejectionSummaryInterval = time.Minute
 // inboundCapPendingTTL bounds how long a connection admitted by InterceptUpgraded counts as pending
 // before the swarm registers it. Registration normally follows within microseconds; a connection
 // that fails in between (the swarm closing, for instance) never produces a Connected notification,
-// so its entry expires instead of holding cap budget forever. A var so tests can change it.
-var inboundCapPendingTTL = 5 * time.Second
+// so its entry expires instead of holding cap budget forever.
+const inboundCapPendingTTL = 5 * time.Second
 
 // inboundCapGater enforces the peer protector's unprotected inbound cap at admission (see
 // peerProtector for the cap itself). The 10s protector pass alone reserves nothing: the
@@ -29,14 +29,15 @@ var inboundCapPendingTTL = 5 * time.Second
 // the slots a pass frees before a restarted validator's dials get through. While the cap is
 // reached, the gater admits an inbound connection from a peer that is not exempt
 // (peerProtector.exemptFromCap) only by evicting an unknown peer that outstayed the identification
-// window (peerProtector.evictionCandidate), closing that peer's inbound connections; with no such
-// peer it refuses. Outbound connections, and every connection before the cap is armed and past its
+// window or, when there is none, the newest observer connected for longer than that window
+// (peerProtector.evictionCandidate), closing that peer's inbound connections; with no such peer it
+// refuses. Outbound connections, and every connection before the cap is armed and past its
 // warm-up, are admitted. libp2p needs the gater before the host exists, so the protector is bound
 // late; until then everything is admitted.
 //
 // A validator that starts with a fresh peer ID is unknown to every node. Where the cap is full it
-// gets in by evicting such a stale unknown peer; where only observers and young unknown peers hold
-// the cap its own dials are refused, and it gets in when another node dials it (discovered through
+// gets in by evicting a stale unknown peer or an established observer; where only young unknown
+// peers hold the cap its own dials are refused, and it gets in when another node dials it (discovered through
 // the DHT; that connection is outbound on the other side, so never gated), or when it reaches a node
 // below the cap. Once one such link exists it joins the heartbeat mesh and its heartbeat identifies
 // it everywhere. Seeds do not help here: they join no topic, so they never relay heartbeats.
@@ -75,17 +76,13 @@ type inboundCapGater struct {
 	// evicting holds the inbound connections of eviction victims until their close returns.
 	evicting map[network.Conn]struct{}
 	now      func() time.Time
-	// pendingTTL is inboundCapPendingTTL, copied at construction so connection goroutines never
-	// read the package variable.
-	pendingTTL time.Duration
 }
 
 func newInboundCapGater(now func() time.Time) *inboundCapGater {
 	return &inboundCapGater{
-		pending:    make(map[network.Conn]time.Time),
-		evicting:   make(map[network.Conn]struct{}),
-		now:        now,
-		pendingTTL: inboundCapPendingTTL,
+		pending:  make(map[network.Conn]time.Time),
+		evicting: make(map[network.Conn]struct{}),
+		now:      now,
 	}
 }
 
@@ -158,8 +155,8 @@ func (g *inboundCapGater) InterceptUpgraded(conn network.Conn) (bool, control.Di
 	return true, 0
 }
 
-// admitLocked decides whether conn from pid fits in the cap, evicting a stale unknown peer when it
-// does not. An admitted conn is recorded as pending, and the victim's conns, if any, as evicting;
+// admitLocked decides whether conn from pid fits in the cap, evicting a stale unknown peer or an
+// established observer (peerProtector.evictionCandidate) when it does not. An admitted conn is recorded as pending, and the victim's conns, if any, as evicting;
 // the caller closes them. Called with mut held.
 func (g *inboundCapGater) admitLocked(pp *peerProtector, conn network.Conn, pid peer.ID) (bool, []network.Conn) {
 	now := g.now()
@@ -182,7 +179,7 @@ func (g *inboundCapGater) admitLocked(pp *peerProtector, conn network.Conn, pid 
 
 // usedBudgetLocked counts the unprotected inbound connections that hold cap budget: the registered
 // ones that are not being evicted plus the pending ones that are not registered yet. It drops
-// pending entries older than pendingTTL. Called with mut held.
+// pending entries older than inboundCapPendingTTL. Called with mut held.
 func (g *inboundCapGater) usedBudgetLocked(pp *peerProtector, now time.Time) int {
 	registeredConns := pp.unprotectedInboundConns()
 	used := 0
@@ -192,7 +189,7 @@ func (g *inboundCapGater) usedBudgetLocked(pp *peerProtector, now time.Time) int
 		}
 	}
 	for c, admittedAt := range g.pending {
-		if now.Sub(admittedAt) >= g.pendingTTL {
+		if now.Sub(admittedAt) >= inboundCapPendingTTL {
 			delete(g.pending, c)
 			continue
 		}
@@ -218,7 +215,7 @@ func (g *inboundCapGater) evict(victim []network.Conn, admitted peer.ID) {
 			log.Debug("inbound cap: closing evicted connection", "pid", c.RemotePeer().String(), "error", err)
 		}
 	}
-	log.Debug("inbound cap: evicted an unknown peer past the identification window",
+	log.Debug("inbound cap: evicted an unprotected peer past the identification window",
 		"evicted", victim[0].RemotePeer().String(), "conns", len(victim), "admitted", admitted.String())
 
 	g.mut.Lock()

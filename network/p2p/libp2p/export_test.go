@@ -292,6 +292,9 @@ var GracePeriodWarning = gracePeriodWarning
 // SystemConnLimits exposes systemConnLimits for testing.
 var SystemConnLimits = systemConnLimits
 
+// TransientConnsInbound exposes transientConnsInbound for testing.
+var TransientConnsInbound = transientConnsInbound
+
 // EffectiveResourceManagerConfig exposes effectiveResourceManagerConfig for testing.
 func EffectiveResourceManagerConfig(rmCfg config.ResourceManagerConfig, isSeedNode bool) config.ResourceManagerConfig {
 	return effectiveResourceManagerConfig(rmCfg, isSeedNode)
@@ -347,7 +350,7 @@ func (g *inboundCapGater) EvictingLen() int {
 }
 
 // InboundCapPendingTTL exposes inboundCapPendingTTL.
-var InboundCapPendingTTL = inboundCapPendingTTL
+const InboundCapPendingTTL = inboundCapPendingTTL
 
 // InboundGater returns the messenger's connection gater (nil on seeds) and whether it is bound to
 // the messenger's peer protector.

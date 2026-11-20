@@ -1424,12 +1424,25 @@ func validateResourceManagerConfig(rmCfg config.ResourceManagerConfig) error {
 // an attacker gets for free. The per-peer total (inbound + outbound, 8) and outbound limits keep
 // libp2p's values, so our own dials are unaffected. The increase is zeroed too, so a future libp2p
 // that scales it does not silently raise the limit. Seeds keep libp2p's per-peer limits.
+//
+// Regular nodes also get the transient scope's inbound limit added to the system's inbound and total
+// connection limits. libp2p charges a connection that has not finished its handshake to both the
+// transient and the system scope, so without it a peer stalling handshakes until the 15s timeout
+// takes up to the transient inbound limit (96 at 4096 MiB) out of the system inbound slots, on top
+// of maxUnprotectedInboundConns, and leaves validators 124 of 320 instead of 220. Both scale
+// linearly with memory, so adding the base and the increase keeps the sum at every size: 416 inbound
+// and 736 total at 4096 MiB.
 func scaledLimits(memBytes int64, numFD int, isSeedNode bool) rcmgr.ConcreteLimitConfig {
 	limits := rcmgr.DefaultLimits
 	libp2p.SetDefaultServiceLimits(&limits)
 	if !isSeedNode {
 		limits.PeerBaseLimit.ConnsInbound = regularNodePeerConnsInbound
 		limits.PeerLimitIncrease.ConnsInbound = 0
+
+		limits.SystemBaseLimit.ConnsInbound += limits.TransientBaseLimit.ConnsInbound
+		limits.SystemBaseLimit.Conns += limits.TransientBaseLimit.ConnsInbound
+		limits.SystemLimitIncrease.ConnsInbound += limits.TransientLimitIncrease.ConnsInbound
+		limits.SystemLimitIncrease.Conns += limits.TransientLimitIncrease.ConnsInbound
 	}
 	return limits.Scale(memBytes, numFD)
 }
@@ -1446,7 +1459,8 @@ const (
 	defaultConnMgrHighWater = 300
 	// defaultConnMgrLowWater is the number of unprotected, out-of-grace connections a trim keeps:
 	// 100 plus ~200 validator connections fits in the 320 inbound slots of the default "scaled"
-	// ResourceManager (4096 MiB).
+	// ResourceManager (4096 MiB) that are left once handshaking connections are counted (see
+	// scaledLimits).
 	defaultConnMgrLowWater = 100
 	// maxConnMgrWatermark and maxConnMgrGracePeriodInSec bound the config to values a node could
 	// act on; anything larger is a configuration mistake.
@@ -1456,8 +1470,9 @@ const (
 	// validators (only validatorProtectionTag exempts a peer); it matches defaultConnMgrLowWater.
 	defaultMaxUnprotectedInboundConns = 100
 	// minInboundSlotsForValidators is the validator headroom the inbound limit should keep above
-	// maxUnprotectedInboundConns: the network has about 200 validators, so a node can expect up to
-	// that many inbound validator connections. Below it the node warns at startup.
+	// maxUnprotectedInboundConns and the handshaking (transient) connections: the network has about
+	// 200 validators, so a node can expect up to that many inbound validator connections. Below it
+	// the node warns at startup.
 	minInboundSlotsForValidators = 200
 )
 
@@ -1594,8 +1609,9 @@ func validateDirectSendConfig(dsCfg config.DirectSendConfig) error {
 }
 
 // defaultRegularNodeScaledMemoryMiB is the memory budget of the "scaled" ResourceManager a regular
-// node gets when its config has no resourceManager section: 64 + 4096/16 = 320 inbound and 640
-// total connections, the values config/node/config.yaml ships.
+// node gets when its config has no resourceManager section, the value config/node/config.yaml
+// ships: 64 + 4096/16 = 320 inbound slots for established connections plus the 96 transient ones
+// (see scaledLimits), 416 inbound and 736 total.
 const defaultRegularNodeScaledMemoryMiB = 4096
 
 // effectiveResourceManagerConfig applies the in-code default for regular nodes. Upgraded nodes keep
@@ -1651,6 +1667,29 @@ func buildResourceManager(args ArgsNetworkMessenger) (resourceManagerSetup, erro
 	}, nil
 }
 
+// transientConnsInbound reads the inbound connection limit of the ResourceManager's transient scope,
+// which holds connections that have not finished their handshake. ok is false when the manager
+// exposes no limits.
+func transientConnsInbound(rm network.ResourceManager) (connsInbound int, ok bool) {
+	if rm == nil {
+		return 0, false
+	}
+	err := rm.ViewTransient(func(scope network.ResourceScope) error {
+		limiter, isLimiter := scope.(rcmgr.ResourceScopeLimiter)
+		if !isLimiter {
+			return nil
+		}
+		connsInbound, ok = limiter.Limit().GetConnLimit(network.DirInbound), true
+		return nil
+	})
+	if err != nil {
+		log.Warn("cannot read the ResourceManager's transient connection limits", "error", err)
+		return 0, false
+	}
+
+	return connsInbound, ok
+}
+
 // systemConnLimits reads the inbound and total connection limits of the ResourceManager's system
 // scope. ok is false when the manager exposes no limits (strategy "null").
 func systemConnLimits(rm network.ResourceManager) (connsInbound int, conns int, ok bool) {
@@ -1677,8 +1716,16 @@ func systemConnLimits(rm network.ResourceManager) (connsInbound int, conns int, 
 // connManagerLimitWarnings returns what is wrong with the watermarks and the unprotected inbound
 // cap for the given system limits. highWater equal to the total limit is still reachable, so only a
 // higher one is reported. A lowWater or cap at or above the inbound limit lets unprotected peers
-// alone fill every inbound slot.
-func connManagerLimitWarnings(low int, high int, maxUnprotectedInboundConns int, connsInbound int, conns int) []string {
+// alone fill every inbound slot. Handshaking connections count against the system inbound limit
+// too, up to transientInbound of them, so the validators' headroom excludes them.
+func connManagerLimitWarnings(
+	low int,
+	high int,
+	maxUnprotectedInboundConns int,
+	connsInbound int,
+	transientInbound int,
+	conns int,
+) []string {
 	var warnings []string
 	if high > conns {
 		warnings = append(warnings, fmt.Sprintf(
@@ -1694,15 +1741,22 @@ func connManagerLimitWarnings(low int, high int, maxUnprotectedInboundConns int,
 		warnings = append(warnings, fmt.Sprintf(
 			"p2p.connectionManager.maxUnprotectedInboundConns (%d) is not below the ResourceManager's inbound "+
 				"connection limit (%d): unprotected peers can hold every inbound slot", maxUnprotectedInboundConns, connsInbound))
-	} else if connsInbound-maxUnprotectedInboundConns < minInboundSlotsForValidators {
+	} else if slots := inboundSlotsForValidators(connsInbound, transientInbound, maxUnprotectedInboundConns); slots < minInboundSlotsForValidators {
 		warnings = append(warnings, fmt.Sprintf(
-			"only %d inbound slots are left for validators (ResourceManager inbound limit %d minus "+
-				"p2p.connectionManager.maxUnprotectedInboundConns %d), below the expected %d: raise the inbound "+
-				"limit (strategy \"scaled\" with a larger scaledMemoryMiB) or lower maxUnprotectedInboundConns",
-			connsInbound-maxUnprotectedInboundConns, connsInbound, maxUnprotectedInboundConns, minInboundSlotsForValidators))
+			"only %d inbound slots are left for validators (ResourceManager inbound limit %d minus %d handshaking "+
+				"connections minus p2p.connectionManager.maxUnprotectedInboundConns %d), below the expected %d: "+
+				"raise the inbound limit (strategy \"scaled\" with a larger scaledMemoryMiB) or lower "+
+				"maxUnprotectedInboundConns",
+			slots, connsInbound, transientInbound, maxUnprotectedInboundConns, minInboundSlotsForValidators))
 	}
 
 	return warnings
+}
+
+// inboundSlotsForValidators is what the system inbound limit leaves for validators once the
+// handshaking connections and the unprotected inbound cap are taken.
+func inboundSlotsForValidators(connsInbound int, transientInbound int, maxUnprotectedInboundConns int) int {
+	return connsInbound - transientInbound - maxUnprotectedInboundConns
 }
 
 // gracePeriodWarning warns when the grace period is shorter than the window a validator may need to
@@ -1742,8 +1796,9 @@ func logNetworkLimits(args ArgsNetworkMessenger, rmStrategy string, rm network.R
 			log.Warn(warning)
 		}
 		if hasLimits {
-			inboundForValidators = fmt.Sprintf("%d", connsInbound-maxUnprotected)
-			for _, warning := range connManagerLimitWarnings(low, high, maxUnprotected, connsInbound, conns) {
+			transientInbound, _ := transientConnsInbound(rm)
+			inboundForValidators = fmt.Sprintf("%d", inboundSlotsForValidators(connsInbound, transientInbound, maxUnprotected))
+			for _, warning := range connManagerLimitWarnings(low, high, maxUnprotected, connsInbound, transientInbound, conns) {
 				log.Warn(warning)
 			}
 		}

@@ -200,11 +200,26 @@ func TestPeerProtector_ProtectsValidatorsTagsObserversAndCleansUp(t *testing.T) 
 	_, tagged = observerTagOf(cm, unknown)
 	assert.False(t, tagged, "unknown peer must not be tagged")
 
-	t.Run("a validator that becomes unknown is unprotected", func(t *testing.T) {
+	t.Run("a connected validator the resolver stops knowing stays protected", func(t *testing.T) {
 		mp.set(validator, core.UnknownPeer)
 		res := pp.RunPass()
-		assert.Equal(t, 1, res.Unprotected)
+		assert.Zero(t, res.Unprotected)
+		assert.Equal(t, 2, res.Validators)
+		assert.True(t, cm.IsProtected(validator, libp2p.ValidatorProtectionTag))
+
+		res = pp.RunPass()
+		assert.Zero(t, res.Unprotected, "it stays protected on every pass while it is unknown")
+		assert.True(t, cm.IsProtected(validator, libp2p.ValidatorProtectionTag))
+
+		mp.set(validator, core.ObserverPeer)
+		res = pp.RunPass()
+		assert.Equal(t, 1, res.Unprotected, "an observer reading unprotects it")
 		assert.False(t, cm.IsProtected(validator, libp2p.ValidatorProtectionTag))
+
+		mp.set(validator, core.UnknownPeer)
+		pp.RunPass()
+		assert.False(t, cm.IsProtected(validator, libp2p.ValidatorProtectionTag),
+			"once unprotected, an unknown reading does not protect it again")
 	})
 
 	t.Run("a disconnected validator is unprotected so the protection map does not leak", func(t *testing.T) {
@@ -261,7 +276,7 @@ func TestPeerProtector_LeavesOtherProtectionTagsAlone(t *testing.T) {
 	pp := libp2p.NewPeerProtector(cm, mp, mp.resolver(), noCap)
 
 	pp.RunPass()
-	mp.set(pid, core.UnknownPeer)
+	mp.set(pid, core.ObserverPeer)
 	pp.RunPass()
 
 	assert.False(t, cm.IsProtected(pid, libp2p.ValidatorProtectionTag))
