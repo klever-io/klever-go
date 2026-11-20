@@ -16,6 +16,7 @@ import (
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/kvm/mock/stub"
 	"github.com/klever-io/klever-go/network/api/models"
+	"github.com/klever-io/klever-go/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -965,4 +966,68 @@ func TestGetAvailableClaimList(t *testing.T) {
 		require.Nil(t, claimErrors)
 		require.Zero(t, pendingRewardsReads, "the Validators kapp must not be loaded after the context is done")
 	})
+}
+
+func TestNode_LookupsReportMissingStateAsNotFound(t *testing.T) {
+	t.Parallel()
+
+	assetBytes, err := getMarshalizer().Marshal(&kapps.KDAData{ID: []byte("KDA-1Q2W")})
+	require.NoError(t, err)
+	assetKey := string(kdautils.ToKDAKey([]byte("KDA-1Q2W"), nil))
+	// A real trie returns (nil, nil) for a missing key.
+	onlyAsset := func(key []byte) ([]byte, error) {
+		if string(key) == assetKey {
+			return assetBytes, nil
+		}
+		return nil, nil
+	}
+	trieErr := errors.New("trie node 0xdeadbeef missing")
+	failing := func([]byte) ([]byte, error) { return nil, trieErr }
+
+	tests := []struct {
+		name      string
+		retriever func([]byte) ([]byte, error)
+		lookup    func(n *node.Node) (any, error)
+		wantErr   error
+	}{
+		{"unknown asset", onlyAsset, func(n *node.Node) (any, error) { return n.GetAsset("NOPE-1Q2W") }, common.ErrAssetNotFound},
+		{"asset trie error is not leaked", failing, func(n *node.Node) (any, error) { return n.GetAsset("KDA-1Q2W") }, common.ErrAssetNotFound},
+		{"pool of an unknown asset", onlyAsset, func(n *node.Node) (any, error) { return n.GetKDAFeePool("NOPE-1Q2W") }, common.ErrAssetNotFound},
+		{"unknown marketplace", onlyAsset, func(n *node.Node) (any, error) { return n.GetMarketplace("deadbeefdeadbeef") }, common.ErrMarketplaceNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			n, err := createNodeWithOptions(t, nodeTestOptions{kappsAdapter: createKappsDBWithTrieValue(tt.retriever)})
+			require.NoError(t, err)
+
+			got, err := tt.lookup(n)
+			require.ErrorIs(t, err, tt.wantErr, "got %+v", got)
+			require.NotContains(t, err.Error(), "deadbeef")
+		})
+	}
+}
+
+// A KDA fee pool is opt-in: an existing asset without one is a normal state,
+// answered as an empty pool, not as an error.
+func TestNode_GetKDAFeePool_AssetWithoutPoolIsNotAnError(t *testing.T) {
+	t.Parallel()
+
+	assetBytes, err := getMarshalizer().Marshal(&kapps.KDAData{ID: []byte("KDA-1Q2W")})
+	require.NoError(t, err)
+	assetKey := string(kdautils.ToKDAKey([]byte("KDA-1Q2W"), nil))
+	n, err := createNodeWithOptions(t, nodeTestOptions{kappsAdapter: createKappsDBWithTrieValue(func(key []byte) ([]byte, error) {
+		if string(key) == assetKey {
+			return assetBytes, nil
+		}
+		return nil, nil
+	})})
+	require.NoError(t, err)
+
+	pool, err := n.GetKDAFeePool("KDA-1Q2W")
+	require.NoError(t, err)
+	require.NotNil(t, pool)
+	require.Empty(t, pool.KDA)
+	require.False(t, pool.Active)
 }
