@@ -183,6 +183,8 @@ func TestPeerProtector_ProtectsValidatorsTagsObserversAndCleansUp(t *testing.T) 
 			observer:  core.ObserverPeer,
 			leaving:   core.ValidatorPeer,
 		},
+		// the validator stays connected on a connection opened before the first pass
+		conns: map[peer.ID][]network.Conn{validator: {conn(network.DirOutbound, at(1))}},
 	}
 	pp := libp2p.NewPeerProtector(cm, mp, mp.resolver(), noCap)
 
@@ -262,6 +264,33 @@ func TestPeerProtector_ProtectsValidatorsTagsObserversAndCleansUp(t *testing.T) 
 		pp.RunPass()
 		assert.False(t, cm.IsProtected(unknown, ""))
 	})
+}
+
+func TestPeerProtector_ReconnectedValidatorDoesNotInheritProtection(t *testing.T) {
+	cm := newTestConnMgr(t)
+	stays, reconnects := peer.ID("stays"), peer.ID("reconnects")
+	mp := &mutablePeers{}
+	mp.connect(stays, core.ValidatorPeer, stubConn(stays, network.DirInbound, at(1)))
+	mp.connect(reconnects, core.ValidatorPeer, stubConn(reconnects, network.DirInbound, at(1)))
+	pp := libp2p.NewPeerProtector(cm, mp, mp.resolver(), 1)
+
+	res := pp.RunPass()
+	require.Equal(t, 2, res.Validators)
+	require.True(t, cm.IsProtected(reconnects, libp2p.ValidatorProtectionTag))
+
+	// between two passes: one validator disconnects and reconnects, and the resolver stops knowing both
+	mp.disconnect(reconnects)
+	mp.connect(reconnects, core.UnknownPeer, connFrom(reconnects, network.DirInbound))
+	mp.set(stays, core.UnknownPeer)
+
+	res = pp.RunPass()
+	assert.Equal(t, 1, res.Validators)
+	assert.Equal(t, 1, res.Unprotected)
+	assert.True(t, cm.IsProtected(stays, libp2p.ValidatorProtectionTag), "the validator that stayed connected stays protected")
+	assert.False(t, cm.IsProtected(reconnects, libp2p.ValidatorProtectionTag), "the reconnected peer does not inherit protection")
+	assert.Equal(t, 1, res.UnprotectedInboundUnknown, "the reconnected peer counts against the inbound cap")
+	assert.Equal(t, 1, res.UnprotectedInboundConns)
+	assert.Zero(t, res.Closed, "a young unknown peer within the cap is not closed")
 }
 
 func TestPeerProtector_LeavesOtherProtectionTagsAlone(t *testing.T) {

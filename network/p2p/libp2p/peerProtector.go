@@ -146,7 +146,8 @@ type inboundCandidate struct {
 //
 // A validator protected by an earlier pass stays protected while it is connected and the resolver
 // only reports it as unknown, so a resolver cache miss does not expose it to the cap; an observer
-// reading or a disconnect unprotects it.
+// reading or a disconnect unprotects it, including a disconnect followed by a reconnect between two
+// passes (see passPeerType).
 type peerProtector struct {
 	mut                        sync.Mutex
 	cm                         connmgr.ConnManager
@@ -157,6 +158,8 @@ type peerProtector struct {
 	tagged                     map[peer.ID]struct{}
 	now                        func() time.Time
 	warmUp                     time.Duration
+	// lastPassAt is when the previous pass ran, or the zero time before the first. Guarded by mut.
+	lastPassAt time.Time
 	// identificationWindow is unknownPeerIdentificationWindow, copied at construction so passes on
 	// the protector's goroutine never read the package variable.
 	identificationWindow time.Duration
@@ -199,6 +202,7 @@ func (pp *peerProtector) runPass() peerProtectorPassResult {
 	defer pp.mut.Unlock()
 
 	var res peerProtectorPassResult
+	passAt := pp.now()
 	peers := pp.net.Peers()
 	resolver := pp.resolver()
 
@@ -249,6 +253,7 @@ func (pp *peerProtector) runPass() peerProtectorPassResult {
 
 	pp.protected = protected
 	pp.tagged = tagged
+	pp.lastPassAt = passAt
 
 	pp.enforceInboundCap(peers, peerTypes, &res)
 
@@ -257,18 +262,32 @@ func (pp *peerProtector) runPass() peerProtectorPassResult {
 
 // passPeerType is pid's type for this pass. A validator protected last pass stays a validator while
 // it is connected and the resolver merely stops knowing it (its entry evicted from the resolver's
-// cache, for instance); only an observer reading, or a disconnect, unprotects it. Called with mut
-// held.
+// cache, for instance); only an observer reading, or a disconnect, unprotects it. A pass sees only
+// who is connected when it runs, so a peer counts as having stayed connected only if one of its
+// connections was opened no later than the previous pass: one that disconnected and reconnected in
+// between gets the resolver's reading. Called with mut held.
 func (pp *peerProtector) passPeerType(resolver p2p.PeerShardResolver, pid peer.ID) core.P2PPeerType {
 	peerType := resolver.GetPeerInfo(core.PeerID(pid)).PeerType
 	if peerType != core.UnknownPeer {
 		return peerType
 	}
-	if _, wasProtected := pp.protected[pid]; wasProtected {
+	if _, wasProtected := pp.protected[pid]; wasProtected && pp.connectedSinceLastPass(pid) {
 		return core.ValidatorPeer
 	}
 
 	return peerType
+}
+
+// connectedSinceLastPass reports whether pid has a connection opened no later than the previous
+// pass. Called with mut held.
+func (pp *peerProtector) connectedSinceLastPass(pid peer.ID) bool {
+	for _, conn := range pp.net.ConnsToPeer(pid) {
+		if !conn.Stat().Opened.After(pp.lastPassAt) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // enforceInboundCap closes unprotected inbound peers, in the order described on peerProtector,
