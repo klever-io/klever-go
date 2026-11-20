@@ -1029,10 +1029,8 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		clockMetricsCloser,
 		currentNode.GetPeerHonestyHandler(),
 		currentNode.GetHeartbeatHandler(),
-	}
-	if !check.IfNil(processComponents.CompiledCodeWarmer) {
 		// KLC-3001: stop the warm-up worker before the stores and tries it reads are closed
-		backgroundClosers = append(backgroundClosers, processComponents.CompiledCodeWarmer)
+		compiledCodeWarmerCloser(processComponents),
 	}
 
 	log.Trace("creating klever node facade")
@@ -1174,6 +1172,16 @@ func applyPreferencesConfigs(ctx *cli.Context, cfg *config.Config) {
 	if ctx.IsSet(redundancyLevel.Name) {
 		cfg.Preferences.RedundancyLevel = ctx.GlobalInt64(redundancyLevel.Name)
 	}
+}
+
+// compiledCodeWarmerCloser returns the compiled-code warmer as a closer, or nil when the node
+// runs without one; closeAllComponents skips nil closers
+func compiledCodeWarmerCloser(processComponents *factory.Process) io.Closer {
+	if check.IfNil(processComponents.CompiledCodeWarmer) {
+		return nil
+	}
+
+	return processComponents.CompiledCodeWarmer
 }
 
 func closeAllComponents(
