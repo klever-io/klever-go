@@ -1144,18 +1144,25 @@ func createMainVMComponents(
 	}, nil
 }
 
-// createCompiledCodeWarmer creates the KLC-3001 compiled-code warmer. It reads contract code
-// through GetAccountCodeHash, which leaves the consensus adapter's tracked data tries alone; an
-// accounts adapter without it gets no warmer, which only means cold first calls, as before.
+// createCompiledCodeWarmer creates the KLC-3001 compiled-code warmer, unless the
+// virtualMachine.execution.compiledCodeWarmUp setting turns it off. It reads contract code
+// through GetAccountCode, which holds the adapter lock for the whole read and leaves the
+// consensus adapter's tracked data tries alone; an accounts adapter without it gets no warmer.
+// No warmer only means cold first calls, as before.
 func createCompiledCodeWarmer(
 	processArgs *ProcessComponentsFactoryArgs,
 	compiledCode warmup.CompiledCodeCache,
 	gasScheduleNotifier core.GasScheduleNotifier,
 	rescanTriggerSetter compiledCodeRescanTriggerSetter,
 ) (warmup.CompiledCodeWarmer, error) {
+	if !processArgs.mainConfig.VirtualMachine.Execution.CompiledCodeWarmUp.IsEnabled() {
+		log.Info("compiled-code warm-up disabled by virtualMachine.execution.compiledCodeWarmUp")
+		return nil, nil
+	}
+
 	accounts, ok := processArgs.state.AccountsAdapter.(warmup.AccountsReader)
 	if !ok || check.IfNil(accounts) {
-		log.Warn("compiled-code warm-up disabled: the accounts adapter cannot read code hashes without loading data tries")
+		log.Warn("compiled-code warm-up disabled: the accounts adapter cannot read contract code without loading data tries")
 		return nil, nil
 	}
 

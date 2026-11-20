@@ -147,6 +147,21 @@ type VirtualMachineConfig struct {
 	TimeOutForSCExecutionInMilliseconds uint32                 `yaml:"timeOutForSCExecutionInMilliseconds"`
 	TimeOutTolerancePercentage          uint32                 `yaml:"timeOutTolerancePercentage"` // Percentage to add for cosigner tolerance (e.g., 20 = 20%)
 	WasmerSIGSEGVPassthrough            bool                   `yaml:"wasmerSIGSEGVPassthrough"`
+	// CompiledCodeWarmUp is read from the execution section only; the querying VMs ignore it
+	CompiledCodeWarmUp CompiledCodeWarmUpConfig `yaml:"compiledCodeWarmUp"`
+}
+
+// CompiledCodeWarmUpConfig controls the precompilation of smart-contract modules called by the
+// transactions entering the pool (KLC-3001)
+type CompiledCodeWarmUpConfig struct {
+	// Enabled is a pointer so an absent key can be told apart from false: a config written
+	// before this setting existed has no key and keeps the warm-up on. Read it through IsEnabled.
+	Enabled *bool `yaml:"enabled"`
+}
+
+// IsEnabled reports whether the warm-up runs: only an explicit false turns it off
+func (c CompiledCodeWarmUpConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 // VirtualMachineServicesConfig holds configuration for the Virtual Machine(s): both querying and execution services.

@@ -114,46 +114,33 @@ func (f *fakeCompiledCodeCache) IsInterfaceNil() bool {
 
 type fakeAccounts struct {
 	mut          sync.Mutex
-	codeHashes   map[string][]byte
 	codes        map[string][]byte
 	numGetCalled atomic.Int64
 }
 
 func newFakeAccounts() *fakeAccounts {
-	return &fakeAccounts{
-		codeHashes: make(map[string][]byte),
-		codes:      make(map[string][]byte),
-	}
+	return &fakeAccounts{codes: make(map[string][]byte)}
 }
 
+// setContract registers an account; a nil code registers an account without code
 func (f *fakeAccounts) setContract(address []byte, code []byte) {
 	f.mut.Lock()
 	defer f.mut.Unlock()
 
-	// the trie key is unrelated to the pool key on purpose: the warmer must hash the code
-	codeHash := append([]byte("trie-code-hash-"), address...)
-	f.codeHashes[string(address)] = codeHash
-	f.codes[string(codeHash)] = code
+	f.codes[string(address)] = code
 }
 
-func (f *fakeAccounts) GetAccountCodeHash(address []byte) ([]byte, error) {
+func (f *fakeAccounts) GetAccountCode(address []byte) ([]byte, error) {
 	f.numGetCalled.Add(1)
 
 	f.mut.Lock()
 	defer f.mut.Unlock()
 
-	codeHash, ok := f.codeHashes[string(address)]
+	code, ok := f.codes[string(address)]
 	if !ok {
 		return nil, errTestAccountNotFound
 	}
-	return codeHash, nil
-}
-
-func (f *fakeAccounts) GetCode(codeHash []byte) []byte {
-	f.mut.Lock()
-	defer f.mut.Unlock()
-
-	return f.codes[string(codeHash)]
+	return code, nil
 }
 
 func (f *fakeAccounts) IsInterfaceNil() bool {

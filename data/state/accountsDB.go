@@ -651,16 +651,17 @@ func (adb *AccountsDB) getAccount(address []byte) (AccountHandler, error) {
 	return acnt, nil
 }
 
-// GetAccountCodeHash returns the code hash of an existing account. Unlike GetExistingAccount
-// it does not load the account's data trie, so it leaves the data tries tracked for the next
-// Commit untouched; it is meant for readers outside block processing (KLC-3001). An account
-// that is not a user account, or has no code, yields an empty hash.
-func (adb *AccountsDB) GetAccountCodeHash(address []byte) ([]byte, error) {
+// GetAccountCode returns the code of an existing account, nil for an account without code.
+// Unlike GetExistingAccount it does not load the account's data trie, so it leaves the data
+// tries tracked for the next Commit untouched, and it reads the account and its code under one
+// hold of mutOp, so RecreateTrie cannot swap the main trie between the two reads. It is meant
+// for readers outside block processing (KLC-3001).
+func (adb *AccountsDB) GetAccountCode(address []byte) ([]byte, error) {
 	adb.mutOp.Lock()
 	defer adb.mutOp.Unlock()
 
 	if len(address) == 0 {
-		return nil, fmt.Errorf("%w in GetAccountCodeHash", common.ErrNilAddress)
+		return nil, fmt.Errorf("%w in GetAccountCode", common.ErrNilAddress)
 	}
 
 	acnt, err := adb.getAccount(address)
@@ -676,7 +677,7 @@ func (adb *AccountsDB) GetAccountCodeHash(address []byte) ([]byte, error) {
 		return nil, nil
 	}
 
-	return userAccount.GetCodeHash(), nil
+	return adb.getCode(userAccount.GetCodeHash()), nil
 }
 
 // GetExistingAccount returns an existing account if exists or nil if missing
@@ -1086,6 +1087,11 @@ func (adb *AccountsDB) GetNumCheckpoints() uint32 {
 
 // GetCode returns the code for the given account
 func (adb *AccountsDB) GetCode(codeHash []byte) []byte {
+	return adb.getCode(codeHash)
+}
+
+// getCode reads the code stored under codeHash; callers that must not race RecreateTrie hold mutOp
+func (adb *AccountsDB) getCode(codeHash []byte) []byte {
 	if len(codeHash) == 0 {
 		return nil
 	}

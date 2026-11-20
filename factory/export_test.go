@@ -1,6 +1,7 @@
 package factory
 
 import (
+	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/smartContract/warmup"
@@ -18,8 +19,12 @@ func CreateCompiledCodeWarmerForTest(
 	forkController core.ForkController,
 	hasher hashing.Hasher,
 	statusHandler core.AppStatusHandler,
+	warmUpConfig config.CompiledCodeWarmUpConfig,
 ) (warmup.CompiledCodeWarmer, error) {
 	args := &ProcessComponentsFactoryArgs{
+		mainConfig: config.Config{VirtualMachine: config.VirtualMachineServicesConfig{
+			Execution: config.VirtualMachineConfig{CompiledCodeWarmUp: warmUpConfig},
+		}},
 		state:          &StateComponents{AccountsAdapter: accounts},
 		data:           &DataComponents{Datapool: datapool},
 		coreData:       &CoreComponents{Hasher: hasher, StatusHandler: statusHandler},

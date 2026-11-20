@@ -4,32 +4,43 @@
 //
 // # Consensus safety
 //
-// A call served from a precompiled module must behave exactly like a cold call. Opcode costs
-// and the fork-dependent compilation options are baked into a compiled module, so the warmer
-// may only insert a module compiled under the gas schedule and fork flags in force when it is
-// inserted. Every insert goes through BlockChainHookImpl.SaveCompiledCodeIfCurrent: it is
-// refused if the cache was cleared since compilation started (generation check) or if the
-// fingerprint {opcode costs, V4/V5 flags, compilation options}, recomputed under the cache
-// lock, differs from the one the module was compiled with.
+// A call served from a precompiled module must behave exactly like a cold call. What a module
+// carries from the moment it was compiled decides what the warmer must guard:
 //
-// That is sufficient because every change of those inputs is followed by a clear, and the
-// input always changes before the clear:
+//   - Opcode costs are baked into Cache() output: a module keeps charging the costs it was
+//     compiled under (kvm/wasmer2 TestCompiledModuleKeepsCompileTimeOpcodeCosts). They are the
+//     only input known to be baked in.
+//   - The fork-dependent options are not. The declared-table cap (FixAuditChangesV4) and the
+//     per-element table.init price (FixAuditChangesV5) are handed to the executor on every
+//     instantiation, from the restoring call's options (kvm/vmhost/hosttest
+//     TestGasUsed_TableInit_PriceIsAppliedAtInstantiationNotCompiledIn, and the comments on
+//     the table cap in kvm/vmhost/contexts).
+//   - GasLimit is serialized into Cache() output, but the restoring call's limit is the one
+//     enforced (kvm/wasmer2 TestCompiledModuleGasLimitIsAppliedOnRestore), which is why the
+//     pool is shared by calls with different gas limits.
 //
-//   - Gas schedule: gasScheduleNotifier.EpochConfirmed stores the new schedule
-//     (changeLatestGasSchedule, under its own lock) before it calls any handler, and
-//     vmContainerFactory.GasScheduleChange clears the compiled codes. A module saved before
-//     the clear is wiped by it; one saved after it was compiled against the new schedule or
-//     fails the generation check.
-//   - Fork flags: the fork controller registers with the epoch notifier right after the
-//     notifier is created (cmd/node/startup.go), before any blockchain hook or VM host exists,
-//     and genericEpochNotifier calls handlers in registration order. So the V4/V5 flags flip
-//     before BlockChainHookImpl.EpochConfirmed and vmHost.EpochConfirmed clear the cache; both
-//     epochs are EnableEpochs fields, hence in the hook's activation-epoch map.
+// Every insert goes through BlockChainHookImpl.SaveCompiledCodeIfCurrent. It is refused if the
+// cache was cleared since compilation started (generation check) or if the fingerprint
+// {opcode costs, V4/V5 flags, compilation options}, recomputed under the cache lock, differs
+// from the one the module was compiled with. The two guards protect different inputs:
 //
-// GasLimit is the one option that is not part of the fingerprint: it is serialized into the
-// Cache() output, but the limit passed when restoring the module is the one enforced
-// (kvm/wasmer2 TestCompiledModuleGasLimitIsAppliedOnRestore), which is why the pool is already
-// shared by calls with different gas limits.
+//   - The gas schedule is followed by a clear. gasScheduleNotifier.EpochConfirmed stores the
+//     new schedule (changeLatestGasSchedule, under its own lock) before it calls any handler,
+//     on any epoch change that changes the schedule, backwards included, and
+//     vmContainerFactory.GasScheduleChange clears the compiled codes. A module saved before the
+//     clear is wiped by it; one saved after it was compiled against the new schedule or fails
+//     the generation check.
+//   - The fork flags are guarded by the fingerprint recheck at save time only, not by a clear.
+//     CheckEpoch is called only by the block processor, so after a start the flags jump from
+//     their epoch-0 values to the current epoch in one step; the hook clears only on an exact
+//     activation epoch; and restoreEpochState (core/process/block) moves the epoch back without
+//     a clear. The recheck refuses a module whose flags changed before it was saved, but a
+//     module saved earlier stays cached across the change. That is harmless only because
+//     nothing flag-dependent is baked into a module.
+//
+// A future compilation input that is baked into Cache() output must therefore get its own
+// clear on every change before the warmer, or the compiled-code cache at all, may rely on it.
+// The fingerprint recheck alone never removes a module that is already cached.
 //
 // # Never on the block path
 //
@@ -484,15 +495,10 @@ func (w *compiledCodeWarmer) warm(address []byte) {
 }
 
 func (w *compiledCodeWarmer) readCode(address []byte) ([]byte, error) {
-	codeHash, err := w.accounts.GetAccountCodeHash(address)
+	code, err := w.accounts.GetAccountCode(address)
 	if err != nil {
 		return nil, err
 	}
-	if len(codeHash) == 0 {
-		return nil, errNoCode
-	}
-
-	code := w.accounts.GetCode(codeHash)
 	if len(code) == 0 {
 		return nil, errNoCode
 	}
