@@ -370,6 +370,27 @@ func TestNewCompiledCodeWarmer_RegistersHandlersAndCreatesOwnExecutor(t *testing
 	assert.Len(t, f.cache.handlers, 1)
 }
 
+func TestNewCompiledCodeWarmer_WarmsInvokesAlreadyInPool(t *testing.T) {
+	t.Parallel()
+
+	f := newWarmerFixture(t)
+	code := readBasicFeatures(t)
+	f.accounts.setContract(scAddress(1), code)
+	key := f.hasher.Compute(string(code))
+
+	// added before the warmer exists, so no OnAdded handler sees it
+	f.pool.addTx([]byte("h1"), invokeTx(t, scAddress(1)))
+
+	w, err := NewCompiledCodeWarmer(f.args)
+	require.NoError(t, err)
+	defer func() { _ = w.Close() }()
+
+	require.Eventually(t, func() bool { return w.Counters().Compiled == 1 }, 10*time.Second, 5*time.Millisecond)
+	found, _ := f.cache.GetCompiledCode(key)
+	assert.True(t, found)
+	assert.Equal(t, uint64(1), w.Counters().Rescans)
+}
+
 // --- OnAdded handler -----------------------------------------------------------------
 
 func TestCompiledCodeWarmer_HandlerIgnoresAnythingButInvokes(t *testing.T) {

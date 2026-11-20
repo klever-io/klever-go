@@ -189,6 +189,8 @@ func NewCompiledCodeWarmer(args ArgsCompiledCodeWarmer) (*compiledCodeWarmer, er
 		return nil, err
 	}
 
+	// OnAdded only sees transactions added from now on: queue the invokes already in the pool
+	w.TriggerRescan()
 	w.start()
 	return w, nil
 }
