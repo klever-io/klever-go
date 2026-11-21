@@ -266,12 +266,29 @@ func TestPeerProtector_ProtectsValidatorsTagsObserversAndCleansUp(t *testing.T) 
 	})
 }
 
+// closeConn closes c the way the swarm does: it unregisters the connection, then sends Disconnected.
+func closeConn(t *testing.T, notifiee network.Notifiee, c network.Conn) {
+	require.NoError(t, c.Close())
+	notifiee.Disconnected(nil, c)
+}
+
+func (mp *mutablePeers) addConn(pid peer.ID, c *mock.ConnStub) {
+	c.CloseCalled = func() error {
+		mp.unregister(pid, c)
+		return nil
+	}
+	mp.mut.Lock()
+	defer mp.mut.Unlock()
+	mp.conns[pid] = append(mp.conns[pid], c)
+}
+
 func TestPeerProtector_ReconnectedValidatorDoesNotInheritProtection(t *testing.T) {
 	cm := newTestConnMgr(t)
 	stays, reconnects := peer.ID("stays"), peer.ID("reconnects")
 	mp := &mutablePeers{}
 	mp.connect(stays, core.ValidatorPeer, stubConn(stays, network.DirInbound, at(1)))
-	mp.connect(reconnects, core.ValidatorPeer, stubConn(reconnects, network.DirInbound, at(1)))
+	first := stubConn(reconnects, network.DirInbound, at(1))
+	mp.connect(reconnects, core.ValidatorPeer, first)
 	pp := libp2p.NewPeerProtector(cm, mp, mp.resolver(), 1)
 
 	res := pp.RunPass()
@@ -279,7 +296,7 @@ func TestPeerProtector_ReconnectedValidatorDoesNotInheritProtection(t *testing.T
 	require.True(t, cm.IsProtected(reconnects, libp2p.ValidatorProtectionTag))
 
 	// between two passes: one validator disconnects and reconnects, and the resolver stops knowing both
-	mp.disconnect(reconnects)
+	closeConn(t, pp.Notifiee(), first)
 	mp.connect(reconnects, core.UnknownPeer, connFrom(reconnects, network.DirInbound))
 	mp.set(stays, core.UnknownPeer)
 
@@ -291,6 +308,30 @@ func TestPeerProtector_ReconnectedValidatorDoesNotInheritProtection(t *testing.T
 	assert.Equal(t, 1, res.UnprotectedInboundUnknown, "the reconnected peer counts against the inbound cap")
 	assert.Equal(t, 1, res.UnprotectedInboundConns)
 	assert.Zero(t, res.Closed, "a young unknown peer within the cap is not closed")
+}
+
+func TestPeerProtector_ReplacedConnectionKeepsValidatorProtection(t *testing.T) {
+	cm := newTestConnMgr(t)
+	validator := peer.ID("validator")
+	mp := &mutablePeers{}
+	old := stubConn(validator, network.DirInbound, at(1))
+	mp.connect(validator, core.ValidatorPeer, old)
+	pp := libp2p.NewPeerProtector(cm, mp, mp.resolver(), 0)
+
+	require.Equal(t, 1, pp.RunPass().Validators)
+
+	// between two passes: a new connection opens, then the old one closes, and the resolver stops
+	// knowing the peer; it never had zero connections
+	mp.addConn(validator, stubConn(validator, network.DirInbound, time.Now()))
+	closeConn(t, pp.Notifiee(), old)
+	mp.set(validator, core.UnknownPeer)
+
+	res := pp.RunPass()
+	assert.Equal(t, 1, res.Validators)
+	assert.Zero(t, res.Unprotected)
+	assert.True(t, cm.IsProtected(validator, libp2p.ValidatorProtectionTag), "a replaced connection keeps protection")
+	assert.Zero(t, res.UnprotectedInboundConns, "the validator does not count against the cap")
+	assert.Zero(t, res.Closed)
 }
 
 func TestPeerProtector_LeavesOtherProtectionTagsAlone(t *testing.T) {

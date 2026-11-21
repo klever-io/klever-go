@@ -147,7 +147,7 @@ type inboundCandidate struct {
 // A validator protected by an earlier pass stays protected while it is connected and the resolver
 // only reports it as unknown, so a resolver cache miss does not expose it to the cap; an observer
 // reading or a disconnect unprotects it, including a disconnect followed by a reconnect between two
-// passes (see passPeerType).
+// passes; replacing one connection with another while staying connected does not (see passPeerType).
 type peerProtector struct {
 	mut                        sync.Mutex
 	cm                         connmgr.ConnManager
@@ -158,8 +158,11 @@ type peerProtector struct {
 	tagged                     map[peer.ID]struct{}
 	now                        func() time.Time
 	warmUp                     time.Duration
-	// lastPassAt is when the previous pass ran, or the zero time before the first. Guarded by mut.
-	lastPassAt time.Time
+	// droppedMut guards dropped. It is separate from mut so the swarm's Disconnected notifications
+	// never wait for a pass to finish.
+	droppedMut sync.Mutex
+	// dropped holds the peers that have had zero connections since the current pass started.
+	dropped map[peer.ID]struct{}
 	// identificationWindow is unknownPeerIdentificationWindow, copied at construction so passes on
 	// the protector's goroutine never read the package variable.
 	identificationWindow time.Duration
@@ -184,6 +187,7 @@ func newPeerProtector(
 		maxUnprotectedInboundConns: maxUnprotectedInboundConns,
 		protected:                  make(map[peer.ID]struct{}),
 		tagged:                     make(map[peer.ID]struct{}),
+		dropped:                    make(map[peer.ID]struct{}),
 		now:                        now,
 		warmUp:                     warmUp,
 		identificationWindow:       unknownPeerIdentificationWindow,
@@ -202,7 +206,7 @@ func (pp *peerProtector) runPass() peerProtectorPassResult {
 	defer pp.mut.Unlock()
 
 	var res peerProtectorPassResult
-	passAt := pp.now()
+	dropped := pp.takeDropped()
 	peers := pp.net.Peers()
 	resolver := pp.resolver()
 
@@ -213,7 +217,7 @@ func (pp *peerProtector) runPass() peerProtectorPassResult {
 
 	for _, pid := range peers {
 		connected[pid] = struct{}{}
-		peerType := pp.passPeerType(resolver, pid)
+		peerType := pp.passPeerType(resolver, pid, dropped)
 		peerTypes[pid] = peerType
 
 		switch peerType {
@@ -253,7 +257,6 @@ func (pp *peerProtector) runPass() peerProtectorPassResult {
 
 	pp.protected = protected
 	pp.tagged = tagged
-	pp.lastPassAt = passAt
 
 	pp.enforceInboundCap(peers, peerTypes, &res)
 
@@ -262,32 +265,54 @@ func (pp *peerProtector) runPass() peerProtectorPassResult {
 
 // passPeerType is pid's type for this pass. A validator protected last pass stays a validator while
 // it is connected and the resolver merely stops knowing it (its entry evicted from the resolver's
-// cache, for instance); only an observer reading, or a disconnect, unprotects it. A pass sees only
-// who is connected when it runs, so a peer counts as having stayed connected only if one of its
-// connections was opened no later than the previous pass: one that disconnected and reconnected in
-// between gets the resolver's reading. Called with mut held.
-func (pp *peerProtector) passPeerType(resolver p2p.PeerShardResolver, pid peer.ID) core.P2PPeerType {
+// cache, for instance); only an observer reading, or a disconnect, unprotects it. A peer that had
+// zero connections since the previous pass (in dropped) gets the resolver's reading, so a reconnect
+// does not inherit the old protection, while one that replaced a connection without ever dropping to
+// zero keeps it. The swarm sends Disconnected from a goroutine after removing the connection, so a
+// reconnect whose handshake completes before that notification is taken for a replacement. Called
+// with mut held.
+func (pp *peerProtector) passPeerType(resolver p2p.PeerShardResolver, pid peer.ID, dropped map[peer.ID]struct{}) core.P2PPeerType {
 	peerType := resolver.GetPeerInfo(core.PeerID(pid)).PeerType
 	if peerType != core.UnknownPeer {
 		return peerType
 	}
-	if _, wasProtected := pp.protected[pid]; wasProtected && pp.connectedSinceLastPass(pid) {
+	_, wasProtected := pp.protected[pid]
+	_, wasDropped := dropped[pid]
+	if wasProtected && !wasDropped {
 		return core.ValidatorPeer
 	}
 
 	return peerType
 }
 
-// connectedSinceLastPass reports whether pid has a connection opened no later than the previous
-// pass. Called with mut held.
-func (pp *peerProtector) connectedSinceLastPass(pid peer.ID) bool {
-	for _, conn := range pp.net.ConnsToPeer(pid) {
-		if !conn.Stat().Opened.After(pp.lastPassAt) {
-			return true
-		}
+// takeDropped returns the peers that dropped to zero connections since the previous pass and starts
+// a new set for the next one.
+func (pp *peerProtector) takeDropped() map[peer.ID]struct{} {
+	pp.droppedMut.Lock()
+	defer pp.droppedMut.Unlock()
+	dropped := pp.dropped
+	pp.dropped = make(map[peer.ID]struct{})
+	return dropped
+}
+
+// notifiee returns the connection notification the protector needs; register it on the network.
+func (pp *peerProtector) notifiee() network.Notifiee {
+	return &network.NotifyBundle{
+		DisconnectedF: func(_ network.Network, c network.Conn) { pp.connClosed(c.RemotePeer()) },
+	}
+}
+
+// connClosed records pid in dropped when it has no connection left. The swarm removes a closed
+// connection before notifying, so the connections left are the peer's other open ones, including any
+// that replaced the closed one.
+func (pp *peerProtector) connClosed(pid peer.ID) {
+	if len(pp.net.ConnsToPeer(pid)) > 0 {
+		return
 	}
 
-	return false
+	pp.droppedMut.Lock()
+	defer pp.droppedMut.Unlock()
+	pp.dropped[pid] = struct{}{}
 }
 
 // enforceInboundCap closes unprotected inbound peers, in the order described on peerProtector,
