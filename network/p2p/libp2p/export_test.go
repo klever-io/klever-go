@@ -242,6 +242,11 @@ func (pp *peerProtector) RunPass() PeerProtectorPassResult {
 	return pp.runPass()
 }
 
+// Notifiee returns the connection notifications the messenger registers for the protector.
+func (pp *peerProtector) Notifiee() network.Notifiee {
+	return pp.notifiee()
+}
+
 // RunPeerProtectorPass runs one pass of the messenger's own peer protector. ok is false when the
 // messenger has none (seeds, mocknet hosts).
 func (netMes *networkMessenger) RunPeerProtectorPass() (res PeerProtectorPassResult, ok bool) {

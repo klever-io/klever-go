@@ -538,6 +538,7 @@ func (netMes *networkMessenger) createPeerProtector(args ArgsNetworkMessenger, p
 		inboundCapWarmUp,
 		time.Now,
 	)
+	p2pHost.Network().Notify(netMes.peerProtector.notifiee())
 	netMes.peerProtector.start(netMes.ctx, peerProtectorInterval)
 }
 
