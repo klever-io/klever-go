@@ -4,9 +4,10 @@ on:
   workflow_call:
     inputs:
       go-version:
+        description: 'The Go version to use. Empty uses the version in go.mod.'
         required: false
         type: string
-        default: '1.25.7'
+        default: ''
       go-private:
         required: false
         type: string
@@ -47,7 +48,7 @@ jobs:
       - name: GoImports Formatter
         run: |
           # Pinned, not @latest: x/tools v0.50.0 raised its go directive to 1.26.0, and this
-          # runner sets GOTOOLCHAIN=local against go 1.25.7, so @latest fails to install and
+          # runner sets GOTOOLCHAIN=local against go.mod's Go 1.25, so @latest fails to install and
           # breaks the lint job on every branch. v0.49.0 is the newest release that still
           # supports 1.25 and is what @latest resolved to until v0.50.0 shipped.
           go install golang.org/x/tools/cmd/goimports@v0.49.0

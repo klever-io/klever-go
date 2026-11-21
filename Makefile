@@ -263,7 +263,7 @@ gen-doc: ## Generate Swagger API documentation
 prepare: ## Install development dependencies
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install github.com/swaggo/swag/cmd/swag@latest
-	go install golang.org/x/tools/cmd/goimports@latest
+	go install golang.org/x/tools/cmd/goimports@v0.49.0 # newest that supports Go 1.25; see go-setup-lint.yaml
 	go install github.com/goware/modvendor@latest
 
 ensure-dependencies: ## Ensure Go dependencies are up to date
