@@ -20,7 +20,12 @@ p2p:
     #  `ListsSharder` will split the peers based on the shard membership (intra, cross or unknown)
     #  `OneListSharder` will do just the connection triming (upto TargetPeerCount value) not taking into account
     #              the shard membership of the connected peers
-    #  `NilListSharder` will disable connection trimming (sharder is off)
+    #  `NilListSharder` will disable the sharder's own connection trimming (sharder is off).
+    #              It does not select the connection manager: seed nodes always run a
+    #              no-op one, whatever sharder is set here, so their peer count is bounded
+    #              only by the ResourceManager limits below. Regular nodes run a trimming
+    #              connection manager that protects known validators (see
+    #              connectionManager in config/node/config.yaml).
     type: NilListSharder
   resourceManager:
     # Seed-node policy. Available strategies:
