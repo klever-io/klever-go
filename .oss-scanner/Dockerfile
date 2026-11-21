@@ -1,5 +1,6 @@
 # Build environment for the Anthropic OSS Scanner (https://red.anthropic.com/oss-scanner).
 # The build context is the repository checkout; the scan itself runs without network access.
+# Keep the Go version equal to go.mod's go directive.
 FROM golang:1.25.14-trixie
 
 ENV DEBIAN_FRONTEND=noninteractive \

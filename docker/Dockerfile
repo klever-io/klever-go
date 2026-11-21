@@ -1,5 +1,8 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.25.14-trixie AS builder
+# docker/Makefile passes GO_VERSION from go.mod's go directive; keep this default equal to it for
+# plain `docker build`.
+ARG GO_VERSION=1.25.14
+FROM golang:${GO_VERSION}-trixie AS builder
 
 # NOSONAR
 COPY . /go/src/github.com/klever-io/klever-go
