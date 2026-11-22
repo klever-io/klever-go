@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -155,12 +156,9 @@ func startNode(ctx *cli.Context) error {
 	}
 
 	apiConfigFileName := ctx.GlobalString(configurationAPIFile.Name)
-	apiRoutesConfig, err := config.LoadAPIConfig(apiConfigFileName)
+	apiRoutesConfig, err := loadAPIRoutesConfig(apiConfigFileName)
 	if err != nil {
-		// Fail-safe: keep the read-only monitoring endpoints up but leave /log disabled
-		// rather than exposing it unauthenticated.
-		log.Warn("could not load api config; using built-in defaults (/log disabled)", "file", apiConfigFileName, "error", err)
-		apiRoutesConfig = api.DefaultRoutesConfig()
+		return err
 	}
 
 	internalMarshalizer, err := factoryMarshalizer.NewMarshalizer(cfg.Marshalizer.Type)
@@ -398,4 +396,15 @@ func startGinServer(restAPIInterface string, marshalizer marshal.Marshalizer, me
 	if err != nil {
 		log.LogIfError(err)
 	}
+}
+
+// loadAPIRoutesConfig falls back to the built-in defaults only when the file is missing; a file that
+// fails to parse stops the start, so a typo cannot reopen routes the operator closed.
+func loadAPIRoutesConfig(path string) (config.APIRoutesConfig, error) {
+	cfg, err := config.LoadAPIConfig(path)
+	if errors.Is(err, os.ErrNotExist) {
+		log.Warn("api config not found; using built-in defaults (/log disabled)", "file", path)
+		return api.DefaultRoutesConfig(), nil
+	}
+	return cfg, err
 }
