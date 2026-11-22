@@ -176,82 +176,54 @@ type WasmVMVersionByEpoch struct {
 	Version    string `yaml:"version"`
 }
 
+// loadYAMLStrict decodes a yaml file into out, rejecting keys that match no struct tag so a typo
+// fails at boot instead of leaving the field at its zero value.
+func loadYAMLStrict(path string, kind string, out interface{}) error {
+	data, err := tools.ReadFile(path)
+	if err != nil {
+		log.Error("failed to load "+kind+" file", "file", path, "error", err)
+		return err
+	}
+	if err := yaml.UnmarshalStrict(data, out); err != nil {
+		err = fmt.Errorf("%s file %s: %w", kind, path, err)
+		log.Error("failed to unmarshal "+kind, "error", err)
+		return err
+	}
+	return nil
+}
+
 // LoadFromPath of all config files
 func LoadFromPath(relativePath string) (Config, error) {
 	var config Config
-	data, err := tools.ReadFile(relativePath)
-	if err != nil {
-		log.Error("failed to load config file", "file", relativePath, err)
-		return config, err
-	}
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		log.Error("failed to unmarshal config", err)
-		return config, err
-	}
-
-	return config, nil
+	err := loadYAMLStrict(relativePath, "config", &config)
+	return config, err
 }
 
 // LoadAPIConfig of all config files
 func LoadAPIConfig(relativePath string) (APIRoutesConfig, error) {
 	var config APIRoutesConfig
-	data, err := tools.ReadFile(relativePath)
-
-	if err != nil {
-		log.Error("failed to load API config file", "file", relativePath, err)
-		return config, err
-	}
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		log.Error("failed to unmarshal config", err)
-		return config, err
-	}
-	return config, nil
+	err := loadYAMLStrict(relativePath, "API config", &config)
+	return config, err
 }
 
 // LoadExternalConfig of all config files
 func LoadExternalConfig(relativePath string) (ExternalConfig, error) {
 	var config ExternalConfig
-	data, err := tools.ReadFile(relativePath)
-	if err != nil {
-		log.Error("failed to load External config file", "file", relativePath, err)
-		return config, err
-	}
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		log.Error("failed to unmarshal config", err)
-		return config, err
-	}
-
-	return config, nil
+	err := loadYAMLStrict(relativePath, "external config", &config)
+	return config, err
 }
 
 // LoadEnableEpochsConfig -
 func LoadEnableEpochsConfig(relativePath string) (EnableEpochsConfig, error) {
 	var config EnableEpochsConfig
-	data, err := tools.ReadFile(relativePath)
-
-	if err != nil {
-		log.Error("failed to load EnableEpochs config file", "file", relativePath, err)
-		return config, err
-	}
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		log.Error("failed to unmarshal enable epochs config", err)
-		return config, err
-	}
-	return config, nil
+	err := loadYAMLStrict(relativePath, "enable epochs config", &config)
+	return config, err
 }
 
 // LoadGasScheduleConfig returns a map[string]uint64 of gas costs read from the provided config file
 func LoadGasScheduleConfig(filepath string) (map[string]map[string]uint64, error) {
 	gasScheduleConfig := make(map[string]interface{})
-
-	data, err := tools.ReadFile(filepath)
-	if err != nil {
-		log.Error("failed to load gas schedule file", "file", filepath, err)
-		return nil, err
-	}
-
-	if err := yaml.Unmarshal(data, &gasScheduleConfig); err != nil {
-		log.Error("failed to unmarshal gas schedule", err)
+	if err := loadYAMLStrict(filepath, "gas schedule", &gasScheduleConfig); err != nil {
 		return nil, err
 	}
 
