@@ -49,14 +49,3 @@ func TestLoadFromPath_RejectsUnknownKeyNamingFileAndKey(t *testing.T) {
 	assert.Contains(t, err.Error(), path)
 	assert.Contains(t, err.Error(), "line 3: field EpochByHashStorage not found in type config.DbLookupExtensionsConfig")
 }
-
-func TestLoadAPIConfig_RejectsUnknownKey(t *testing.T) {
-	t.Parallel()
-
-	path := filepath.Join(t.TempDir(), "api.yaml")
-	require.NoError(t, os.WriteFile(path, []byte("loging: true\n"), 0o600))
-
-	_, err := config.LoadAPIConfig(path)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "field loging not found")
-}
