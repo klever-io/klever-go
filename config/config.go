@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"reflect"
@@ -188,10 +190,31 @@ func loadYAMLStrict(path string, kind string, out interface{}) error {
 		}
 		return err
 	}
-	if err := yaml.UnmarshalStrict(data, out); err != nil {
+	if err := decodeSingleYAMLDocument(data, out); err != nil {
 		err = fmt.Errorf("%s file %s: %w", kind, path, err)
 		log.Error("failed to unmarshal "+kind, "error", err)
 		return err
+	}
+	return nil
+}
+
+// decodeSingleYAMLDocument decodes data strictly and rejects a second document, which
+// yaml.UnmarshalStrict would silently skip.
+func decodeSingleYAMLDocument(data []byte, out interface{}) error {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.SetStrict(true)
+	if err := dec.Decode(out); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		return err
+	}
+	var extra interface{}
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return err
+		}
+		return errors.New("multiple YAML documents are not supported")
 	}
 	return nil
 }

@@ -49,3 +49,25 @@ func TestLoadFromPath_RejectsUnknownKeyNamingFileAndKey(t *testing.T) {
 	assert.Contains(t, err.Error(), path)
 	assert.Contains(t, err.Error(), "line 3: field EpochByHashStorage not found in type config.DbLookupExtensionsConfig")
 }
+
+func TestLoadAPIConfig_RejectsSecondDocument(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "api.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("apiPackages: {}\n---\nloging: true\n"), 0o600))
+
+	_, err := config.LoadAPIConfig(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), path)
+	assert.Contains(t, err.Error(), "multiple YAML documents")
+}
+
+func TestLoadAPIConfig_AcceptsEmptyFile(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "api.yaml")
+	require.NoError(t, os.WriteFile(path, nil, 0o600))
+
+	_, err := config.LoadAPIConfig(path)
+	require.NoError(t, err)
+}
