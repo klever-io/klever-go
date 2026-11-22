@@ -71,3 +71,29 @@ func TestLoadAPIConfig_AcceptsEmptyFile(t *testing.T) {
 	_, err := config.LoadAPIConfig(path)
 	require.NoError(t, err)
 }
+
+func TestLoadFromPath_RejectsDuplicateStructField(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := "dbLookupExtensions:\n  enabled: false\ndbLookupExtensions:\n  enabled: true\n"
+	require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
+
+	_, err := config.LoadFromPath(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), path)
+	assert.Contains(t, err.Error(), "already set")
+}
+
+func TestLoadGasScheduleConfig_RejectsDuplicateOperation(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "gasSchedule.yaml")
+	data := "BaseOperationCost:\n  StorePerByte: 1\n  StorePerByte: 2\n"
+	require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
+
+	_, err := config.LoadGasScheduleConfig(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), path)
+	assert.Contains(t, err.Error(), "already set")
+}
