@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"reflect"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -181,7 +182,10 @@ type WasmVMVersionByEpoch struct {
 func loadYAMLStrict(path string, kind string, out interface{}) error {
 	data, err := tools.ReadFile(path)
 	if err != nil {
-		log.Error("failed to load "+kind+" file", "file", path, "error", err)
+		// A missing file is left to the caller, which may fall back to defaults.
+		if !errors.Is(err, os.ErrNotExist) {
+			log.Error("failed to load "+kind+" file", "file", path, "error", err)
+		}
 		return err
 	}
 	if err := yaml.UnmarshalStrict(data, out); err != nil {
