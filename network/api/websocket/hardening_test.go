@@ -284,26 +284,21 @@ func TestSubscribe_AddressBudgetReportsTheReasonThenCloses(t *testing.T) {
 	defer holder.Close()
 	require.NoError(t, holder.WriteJSON(map[string]interface{}{"subscribed_types": []string{"accounts"}, "addresses": []string{"a", "b"}}))
 
-	// The holder's insertion is asynchronous; retry until the budget it fills is seen.
-	var rejected *websocket.Conn
+	// Wait read-only for the holder's insertion so the probe never competes for the budget.
+	local := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}
 	require.Eventually(t, func() bool {
-		conn, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/subscribe", nil)
-		if err != nil {
-			return false
-		}
-		var rejection map[string]string
-		_ = conn.SetReadDeadline(time.Now().Add(time.Second))
-		if conn.WriteJSON(map[string]interface{}{"subscribed_types": []string{"accounts"}, "addresses": []string{"c"}}) != nil ||
-			conn.ReadJSON(&rejection) != nil || !strings.Contains(rejection["error"], "budget") {
-			_ = conn.Close()
-			return false
-		}
-		rejected = conn
-		return true
-	}, 5*time.Second, 50*time.Millisecond, "the peer must be told the budget is full")
-	defer rejected.Close()
-	// Asserted on the test goroutine: Eventually runs the condition on its own.
-	requireClosed(t, rejected, "a subscribe past the address budget must be closed, not registered")
+		return hub.PrecheckAddressBudget([]indexer.EventType{indexer.ACCOUNTS}, []string{"c"}, local) != nil
+	}, 5*time.Second, 20*time.Millisecond)
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/subscribe", nil)
+	require.NoError(t, err)
+	defer conn.Close()
+	require.NoError(t, conn.WriteJSON(map[string]interface{}{"subscribed_types": []string{"accounts"}, "addresses": []string{"c"}}))
+	var rejection map[string]string
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(3*time.Second)))
+	require.NoError(t, conn.ReadJSON(&rejection), "the peer must be told the budget is full")
+	require.Contains(t, rejection["error"], "budget")
+	requireClosed(t, conn, "a subscribe past the address budget must be closed, not registered")
 }
 
 // logBuffer collects log output; the log subsystem is global, so writes are concurrent.
