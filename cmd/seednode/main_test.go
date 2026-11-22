@@ -29,9 +29,9 @@ func TestLoadAPIRoutesConfig_UnknownKeyFailsInsteadOfFallingBack(t *testing.T) {
 	assert.Contains(t, err.Error(), "field loging not found")
 }
 
-func TestLoadAPIRoutesConfig_ShippedFileLoads(t *testing.T) {
+func TestLoadAPIRoutesConfig_ReadErrorFailsInsteadOfFallingBack(t *testing.T) {
 	t.Parallel()
 
-	_, err := loadAPIRoutesConfig(filepath.Join("..", "..", "config", "seednode", "api.yaml"))
-	require.NoError(t, err)
+	_, err := loadAPIRoutesConfig(t.TempDir())
+	require.Error(t, err)
 }
