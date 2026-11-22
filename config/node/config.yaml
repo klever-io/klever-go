@@ -320,11 +320,6 @@ trieSnapshotDB:
   maxBatchSize: 40000
   maxOpenFiles: 10
 
-trieStorageManagerConfig:
-  pruningBufferLen: 100000
-  snapshotsBufferLen: 1000000
-  maxSnapshots: 3
-
 trieStorageManager:
   pruningBufferLen: 100000
   snapshotsBufferLen: 1000000
@@ -516,7 +511,7 @@ storages:
 
 dbLookupExtensions:
   enabled: false
-  BlocksMetadataStorage:
+  blocksMetadataStorage:
     cache:
       name: DbLookupExtensions.BlocksMetadataStorage
       capacity: 20000
@@ -532,7 +527,7 @@ dbLookupExtensions:
       batchDelaySeconds: 2
       maxBatchSize: 20000
       maxOpenFiles: 10
-  EpochByHashStorage:
+  epochByHashStorage:
     cache:
       name: DbLookupExtensions.EpochByHashStorage
       capacity: 20000
@@ -541,7 +536,7 @@ dbLookupExtensions:
       filePath: DbLookupExtensions_EpochByHash
       type: LvlDBSerial
       batchDelaySeconds: 2
-      maxBatchSiz: 20000
+      maxBatchSize: 20000
       maxOpenFiles: 10
 
 storagePruning:
@@ -623,11 +618,6 @@ txSignMarshalizer:
 # Type identifies the marshalizer
 marshalizer:
   type: protobuf
-
-elasticSearch:
-  url: "http://localhost:9200"
-  username: basic_auth_username
-  password: basic_auth_password
 
 #Ratings configuration
 
@@ -718,9 +708,6 @@ virtualMachine:
     # If set to 0, then MaxUInt64 will be used
     metaMaxGasPerVmQuery: 1500000000  # Set reasonable limit
 
-builtInFunctions:
-  maxNumAddressesInTransferRole: 100
-
 trieSync:
   numConcurrentTrieSyncers: 200
   maxHardCapForMissingNodes: 5000
@@ -730,6 +717,5 @@ importDbConfig:
   importDBStartInEpoch: 0
   importDBWorkingDir: "./importedDB"
   importDbNoSigCheckFlag: false
-  importDbSaveTrieEpochRootHash: false
 
 consensusMonitorList:
