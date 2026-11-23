@@ -29,19 +29,20 @@ const inboundCapPendingTTL = 5 * time.Second
 // the slots a pass frees before a restarted validator's dials get through. While the cap is
 // reached, the gater admits an inbound connection from a peer that is not exempt
 // (peerProtector.exemptFromCap) only by evicting an unknown peer that outstayed the identification
-// window or, when there is none and young unknown peers hold less than a quarter of the cap, the
-// newest observer connected for longer than that window (peerProtector.evictionCandidate), closing
-// that peer's inbound connections; otherwise it refuses. So the cap never locks newcomers out behind
-// peers that failed to identify themselves, nor behind observer identities that cost one
-// self-signed heartbeat each (holding the cap with them takes continuous reconnects), while
-// identities that keep redialling under fresh peer IDs cannot displace more than their quarter of
-// honest observers. Young unknown peers are never evicted. Outbound connections, and every connection before the cap is armed and past its
-// warm-up, are admitted. libp2p needs the gater before the host exists, so the protector is bound
+// window or, when there is none and young peers (inside that window, not validators) hold less than
+// a quarter of the cap, the newest observer connected for longer than that window
+// (peerProtector.evictionCandidate), closing that peer's inbound connections; otherwise it refuses.
+// So the cap never locks newcomers out behind peers that failed to identify themselves, nor behind
+// observer identities that cost one self-signed heartbeat each (holding the cap with them takes
+// continuous reconnects), while identities that keep redialling under fresh peer IDs, heartbeat or
+// not, cannot displace more than their quarter of honest observers. Young peers are never evicted.
+// Outbound connections, and every connection before the cap is armed and past its warm-up, are
+// admitted. libp2p needs the gater before the host exists, so the protector is bound
 // late; until then everything is admitted.
 //
 // A validator that starts with a fresh peer ID is unknown to every node. Where the cap is full it
-// gets in by evicting a stale unknown peer or an established observer; where only young unknown
-// peers hold the cap, or they hold their quarter of it and no stale unknown peer is left, its own
+// gets in by evicting a stale unknown peer or an established observer; where only young peers
+// hold the cap, or they hold their quarter of it and no stale unknown peer is left, its own
 // dials are refused, and it gets in when another node dials it (discovered through
 // the DHT; that connection is outbound on the other side, so never gated), or when it reaches a node
 // below the cap. Once one such link exists it joins the heartbeat mesh and its heartbeat identifies

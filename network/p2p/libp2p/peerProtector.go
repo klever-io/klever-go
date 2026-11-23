@@ -492,14 +492,15 @@ func (v *evictionVictim) offer(conns []network.Conn, firstInbound time.Time) {
 	}
 }
 
-// youngUnknownShareDivisor sets the young unknown peers' share of the cap that observer evictions
-// stop at: maxUnprotectedInboundConns/youngUnknownShareDivisor (see evictionCandidate).
-const youngUnknownShareDivisor = 4
+// youngShareDivisor sets the share of the cap that young peers (inside identificationWindow, not
+// validators) may hold before observer evictions stop: maxUnprotectedInboundConns/youngShareDivisor
+// (see evictionCandidate).
+const youngShareDivisor = 4
 
-// youngUnknownBudget is how many inbound connections young unknown peers may hold before a newcomer
-// can no longer displace an observer. At least 1.
-func (pp *peerProtector) youngUnknownBudget() int {
-	return max(1, pp.maxUnprotectedInboundConns/youngUnknownShareDivisor)
+// youngBudget is how many inbound connections young peers may hold before a newcomer can no longer
+// displace an observer. At least 1.
+func (pp *peerProtector) youngBudget() int {
+	return max(1, pp.maxUnprotectedInboundConns/youngShareDivisor)
 }
 
 // evictionCandidate returns the inbound connections of the peer whose eviction may admit a new
@@ -509,18 +510,18 @@ func (pp *peerProtector) youngUnknownBudget() int {
 // connected last. Peers with a connection for which skip returns true (being evicted already) are
 // passed over.
 //
-// An observer is offered only while young unknown peers (inside identificationWindow) hold fewer
-// than youngUnknownBudget inbound connections, pendingInbound (admitted, not registered yet)
-// included. A young identity cannot be evicted, so without that bound an attacker that redials
-// under fresh peer IDs every <60s would displace every honest observer, one per dial. With it,
-// such an attacker displaces observers only up to its share; past it, it gets only the slots that
-// others free. A peer that identifies leaves the young share, so honest newcomers keep displacing
-// observer identities that hold the cap. It does not take mut.
+// An observer is offered only while young peers that are not validators, unknown and observers
+// alike, hold fewer than youngBudget inbound connections, pendingInbound (admitted, not registered
+// yet) included. A young identity cannot be evicted, so without that bound an attacker that redials
+// under fresh peer IDs every <60s, with or without a self-signed heartbeat, would displace every
+// honest observer, one per dial. With it, such an attacker displaces observers only up to its share;
+// past it, it gets only the slots that others free. An honest peer that connected inside the window
+// also uses up the share until it ages past it. It does not take mut.
 func (pp *peerProtector) evictionCandidate(pid peer.ID, skip func(network.Conn) bool, pendingInbound int) []network.Conn {
 	identifiedBy := pp.now().Add(-pp.identificationWindow)
 	resolver := pp.resolver()
 
-	youngUnknown := pendingInbound
+	young := pendingInbound
 	var unknown, observer evictionVictim
 	for _, candidate := range pp.net.Peers() {
 		inbound, firstInbound, ok := pp.capInboundConns(candidate, pid)
@@ -531,9 +532,7 @@ func (pp *peerProtector) evictionCandidate(pid peer.ID, skip func(network.Conn) 
 		switch {
 		case peerType == core.ValidatorPeer:
 		case firstInbound.After(identifiedBy):
-			if peerType != core.ObserverPeer {
-				youngUnknown += len(inbound)
-			}
+			young += len(inbound)
 		case anyConn(inbound, skip):
 		case peerType == core.ObserverPeer:
 			observer.offer(inbound, firstInbound)
@@ -545,7 +544,7 @@ func (pp *peerProtector) evictionCandidate(pid peer.ID, skip func(network.Conn) 
 	if len(unknown.conns) > 0 {
 		return unknown.conns
 	}
-	if youngUnknown >= pp.youngUnknownBudget() {
+	if young >= pp.youngBudget() {
 		return nil
 	}
 	return observer.conns

@@ -376,7 +376,7 @@ func TestInboundCapGater_AtCapEvictsAStaleUnknownPeerForANewcomer(t *testing.T) 
 
 func TestInboundCapGater_AtCapEvictsEstablishedObservers(t *testing.T) {
 	t.Run("with no stale unknown peer, the newest established observer makes room", func(t *testing.T) {
-		// cap 8: young unknown peers may hold 2 before observers stop being evicted
+		// cap 8: young peers may hold 2 before observers stop being evicted
 		mp := &mutablePeers{}
 		for _, pid := range []peer.ID{"obs-1", "obs-2", "obs-3", "obs-4", "obs-5", "oldest-observer"} {
 			mp.connect(pid, core.ObserverPeer, stubConn(pid, network.DirInbound, at(1)))
@@ -408,7 +408,7 @@ func TestInboundCapGater_AtCapEvictsEstablishedObservers(t *testing.T) {
 }
 
 func TestInboundCapGater_AtCapYoungShareBoundsObserverEvictions(t *testing.T) {
-	// cap 4: young unknown peers may hold 1 inbound connection before observers stop being evicted
+	// cap 4: young peers may hold 1 inbound connection before observers stop being evicted
 	fill := func(mp *mutablePeers) {
 		for _, pid := range []peer.ID{"obs-1", "obs-2", "obs-3"} {
 			mp.connect(pid, core.ObserverPeer, stubConn(pid, network.DirInbound, at(1)))
@@ -423,6 +423,18 @@ func TestInboundCapGater_AtCapYoungShareBoundsObserverEvictions(t *testing.T) {
 
 		allow, _ := g.InterceptUpgraded(connFrom("fresh-identity", network.DirInbound))
 		assert.False(t, allow)
+		assert.Zero(t, mp.closedConnCount(), "no honest observer is displaced")
+		assert.Zero(t, g.PendingLen())
+	})
+
+	t.Run("young observers count toward the share", func(t *testing.T) {
+		mp := &mutablePeers{}
+		fill(mp)
+		mp.connect("young-attacker", core.ObserverPeer, connFrom("young-attacker", network.DirInbound))
+		_, g := upgradedGater(t, mp, 4, time.Now)
+
+		allow, _ := g.InterceptUpgraded(connFrom("fresh-identity", network.DirInbound))
+		assert.False(t, allow, "a fresh identity that heartbeats right away holds the share like an unknown one")
 		assert.Zero(t, mp.closedConnCount(), "no honest observer is displaced")
 		assert.Zero(t, g.PendingLen())
 	})
