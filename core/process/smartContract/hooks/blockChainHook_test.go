@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"reflect"
 	"testing"
 	"time"
 
@@ -1714,4 +1715,24 @@ func TestAddOutputTransferToVMOutput_KeepsItsOwnAddresses(t *testing.T) {
 		require.NotNil(t, outAcc.OutputTransfers[0].RcvAddr)
 		require.Empty(t, outAcc.OutputTransfers[0].RcvAddr)
 	})
+}
+
+func TestCreateMapActivationEpochs_CoversEveryEnableEpochsField(t *testing.T) {
+	t.Parallel()
+
+	enableEpochs := config.EnableEpochs{}
+	fields := reflect.ValueOf(&enableEpochs).Elem()
+	for i := 0; i < fields.NumField(); i++ {
+		field := fields.Field(i)
+		require.Equal(t, reflect.Uint32, field.Kind(), "field %s", fields.Type().Field(i).Name)
+		field.SetUint(uint64(i + 1))
+	}
+
+	activationEpochs := CreateMapActivationEpochs(&enableEpochs)
+
+	require.Len(t, activationEpochs, fields.NumField())
+	for i := 0; i < fields.NumField(); i++ {
+		_, found := activationEpochs[uint32(i+1)]
+		require.True(t, found, "field %s", fields.Type().Field(i).Name)
+	}
 }

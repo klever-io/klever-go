@@ -75,8 +75,10 @@ func TestNodeConfig_WasmVMVersionsMatchHost(t *testing.T) {
 		versions = append(versions, querying...)
 
 		for _, ver := range versions {
-			require.Equal(t, vmhost.VMVersion, ver.Version,
-				"%s: Wasm VM version from epoch %d must be the VM host version", path, ver.StartEpoch)
+			matchesHost := ver.Version == "*" || ver.Version == vmhost.VMVersion
+			require.True(t, matchesHost,
+				"%s: Wasm VM version from epoch %d is %q, it must be \"*\" or the VM host version %q",
+				path, ver.StartEpoch, ver.Version, vmhost.VMVersion)
 		}
 	}
 }

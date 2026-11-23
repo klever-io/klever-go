@@ -39,6 +39,7 @@ type vmContainerFactory struct {
 	wasmVMChangeLocker common.Locker
 	kdaTransferParser  vmcommon.KDATransferParser
 	hasher             hashing.Hasher
+	activationEpochs   map[uint32]struct{}
 }
 
 // ArgVMContainerFactory defines the arguments needed to the new VM factory
@@ -52,6 +53,7 @@ type ArgVMContainerFactory struct {
 	BuiltInFunctions   vmcommon.BuiltInFunctionContainer
 	BlockChainHook     process.BlockChainHookHandler
 	Hasher             hashing.Hasher
+	EnableEpochs       config.EnableEpochs
 }
 
 // NewVMContainerFactory is responsible for creating a new virtual machine factory object
@@ -94,6 +96,7 @@ func NewVMContainerFactory(args ArgVMContainerFactory) (*vmContainerFactory, err
 		wasmVMChangeLocker: args.WasmVMChangeLocker,
 		kdaTransferParser:  args.KDATransferParser,
 		hasher:             args.Hasher,
+		activationEpochs:   hooks.CreateMapActivationEpochs(&args.EnableEpochs),
 	}
 
 	vmf.wasmVMVersions = args.Config.WasmVMVersions
@@ -305,7 +308,7 @@ func (vmf *vmContainerFactory) getMatchingVersion(epoch uint32) config.WasmVMVer
 func (vmf *vmContainerFactory) createInProcessWasmVMByVersion(version config.WasmVMVersionByEpoch) (vmcommon.VMExecutionHandler, error) {
 	logVMContainerFactory.Debug("createInProcessWasmVMByVersion", "version", version)
 	switch version.Version {
-	case "v1.0":
+	case "v1.0", wasmvm10.VMVersion, "*":
 		return vmf.createInProcessWasmVMV10()
 	// TODO: Handle additional versions in the future
 	default:
@@ -334,6 +337,7 @@ func (vmf *vmContainerFactory) createInProcessWasmVMV10() (vmcommon.VMExecutionH
 		EpochNotifier:                       vmf.epochNotifier,
 		ForkController:                      vmf.forkController,
 		Hasher:                              vmf.hasher,
+		ActivationEpochs:                    vmf.activationEpochs,
 	}
 	return wasmVMHost10.NewVMHost(vmf.blockChainHook, hostParameters)
 }

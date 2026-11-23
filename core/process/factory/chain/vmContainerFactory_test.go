@@ -282,6 +282,81 @@ func TestVmContainerFactory_ReplacesWasmVMWhenVersionDiffersFromHost(t *testing.
 	require.NotSame(t, replacedVM, getWasmVM(t, container))
 }
 
+type compiledCodesClearCounter struct {
+	*contextmock.BlockchainHookStub
+	numClears int
+}
+
+func (counter *compiledCodesClearCounter) ClearCompiledCodes() {
+	counter.numClears++
+}
+
+func TestVmContainerFactory_WasmVMClearsCompiledCodesAtActivationEpoch(t *testing.T) {
+	testCases := []struct {
+		name            string
+		enableEpochs    config.EnableEpochs
+		confirmedEpochs []uint32
+		expectedClears  []int
+	}{
+		{
+			name:            "activation epoch reached",
+			enableEpochs:    config.EnableEpochs{SmartContracts: 5},
+			confirmedEpochs: []uint32{4, 5, 6},
+			expectedClears:  []int{0, 1, 1},
+		},
+		{
+			name:            "jump over the activation epoch",
+			enableEpochs:    config.EnableEpochs{SmartContracts: 5},
+			confirmedEpochs: []uint32{9},
+			expectedClears:  []int{1},
+		},
+		{
+			name:            "moving back over the activation epoch",
+			enableEpochs:    config.EnableEpochs{SmartContracts: 5},
+			confirmedEpochs: []uint32{6, 4},
+			expectedClears:  []int{1, 2},
+		},
+		{
+			name:            "no activation epoch configured",
+			enableEpochs:    config.EnableEpochs{},
+			confirmedEpochs: []uint32{4, 5, 9, 3},
+			expectedClears:  []int{0, 0, 0, 0},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			epochNotifierInstance := notifier.NewGenericEpochNotifier()
+			blockChainHook := &compiledCodesClearCounter{BlockchainHookStub: &contextmock.BlockchainHookStub{}}
+
+			args := createMockVMAccountsArguments()
+			args.Config = config.VirtualMachineConfig{
+				WasmVMVersions: []config.WasmVMVersionByEpoch{{StartEpoch: 0, Version: vmhost.VMVersion}},
+			}
+			args.EpochNotifier = epochNotifierInstance
+			args.BlockChainHook = blockChainHook
+			args.EnableEpochs = tc.enableEpochs
+			vmf, err := NewVMContainerFactory(args)
+			require.Nil(t, err)
+
+			container, err := vmf.Create()
+			require.Nil(t, err)
+			defer func() {
+				_ = container.Close()
+			}()
+			initialVM := getWasmVM(t, container)
+			clearsAfterCreate := blockChainHook.numClears
+
+			for i, epoch := range tc.confirmedEpochs {
+				epochNotifierInstance.CheckEpoch(epoch)
+				require.Equal(t, clearsAfterCreate+tc.expectedClears[i], blockChainHook.numClears,
+					"after confirming epoch %d", epoch)
+			}
+			require.Same(t, initialVM, getWasmVM(t, container))
+		})
+	}
+}
+
 func TestMatchesHostWasmVMVersion(t *testing.T) {
 	require.True(t, matchesHostWasmVMVersion(vmhost.VMVersion))
 	require.True(t, matchesHostWasmVMVersion("*"))

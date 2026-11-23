@@ -67,6 +67,9 @@ type vmHost struct {
 	callArgsParser       vmhost.CallArgsParser
 	forkController       core.ForkController
 	activationEpochMap   map[uint32]struct{}
+	mutConfirmedEpoch    sync.Mutex
+	confirmedEpoch       uint32
+	hasConfirmedEpoch    bool
 
 	transferLogIdentifiers map[string]bool
 }
@@ -138,7 +141,17 @@ func createBaseHost(hostParameters *vmhost.VMHostParameters) *vmHost {
 		executionTimeout:     core.MinSCExecutionTimeout,
 		forkController:       hostParameters.ForkController,
 		executionMode:        hostParameters.ExecutionMode,
+		activationEpochMap:   copyActivationEpochs(hostParameters.ActivationEpochs),
 	}
+}
+
+func copyActivationEpochs(activationEpochs map[uint32]struct{}) map[uint32]struct{} {
+	activationEpochMap := make(map[uint32]struct{}, len(activationEpochs))
+	for epoch := range activationEpochs {
+		activationEpochMap[epoch] = struct{}{}
+	}
+
+	return activationEpochMap
 }
 
 // configureTimeouts sets up execution and tolerance timeouts for the VM host
@@ -724,11 +737,42 @@ func (host *vmHost) SetBuiltInFunctionsContainer(builtInFuncs vmcommon.BuiltInFu
 
 // EpochConfirmed is called whenever a new epoch is confirmed
 func (host *vmHost) EpochConfirmed(epoch uint32) {
-	_, ok := host.activationEpochMap[epoch]
-	if ok {
-		host.Runtime().ClearWarmInstanceCache()
-		host.Blockchain().ClearCompiledCodes()
+	host.mutConfirmedEpoch.Lock()
+	previousEpoch := host.confirmedEpoch
+	hadConfirmedEpoch := host.hasConfirmedEpoch
+	host.confirmedEpoch = epoch
+	host.hasConfirmedEpoch = true
+	host.mutConfirmedEpoch.Unlock()
+
+	if !hadConfirmedEpoch {
+		return
 	}
+	if !host.isActivationEpochCrossed(previousEpoch, epoch) {
+		return
+	}
+
+	host.mutExecution.Lock()
+	defer host.mutExecution.Unlock()
+
+	if host.closingInstance {
+		return
+	}
+
+	host.Runtime().ClearWarmInstanceCache()
+	host.Blockchain().ClearCompiledCodes()
+}
+
+func (host *vmHost) isActivationEpochCrossed(previousEpoch uint32, epoch uint32) bool {
+	low := min(previousEpoch, epoch)
+	high := max(previousEpoch, epoch)
+
+	for activationEpoch := range host.activationEpochMap {
+		if low < activationEpoch && activationEpoch <= high {
+			return true
+		}
+	}
+
+	return false
 }
 
 func validateVMInput(vmInput *vmcommon.VMInput) error {
