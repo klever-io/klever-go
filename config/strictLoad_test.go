@@ -21,16 +21,22 @@ func TestShippedYAML_LoadsUnderStrictRule(t *testing.T) {
 	loadGasSchedule := func(p string) error { _, err := config.LoadGasScheduleConfig(p); return err }
 
 	files := map[string]func(string) error{
-		"node/config.yaml":                             loadConfig,
-		"seednode/config.yaml":                         loadConfig,
-		"../integrationTest/config/config.yaml":        loadConfig,
-		"node/api.yaml":                                loadAPI,
-		"seednode/api.yaml":                            loadAPI,
-		"node/external.yaml":                           loadExternal,
-		"node/enableEpochs.yaml":                       loadEnableEpochs,
-		"../integrationTest/config/enableEpochs.yaml":  loadEnableEpochs,
-		"node/gasScheduleV1.yaml":                      loadGasSchedule,
-		"../integrationTest/config/gasScheduleV1.yaml": loadGasSchedule,
+		"node/config.yaml":                            loadConfig,
+		"seednode/config.yaml":                        loadConfig,
+		"../integrationTest/config/config.yaml":       loadConfig,
+		"node/api.yaml":                               loadAPI,
+		"seednode/api.yaml":                           loadAPI,
+		"node/external.yaml":                          loadExternal,
+		"node/enableEpochs.yaml":                      loadEnableEpochs,
+		"../integrationTest/config/enableEpochs.yaml": loadEnableEpochs,
+	}
+	for _, pattern := range []string{"node/gasSchedule*.yaml", "../integrationTest/config/gasSchedule*.yaml"} {
+		matches, err := filepath.Glob(filepath.FromSlash(pattern))
+		require.NoError(t, err)
+		require.NotEmpty(t, matches, pattern)
+		for _, m := range matches {
+			files[filepath.ToSlash(m)] = loadGasSchedule
+		}
 	}
 	for path, load := range files {
 		assert.NoError(t, load(filepath.FromSlash(path)), path)
@@ -60,6 +66,16 @@ func TestLoadAPIConfig_RejectsSecondDocument(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), path)
 	assert.Contains(t, err.Error(), "multiple YAML documents")
+}
+
+func TestLoadAPIConfig_AcceptsTrailingEmptyDocument(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "api.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("apiPackages: {}\n---\n# end\n---\n"), 0o600))
+
+	_, err := config.LoadAPIConfig(path)
+	require.NoError(t, err)
 }
 
 func TestLoadAPIConfig_AcceptsEmptyFile(t *testing.T) {
