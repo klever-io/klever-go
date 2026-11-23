@@ -22,7 +22,7 @@ jobs:
       GO_VERSION: ${{ vars.GO_VERSION || '1.25.7' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Go Setup
         uses: ./.github/actions/go-setup-action
