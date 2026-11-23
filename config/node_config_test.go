@@ -69,6 +69,7 @@ func TestNodeConfig_WasmVMVersionsMatchHost(t *testing.T) {
 		execution := cfg.VirtualMachine.Execution.WasmVMVersions
 		querying := cfg.VirtualMachine.Querying.WasmVMVersions
 		require.NotEmpty(t, execution, "%s: execution has no Wasm VM version", path)
+		require.NotEmpty(t, querying, "%s: querying has no Wasm VM version", path)
 
 		versions := make([]config.WasmVMVersionByEpoch, 0, len(execution)+len(querying))
 		versions = append(versions, execution...)
