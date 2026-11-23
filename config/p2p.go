@@ -7,6 +7,7 @@ type P2PConfig struct {
 	Sharding            ShardingConfig            `yaml:"sharding"`
 	ResourceManager     ResourceManagerConfig     `yaml:"resourceManager"`
 	DirectSend          DirectSendConfig          `yaml:"directSend"`
+	ConnectionManager   ConnectionManagerConfig   `yaml:"connectionManager"`
 }
 
 // NodeConfig will hold basic p2p settings
@@ -81,4 +82,15 @@ type DirectSendConfig struct {
 	MaxInboundStreamsPerPeer int `yaml:"maxInboundStreamsPerPeer"`
 	MaxInboundStreamsTotal   int `yaml:"maxInboundStreamsTotal"`
 	MaxSeenMessages          int `yaml:"maxSeenMessages"`
+}
+
+// ConnectionManagerConfig configures regular (non-seed) nodes' libp2p BasicConnMgr and the peer
+// protector's inbound cap; seed nodes ignore it. Zero selects the built-in default. Defaults and
+// bounds are in validateConnectionManagerConfig, how the fields interact on peerProtector (both in
+// network/p2p/libp2p), and the operator view in config/node/config.yaml.
+type ConnectionManagerConfig struct {
+	LowWater                   int `yaml:"lowWater"`                   // trim target, in unprotected connections
+	HighWater                  int `yaml:"highWater"`                  // connection count that triggers a trim
+	GracePeriodInSec           int `yaml:"gracePeriodInSec"`           // how long a new connection is never trimmed
+	MaxUnprotectedInboundConns int `yaml:"maxUnprotectedInboundConns"` // inbound cap for non-validator peers
 }

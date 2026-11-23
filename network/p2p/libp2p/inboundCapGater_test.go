@@ -1,0 +1,570 @@
+package libp2p_test
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/klever-io/klever-go/config"
+	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/network/p2p/libp2p"
+	"github.com/klever-io/klever-go/network/p2p/mock"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	p2pConnMgr "github.com/libp2p/go-libp2p/p2p/net/connmgr"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// gaterAtCap returns a gater bound to an armed protector (no warm-up) with cap 2 and two
+// unprotected unknown peers, still inside the identification window, holding one inbound
+// connection each, so the cap is full and no peer may be evicted.
+func gaterAtCap(t *testing.T) (*mutablePeers, *libp2p.InboundCapGater, func(pid peer.ID, tag string)) {
+	cm := newTestConnMgr(t)
+	mp := &mutablePeers{}
+	mp.connect("u1", core.UnknownPeer, connFrom("u1", network.DirInbound))
+	mp.connect("u2", core.UnknownPeer, connFrom("u2", network.DirInbound))
+	pp := libp2p.NewPeerProtector(cm, mp, mp.resolver(), 2)
+	g := libp2p.NewInboundCapGater()
+	g.SetProtector(pp)
+	return mp, g, cm.Protect
+}
+
+func TestInboundCapGater_RefusesUnknownInboundPeerAtCap(t *testing.T) {
+	_, g, _ := gaterAtCap(t)
+	assert.False(t, g.InterceptSecured(network.DirInbound, "newcomer", nil))
+}
+
+func TestInboundCapGater_AdmitsValidatorAtCap(t *testing.T) {
+	mp, g, _ := gaterAtCap(t)
+	mp.set("validator", core.ValidatorPeer)
+	assert.True(t, g.InterceptSecured(network.DirInbound, "validator", nil))
+}
+
+func TestInboundCapGater_RefusesPeerProtectedByOtherSubsystemsAtCap(t *testing.T) {
+	_, g, protect := gaterAtCap(t)
+	// gossipsub never unprotects a mesh peer that disconnected, and kad-dht protects most
+	// routing-table peers, so their tags must not exempt a peer from the cap.
+	protect("mesh-peer", "pubsub:topic")
+	protect("dht-peer", "kbucket")
+	assert.False(t, g.InterceptSecured(network.DirInbound, "mesh-peer", nil))
+	assert.False(t, g.InterceptSecured(network.DirInbound, "dht-peer", nil))
+}
+
+func TestInboundCapGater_AdmitsPeerWithValidatorTagAtCap(t *testing.T) {
+	_, g, protect := gaterAtCap(t)
+	protect("validator", libp2p.ValidatorProtectionTag)
+	assert.True(t, g.InterceptSecured(network.DirInbound, "validator", nil))
+}
+
+func TestInboundCapGater_AdmitsOutboundAtCap(t *testing.T) {
+	_, g, _ := gaterAtCap(t)
+	assert.True(t, g.InterceptSecured(network.DirOutbound, "newcomer", nil))
+}
+
+func TestInboundCapGater_ValidatorTaggedPeersDoNotCountAgainstTheCap(t *testing.T) {
+	_, g, protect := gaterAtCap(t)
+	protect("u1", libp2p.ValidatorProtectionTag)
+	assert.True(t, g.InterceptSecured(network.DirInbound, "newcomer", nil), "only u2's connection counts: 1 < 2")
+}
+
+func TestInboundCapGater_PeersProtectedByOtherSubsystemsCountAgainstTheCap(t *testing.T) {
+	_, g, protect := gaterAtCap(t)
+	protect("u1", "kbucket")
+	protect("u2", "pubsub:topic")
+	assert.False(t, g.InterceptSecured(network.DirInbound, "newcomer", nil), "u1 and u2 still count: 2 >= 2")
+}
+
+func TestInboundCapGater_AdmitsBelowCap(t *testing.T) {
+	cm := newTestConnMgr(t)
+	mp := &mutablePeers{}
+	mp.connect("u1", core.UnknownPeer, conn(network.DirInbound, at(1)))
+	mp.connect("out", core.UnknownPeer, conn(network.DirOutbound, at(2)))
+	g := libp2p.NewInboundCapGater()
+	g.SetProtector(libp2p.NewPeerProtector(cm, mp, mp.resolver(), 2))
+	assert.True(t, g.InterceptSecured(network.DirInbound, "newcomer", nil), "1 inbound connection < 2; outbound ones do not count")
+}
+
+func TestInboundCapGater_AdmitsWhenNotArmedOrInWarmUp(t *testing.T) {
+	cm := newTestConnMgr(t)
+	mp := &mutablePeers{}
+	mp.connect("u1", core.UnknownPeer, conn(network.DirInbound, at(1)))
+	mp.connect("u2", core.UnknownPeer, conn(network.DirInbound, at(2)))
+
+	now := baseTime
+	pp := libp2p.NewPeerProtectorWithClock(cm, mp, mp.resolver(), 1, time.Minute, func() time.Time { return now })
+	g := libp2p.NewInboundCapGater()
+	g.SetProtector(pp)
+
+	assert.True(t, g.InterceptSecured(network.DirInbound, "newcomer", nil), "not armed")
+	pp.Arm()
+	assert.True(t, g.InterceptSecured(network.DirInbound, "newcomer", nil), "armed, in warm-up")
+	now = baseTime.Add(time.Minute)
+	assert.False(t, g.InterceptSecured(network.DirInbound, "newcomer", nil), "past the warm-up the cap applies")
+}
+
+func TestInboundCapGater_AdmitsEverythingBeforeBinding(t *testing.T) {
+	g := libp2p.NewInboundCapGater()
+	assert.True(t, g.InterceptSecured(network.DirInbound, "newcomer", nil))
+	assert.True(t, g.InterceptPeerDial("p"))
+	assert.True(t, g.InterceptAddrDial("p", nil))
+	assert.True(t, g.InterceptAccept(nil))
+	allow, _ := g.InterceptUpgraded(connFrom("p", network.DirInbound))
+	assert.True(t, allow)
+}
+
+func TestNewNetworkMessenger_GaterOnlyOnRegularNodes(t *testing.T) {
+	regular, err := libp2p.NewNetworkMessenger(createMockNetworkArgs())
+	require.NoError(t, err)
+	defer func() { _ = regular.Close() }()
+	gater, bound := regular.InboundGater()
+	assert.NotNil(t, gater)
+	assert.True(t, bound, "the gater must be bound to the messenger's protector")
+
+	seedArgs := createMockNetworkArgs()
+	seedArgs.IsSeedNode = true
+	seed, err := libp2p.NewNetworkMessenger(seedArgs)
+	require.NoError(t, err)
+	defer func() { _ = seed.Close() }()
+	gater, _ = seed.InboundGater()
+	assert.Nil(t, gater, "seeds must accept everyone")
+}
+
+// TestNetworkMessenger_GaterRefusesUnknownDialAtCapButAdmitsValidator fills the cap with unknown
+// inbound peers, then checks that the next unknown dial is refused at admission while a validator
+// (per the resolver) still gets in, with no protector pass in between.
+func TestNetworkMessenger_GaterRefusesUnknownDialAtCapButAdmitsValidator(t *testing.T) {
+	if testing.Short() {
+		t.Skip("this is not a short test")
+	}
+	defer libp2p.SetInboundCapWarmUp(0)()
+
+	const maxConns = 2
+	arg := createMockNetworkArgs()
+	arg.P2pConfig.ConnectionManager = config.ConnectionManagerConfig{MaxUnprotectedInboundConns: maxConns}
+	mes, err := libp2p.NewNetworkMessenger(arg)
+	require.NoError(t, err)
+	defer func() { _ = mes.Close() }()
+
+	validatorHost := newLocalPeerHost(t)
+	require.NoError(t, mes.SetPeerShardResolver(&mock.PeerShardResolverStub{
+		GetPeerInfoCalled: func(pid core.PeerID) core.P2PPeerInfo {
+			if peer.ID(pid) == validatorHost.ID() {
+				return core.P2PPeerInfo{PeerType: core.ValidatorPeer}
+			}
+			return core.P2PPeerInfo{PeerType: core.UnknownPeer}
+		},
+	}))
+
+	for i := 0; i < maxConns; i++ {
+		connectToMessenger(t, newLocalPeerHost(t), mes)
+	}
+	gater, _ := mes.InboundGater()
+	pendingGater, ok := gater.(interface{ PendingLen() int })
+	require.True(t, ok)
+	assert.Eventually(t, func() bool { return pendingGater.PendingLen() == 0 }, 5*time.Second, 10*time.Millisecond,
+		"the swarm's Connected notifications must clear the pending entries")
+
+	target := peer.AddrInfo{ID: mes.Host().ID(), Addrs: mes.Host().Addrs()}
+	dial := func(ctxTimeout time.Duration, p interface {
+		Connect(context.Context, peer.AddrInfo) error
+	}) error {
+		ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
+		defer cancel()
+		return p.Connect(ctx, target)
+	}
+
+	refused := newLocalPeerHost(t)
+	// The dialer may or may not see the refusal as an error (the gater can refuse after the dialer's
+	// side has completed its upgrade), so the outcome is asserted on the node's side below.
+	_ = dial(5*time.Second, refused)
+	assert.Never(t, func() bool {
+		return mes.Host().Network().Connectedness(refused.ID()) == network.Connected
+	}, 500*time.Millisecond, 20*time.Millisecond, "an unknown peer over the cap must be refused at admission")
+
+	require.NoError(t, dial(5*time.Second, validatorHost))
+	assert.Eventually(t, func() bool {
+		return mes.Host().Network().Connectedness(validatorHost.ID()) == network.Connected
+	}, 5*time.Second, 10*time.Millisecond, "a validator must be admitted even at the cap")
+}
+
+// upgradedGater is a gater bound to an armed protector (no warm-up) over mp with the given cap.
+func upgradedGater(t *testing.T, mp *mutablePeers, maxConns int, now func() time.Time) (*p2pConnMgr.BasicConnMgr, *libp2p.InboundCapGater) {
+	cm := newTestConnMgr(t)
+	g := libp2p.NewInboundCapGaterWithClock(now)
+	g.SetProtector(libp2p.NewPeerProtector(cm, mp, mp.resolver(), maxConns))
+	return cm, g
+}
+
+func TestInboundCapGater_UpgradedAdmitsOnlyTheRemainingBudgetUnderConcurrency(t *testing.T) {
+	// Two connections are registered, the cap is 5, and 10 upgrades race. Nothing registers the
+	// admitted connections while they race (as when clients stall before the swarm adds them), so
+	// only the pending count can hold the line: exactly 3 may get in.
+	mp := &mutablePeers{}
+	mp.connect("u1", core.UnknownPeer, connFrom("u1", network.DirInbound))
+	mp.connect("u2", core.UnknownPeer, connFrom("u2", network.DirInbound))
+	_, g := upgradedGater(t, mp, 5, time.Now)
+
+	const numUpgrades = 10
+	var admitted atomic.Int32
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < numUpgrades; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			if allow, _ := g.InterceptUpgraded(connFrom(peer.ID(fmt.Sprintf("racer-%d", i)), network.DirInbound)); allow {
+				admitted.Add(1)
+			}
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	assert.Equal(t, int32(3), admitted.Load())
+	assert.Equal(t, 3, g.PendingLen())
+}
+
+func TestInboundCapGater_ConnectedClearsPending(t *testing.T) {
+	mp := &mutablePeers{}
+	_, g := upgradedGater(t, mp, 1, time.Now)
+
+	c1 := connFrom("p1", network.DirInbound)
+	allow, _ := g.InterceptUpgraded(c1)
+	require.True(t, allow)
+	allow, _ = g.InterceptUpgraded(connFrom("p2", network.DirInbound))
+	require.False(t, allow, "c1 is pending, so the cap of 1 is used")
+
+	g.Connected(nil, c1)
+	g.Connected(nil, c1) // a repeated notification must not free budget twice
+	assert.Zero(t, g.PendingLen())
+	allow, _ = g.InterceptUpgraded(connFrom("p3", network.DirInbound))
+	assert.True(t, allow, "c1 is no longer pending and the fake network never registered it")
+}
+
+func TestInboundCapGater_PendingConnAlreadyRegisteredCountsOnce(t *testing.T) {
+	mp := &mutablePeers{}
+	_, g := upgradedGater(t, mp, 2, time.Now)
+
+	c1 := connFrom("p1", network.DirInbound)
+	allow, _ := g.InterceptUpgraded(c1)
+	require.True(t, allow)
+	mp.connect("p1", core.UnknownPeer, c1) // registered, Connected not delivered yet
+
+	allow, _ = g.InterceptUpgraded(connFrom("p2", network.DirInbound))
+	assert.True(t, allow, "1 registered + 0 pending < 2")
+	allow, _ = g.InterceptUpgraded(connFrom("p3", network.DirInbound))
+	assert.False(t, allow, "1 registered + 1 pending = 2")
+}
+
+func TestInboundCapGater_PendingExpiresAfterTTL(t *testing.T) {
+	var mutNow sync.Mutex
+	now := baseTime
+	clock := func() time.Time {
+		mutNow.Lock()
+		defer mutNow.Unlock()
+		return now
+	}
+	setNow := func(d time.Duration) {
+		mutNow.Lock()
+		now = baseTime.Add(d)
+		mutNow.Unlock()
+	}
+	mp := &mutablePeers{}
+	_, g := upgradedGater(t, mp, 1, clock)
+
+	allow, _ := g.InterceptUpgraded(connFrom("lost", network.DirInbound)) // never registered
+	require.True(t, allow)
+
+	setNow(libp2p.InboundCapPendingTTL - time.Nanosecond)
+	allow, _ = g.InterceptUpgraded(connFrom("p2", network.DirInbound))
+	assert.False(t, allow, "still pending")
+
+	setNow(libp2p.InboundCapPendingTTL)
+	allow, _ = g.InterceptUpgraded(connFrom("p3", network.DirInbound))
+	assert.True(t, allow, "the lost connection's entry expired")
+	assert.Equal(t, 1, g.PendingLen(), "only p3 is pending")
+}
+
+func TestInboundCapGater_UpgradedExemptions(t *testing.T) {
+	mp := &mutablePeers{}
+	mp.connect("u1", core.UnknownPeer, connFrom("u1", network.DirInbound))
+	cm, g := upgradedGater(t, mp, 1, time.Now) // full: 1 registered unprotected inbound conn
+
+	allow, _ := g.InterceptUpgraded(connFrom("newcomer", network.DirInbound))
+	require.False(t, allow, "the cap is full")
+
+	mp.set("validator", core.ValidatorPeer)
+	allow, _ = g.InterceptUpgraded(connFrom("validator", network.DirInbound))
+	assert.True(t, allow, "validators are exempt")
+
+	cm.Protect("tagged-validator", libp2p.ValidatorProtectionTag)
+	allow, _ = g.InterceptUpgraded(connFrom("tagged-validator", network.DirInbound))
+	assert.True(t, allow, "peers with the validator tag are exempt")
+
+	cm.Protect("mesh-peer", "pubsub:topic")
+	allow, _ = g.InterceptUpgraded(connFrom("mesh-peer", network.DirInbound))
+	assert.False(t, allow, "protection from other subsystems does not exempt a peer")
+
+	allow, _ = g.InterceptUpgraded(connFrom("newcomer", network.DirOutbound))
+	assert.True(t, allow, "outbound is exempt")
+
+	assert.Zero(t, g.PendingLen(), "exempt connections do not use cap budget")
+}
+
+func TestInboundCapGater_UpgradedAdmitsWhenNotArmedOrInWarmUp(t *testing.T) {
+	cm := newTestConnMgr(t)
+	mp := &mutablePeers{}
+	mp.connect("u1", core.UnknownPeer, connFrom("u1", network.DirInbound))
+	now := baseTime
+	pp := libp2p.NewPeerProtectorWithClock(cm, mp, mp.resolver(), 1, time.Minute, func() time.Time { return now })
+	g := libp2p.NewInboundCapGater()
+	g.SetProtector(pp)
+
+	allow, _ := g.InterceptUpgraded(connFrom("newcomer", network.DirInbound))
+	assert.True(t, allow, "not armed")
+	pp.Arm()
+	allow, _ = g.InterceptUpgraded(connFrom("newcomer", network.DirInbound))
+	assert.True(t, allow, "in warm-up")
+	now = baseTime.Add(time.Minute)
+	allow, _ = g.InterceptUpgraded(connFrom("newcomer", network.DirInbound))
+	assert.False(t, allow, "enforced")
+}
+
+// The protector runs on the wall clock with the default 60s identification window: connections
+// opened at at(sec) (January 2026) are long past it, connFrom ones are inside it.
+
+func TestInboundCapGater_AtCapEvictsAStaleUnknownPeerForANewcomer(t *testing.T) {
+	mp := &mutablePeers{}
+	mp.connect("stale", core.UnknownPeer,
+		stubConn("stale", network.DirInbound, at(1)),
+		stubConn("stale", network.DirInbound, at(2)),
+		stubConn("stale", network.DirOutbound, at(1)))
+	mp.connect("young", core.UnknownPeer, connFrom("young", network.DirInbound))
+	_, g := upgradedGater(t, mp, 3, time.Now) // full: 3 unprotected inbound conns
+
+	assert.True(t, g.InterceptSecured(network.DirInbound, "newcomer", nil),
+		"the early check must not refuse what the authoritative one admits")
+
+	allow, _ := g.InterceptUpgraded(connFrom("newcomer", network.DirInbound))
+	require.True(t, allow, "a peer that had its chance to identify and did not makes room")
+	assert.Eventually(t, func() bool { return mp.closedConnCount() == 2 }, 5*time.Second, 10*time.Millisecond,
+		"both of the stale peer's inbound connections are closed")
+	assert.Eventually(t, func() bool { return g.EvictingLen() == 0 }, 5*time.Second, 10*time.Millisecond,
+		"the victim's connections leave the evicting set once closed")
+	remaining := mp.ConnsToPeer("stale")
+	require.Len(t, remaining, 1, "the stale peer's outbound connection stays open")
+	assert.Equal(t, network.DirOutbound, remaining[0].Stat().Direction)
+	assert.Len(t, mp.ConnsToPeer("young"), 1, "a young unknown peer is never evicted")
+
+	allow, _ = g.InterceptUpgraded(connFrom("second", network.DirInbound))
+	assert.True(t, allow, "young + newcomer (pending) = 2 < 3: the eviction freed two slots")
+	allow, _ = g.InterceptUpgraded(connFrom("third", network.DirInbound))
+	assert.False(t, allow, "young + 2 pending = 3 and no stale peer is left")
+}
+
+func TestInboundCapGater_AtCapEvictsEstablishedObservers(t *testing.T) {
+	t.Run("with no stale unknown peer, the newest established observer makes room", func(t *testing.T) {
+		// cap 8: young peers may hold 2 before observers stop being evicted
+		mp := &mutablePeers{}
+		for _, pid := range []peer.ID{"obs-1", "obs-2", "obs-3", "obs-4", "obs-5", "oldest-observer"} {
+			mp.connect(pid, core.ObserverPeer, stubConn(pid, network.DirInbound, at(1)))
+		}
+		mp.connect("newer-observer", core.ObserverPeer, stubConn("newer-observer", network.DirInbound, at(2)))
+		mp.connect("young", core.UnknownPeer, connFrom("young", network.DirInbound))
+		_, g := upgradedGater(t, mp, 8, time.Now)
+
+		allow, _ := g.InterceptUpgraded(connFrom("newcomer", network.DirInbound))
+		require.True(t, allow)
+		assert.Eventually(t, func() bool { return len(mp.ConnsToPeer("newer-observer")) == 0 }, 5*time.Second,
+			10*time.Millisecond, "the newest established observer is evicted")
+		assert.Len(t, mp.ConnsToPeer("oldest-observer"), 1, "older observers stay")
+		assert.Len(t, mp.ConnsToPeer("young"), 1, "a young unknown peer is never evicted")
+	})
+
+	t.Run("a stale unknown peer goes before any observer", func(t *testing.T) {
+		mp := &mutablePeers{}
+		mp.connect("stale", core.UnknownPeer, stubConn("stale", network.DirInbound, at(1)))
+		mp.connect("observer", core.ObserverPeer, stubConn("observer", network.DirInbound, at(2)))
+		_, g := upgradedGater(t, mp, 2, time.Now)
+
+		allow, _ := g.InterceptUpgraded(connFrom("newcomer", network.DirInbound))
+		require.True(t, allow)
+		assert.Eventually(t, func() bool { return len(mp.ConnsToPeer("stale")) == 0 }, 5*time.Second,
+			10*time.Millisecond)
+		assert.Len(t, mp.ConnsToPeer("observer"), 1)
+	})
+}
+
+func TestInboundCapGater_AtCapYoungShareBoundsObserverEvictions(t *testing.T) {
+	// cap 4: young peers may hold 1 inbound connection before observers stop being evicted
+	fill := func(mp *mutablePeers) {
+		for _, pid := range []peer.ID{"obs-1", "obs-2", "obs-3"} {
+			mp.connect(pid, core.ObserverPeer, stubConn(pid, network.DirInbound, at(1)))
+		}
+	}
+
+	t.Run("young unknown peers at their share: the observer stays and the newcomer is refused", func(t *testing.T) {
+		mp := &mutablePeers{}
+		fill(mp)
+		mp.connect("young-attacker", core.UnknownPeer, connFrom("young-attacker", network.DirInbound))
+		_, g := upgradedGater(t, mp, 4, time.Now)
+
+		allow, _ := g.InterceptUpgraded(connFrom("fresh-identity", network.DirInbound))
+		assert.False(t, allow)
+		assert.Zero(t, mp.closedConnCount(), "no honest observer is displaced")
+		assert.Zero(t, g.PendingLen())
+	})
+
+	t.Run("young observers count toward the share", func(t *testing.T) {
+		mp := &mutablePeers{}
+		fill(mp)
+		mp.connect("young-attacker", core.ObserverPeer, connFrom("young-attacker", network.DirInbound))
+		_, g := upgradedGater(t, mp, 4, time.Now)
+
+		allow, _ := g.InterceptUpgraded(connFrom("fresh-identity", network.DirInbound))
+		assert.False(t, allow, "a fresh identity that heartbeats right away holds the share like an unknown one")
+		assert.Zero(t, mp.closedConnCount(), "no honest observer is displaced")
+		assert.Zero(t, g.PendingLen())
+	})
+
+	t.Run("young peers count per address", func(t *testing.T) {
+		// cap 8, share 2 addresses: six established observers and two young identities from one /32
+		atCap := func(secondAddr string) (*mutablePeers, *libp2p.InboundCapGater) {
+			mp := &mutablePeers{}
+			for _, pid := range []peer.ID{"obs-1", "obs-2", "obs-3", "obs-4", "obs-5"} {
+				mp.connect(pid, core.ObserverPeer, stubConn(pid, network.DirInbound, at(1)))
+			}
+			mp.connect("newest-observer", core.ObserverPeer, stubConn("newest-observer", network.DirInbound, at(2)))
+			mp.connect("young-1", core.ObserverPeer, connFromAddr("young-1", network.DirInbound, "/ip4/198.51.100.7/tcp/1"))
+			mp.connect("young-2", core.ObserverPeer, connFromAddr("young-2", network.DirInbound, secondAddr))
+			_, g := upgradedGater(t, mp, 8, time.Now)
+			return mp, g
+		}
+
+		mp, g := atCap("/ip4/198.51.100.7/tcp/2")
+		allow, _ := g.InterceptUpgraded(connFromAddr("fresh", network.DirInbound, "/ip4/198.51.100.7/tcp/3"))
+		require.True(t, allow, "two young identities on one address use one unit of the share")
+		assert.Eventually(t, func() bool { return len(mp.ConnsToPeer("newest-observer")) == 0 }, 5*time.Second,
+			10*time.Millisecond)
+
+		mp, g = atCap("/ip4/203.0.113.9/tcp/1")
+		allow, _ = g.InterceptUpgraded(connFromAddr("fresh", network.DirInbound, "/ip4/198.51.100.7/tcp/3"))
+		assert.False(t, allow, "two addresses fill the share")
+		assert.Zero(t, mp.closedConnCount())
+	})
+
+	t.Run("young unknown peers below their share: the newest observer is evicted", func(t *testing.T) {
+		mp := &mutablePeers{}
+		fill(mp)
+		mp.connect("obs-4", core.ObserverPeer, stubConn("obs-4", network.DirInbound, at(2)))
+		_, g := upgradedGater(t, mp, 4, time.Now)
+
+		allow, _ := g.InterceptUpgraded(connFrom("newcomer", network.DirInbound))
+		require.True(t, allow)
+		assert.Eventually(t, func() bool { return len(mp.ConnsToPeer("obs-4")) == 0 }, 5*time.Second,
+			10*time.Millisecond)
+	})
+
+	t.Run("pending admissions count toward the share", func(t *testing.T) {
+		mp := &mutablePeers{}
+		fill(mp)
+		mp.connect("obs-4", core.ObserverPeer, stubConn("obs-4", network.DirInbound, at(2)))
+		mp.connect("obs-5", core.ObserverPeer, stubConn("obs-5", network.DirInbound, at(3)))
+		_, g := upgradedGater(t, mp, 5, time.Now) // over the cap by nothing: 5 of 5, share 1
+
+		first, _ := g.InterceptUpgraded(connFrom("first", network.DirInbound))
+		require.True(t, first, "the first newcomer displaces an observer")
+		require.Equal(t, 1, g.PendingLen())
+		second, _ := g.InterceptUpgraded(connFrom("second", network.DirInbound))
+		assert.False(t, second, "the first newcomer, still pending, already holds the young share")
+	})
+
+	t.Run("a stale unknown peer is still evicted with the share full", func(t *testing.T) {
+		mp := &mutablePeers{}
+		mp.connect("obs-1", core.ObserverPeer, stubConn("obs-1", network.DirInbound, at(2)))
+		mp.connect("obs-2", core.ObserverPeer, stubConn("obs-2", network.DirInbound, at(2)))
+		mp.connect("stale", core.UnknownPeer, stubConn("stale", network.DirInbound, at(1)))
+		mp.connect("young", core.UnknownPeer, connFrom("young", network.DirInbound))
+		_, g := upgradedGater(t, mp, 4, time.Now)
+
+		allow, _ := g.InterceptUpgraded(connFrom("newcomer", network.DirInbound))
+		require.True(t, allow)
+		assert.Eventually(t, func() bool { return len(mp.ConnsToPeer("stale")) == 0 }, 5*time.Second,
+			10*time.Millisecond)
+		assert.Len(t, mp.ConnsToPeer("obs-1"), 1)
+		assert.Len(t, mp.ConnsToPeer("obs-2"), 1)
+	})
+}
+
+func TestInboundCapGater_AtCapNeverEvictsYoungPeers(t *testing.T) {
+	t.Run("young observers and young unknown peers hold the cap", func(t *testing.T) {
+		mp := &mutablePeers{}
+		mp.connect("young-observer", core.ObserverPeer, connFrom("young-observer", network.DirInbound))
+		mp.connect("young", core.UnknownPeer, connFrom("young", network.DirInbound))
+		_, g := upgradedGater(t, mp, 2, time.Now)
+
+		assert.False(t, g.InterceptSecured(network.DirInbound, "newcomer", nil))
+		allow, _ := g.InterceptUpgraded(connFrom("newcomer", network.DirInbound))
+		assert.False(t, allow)
+		assert.Zero(t, mp.closedConnCount())
+		assert.Zero(t, g.PendingLen())
+	})
+
+	t.Run("a stale peer does not evict itself", func(t *testing.T) {
+		mp := &mutablePeers{}
+		mp.connect("young-observer", core.ObserverPeer, connFrom("young-observer", network.DirInbound))
+		mp.connect("stale", core.UnknownPeer, stubConn("stale", network.DirInbound, at(1)))
+		_, g := upgradedGater(t, mp, 2, time.Now)
+
+		allow, _ := g.InterceptUpgraded(connFrom("stale", network.DirInbound))
+		assert.False(t, allow)
+		assert.Zero(t, mp.closedConnCount())
+	})
+
+	t.Run("over the cap, evicting the stale peer would not make room", func(t *testing.T) {
+		mp := &mutablePeers{}
+		mp.connect("stale", core.UnknownPeer, stubConn("stale", network.DirInbound, at(1)))
+		mp.connect("young-1", core.UnknownPeer, connFrom("young-1", network.DirInbound))
+		mp.connect("young-2", core.UnknownPeer, connFrom("young-2", network.DirInbound))
+		_, g := upgradedGater(t, mp, 2, time.Now) // 3 > 2, as right after the warm-up
+
+		assert.False(t, g.InterceptSecured(network.DirInbound, "newcomer", nil))
+		allow, _ := g.InterceptUpgraded(connFrom("newcomer", network.DirInbound))
+		assert.False(t, allow, "the protector pass trims the excess; admission must not keep the node over the cap")
+		assert.Zero(t, mp.closedConnCount())
+	})
+}
+
+func TestInboundCapGater_ConcurrentAdmissionsDoNotShareAnEvictionVictim(t *testing.T) {
+	mp := &mutablePeers{}
+	mp.connect("stale", core.UnknownPeer, stubConn("stale", network.DirInbound, at(1)))
+	mp.connect("young", core.UnknownPeer, connFrom("young", network.DirInbound))
+	_, g := upgradedGater(t, mp, 2, time.Now) // full, one evictable peer holding one connection
+
+	const numUpgrades = 10
+	var admitted atomic.Int32
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < numUpgrades; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			if allow, _ := g.InterceptUpgraded(connFrom(peer.ID(fmt.Sprintf("racer-%d", i)), network.DirInbound)); allow {
+				admitted.Add(1)
+			}
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	assert.Equal(t, int32(1), admitted.Load(), "one victim frees one slot")
+	assert.Equal(t, 1, g.PendingLen())
+	assert.Eventually(t, func() bool { return mp.closedConnCount() == 1 }, 5*time.Second, 10*time.Millisecond)
+	assert.Equal(t, []peer.ID{"stale"}, mp.closedPeers())
+}
