@@ -334,7 +334,13 @@ const MetricSCWarmupSkippedPresent = "klv_sc_warmup_skipped_present_total"
 // MetricSCWarmupDiscardedStale is the cumulative count of precompiled modules discarded because the cache was cleared or the gas schedule or fork flags changed while compiling
 const MetricSCWarmupDiscardedStale = "klv_sc_warmup_discarded_stale_total"
 
-// MetricSCWarmupErrors is the cumulative count of precompilations that failed or were skipped as unsupported
+// MetricSCWarmupSkippedNoCode is the cumulative count of precompilations skipped because the address has no account or no code
+const MetricSCWarmupSkippedNoCode = "klv_sc_warmup_skipped_no_code_total"
+
+// MetricSCWarmupSkippedUnsupported is the cumulative count of precompilations skipped because the module declares a start function
+const MetricSCWarmupSkippedUnsupported = "klv_sc_warmup_skipped_unsupported_total"
+
+// MetricSCWarmupErrors is the cumulative count of precompilations that failed: unreadable state, compile errors, an unusable gas schedule, or a recovered panic
 const MetricSCWarmupErrors = "klv_sc_warmup_errors_total"
 
 // MetricSCWarmupCompileTimeMs is the cumulative time, in milliseconds, spent precompiling modules

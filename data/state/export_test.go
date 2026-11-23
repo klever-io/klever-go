@@ -70,3 +70,11 @@ const MaxHistoricalProofWalks = maxHistoricalProofWalks
 func (adb *AccountsDB) NumTrackedDataTries() int {
 	return len(adb.dataTries.GetAll())
 }
+
+// NumCodeLoadsMeasured returns how many code loads the per-commit load-code stats counted so far
+func (adb *AccountsDB) NumCodeLoadsMeasured() uint64 {
+	adb.loadCodeMeasurements.Lock()
+	defer adb.loadCodeMeasurements.Unlock()
+
+	return adb.loadCodeMeasurements.numCalls
+}

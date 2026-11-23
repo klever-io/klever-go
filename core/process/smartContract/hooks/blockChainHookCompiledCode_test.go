@@ -175,3 +175,16 @@ func TestBlockChainHookImpl_CompiledCodeConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestBlockChainHookImpl_CloseInvalidatesModulesCompiledBeforeIt(t *testing.T) {
+	t.Parallel()
+
+	bh := newCompiledCodeTestHook(t)
+	generation := bh.CompiledCodeGeneration()
+
+	require.NoError(t, bh.Close())
+
+	assert.Equal(t, generation+1, bh.CompiledCodeGeneration())
+	assert.False(t, bh.SaveCompiledCodeIfCurrent(generation, nil, []byte("hash"), []byte("module")),
+		"a module compiled before Close must not be saved into the destroyed storage")
+}

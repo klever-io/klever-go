@@ -1,6 +1,7 @@
 package state_test
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"sync"
@@ -181,4 +182,36 @@ func TestAccountsDB_GetAccountCodeTrieError(t *testing.T) {
 	got, err := adb.GetAccountCode(make([]byte, 32))
 	require.Nil(t, got)
 	require.True(t, errors.Is(err, errTrie), "got %v", err)
+}
+
+func TestAccountsDB_GetAccountCodeHashReadsOnlyTheAccount(t *testing.T) {
+	t.Parallel()
+
+	adb, address, codeHash := newAccountsDBWithContract(t)
+
+	got, err := adb.GetAccountCodeHash(address)
+	require.NoError(t, err)
+	require.Equal(t, codeHash, got, "the hash the runtime keys the compiled module on")
+	require.Equal(t, 0, adb.NumTrackedDataTries())
+
+	_, err = adb.GetAccountCodeHash(append(bytes.Clone(address[:31]), 8))
+	require.ErrorIs(t, err, common.ErrAccNotFound)
+	_, err = adb.GetAccountCodeHash(nil)
+	require.ErrorIs(t, err, common.ErrNilAddress)
+}
+
+func TestAccountsDB_WarmUpCodeReadsAreNotMeasured(t *testing.T) {
+	t.Parallel()
+
+	adb, address, codeHash := newAccountsDBWithContract(t)
+	before := adb.NumCodeLoadsMeasured()
+
+	_, err := adb.GetAccountCode(address)
+	require.NoError(t, err)
+	_, err = adb.GetAccountCodeHash(address)
+	require.NoError(t, err)
+	require.Equal(t, before, adb.NumCodeLoadsMeasured(), "the warmer's reads stay out of the block path's code-load stats")
+
+	_ = adb.GetCode(codeHash)
+	require.Equal(t, before+1, adb.NumCodeLoadsMeasured(), "GetCode is still measured")
 }

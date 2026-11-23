@@ -151,6 +151,7 @@ func warmedStore(t *testing.T, code []byte, epochs blockchainConfig.EnableEpochs
 		// no Executor: the warmer creates its own, exactly as in production
 	}, 4, 4)
 	require.NoError(t, err)
+	w.readInterval = 0
 	defer func() { _ = w.Close() }()
 
 	w.warm(testcommon.ParentAddress)

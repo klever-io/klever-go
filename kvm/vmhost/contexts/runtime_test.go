@@ -1334,6 +1334,50 @@ func TestRuntimeContext_WarmAndColdRejectionsAreIdentical(t *testing.T) {
 	t.Logf("both paths reject with: %v", warmErr)
 }
 
+// TestRuntimeContext_CompiledCodeFromBeforeTheTableCapIsRejectedLikeACold covers a module that
+// entered the compiled-code cache before FixAuditChangesV4 applied, as the block path does before
+// the fork and the KLC-3001 warmer can after a start, before the first CheckEpoch. Restored once
+// the cap applies, it must be rejected exactly as a node that compiles it cold rejects it.
+func TestRuntimeContext_CompiledCodeFromBeforeTheTableCapIsRejectedLikeACold(t *testing.T) {
+	oversized, err := hex.DecodeString(oversizedTableNonMutatingWasmHex)
+	require.NoError(t, err)
+
+	newCtx := func(t *testing.T) (*runtimeContext, interface{ EpochConfirmed(uint32) }) {
+		t.Helper()
+		fc, err := fork.NewForkController(blockchainConfig.EnableEpochs{
+			FixAuditChangesV4: 1, // inactive at epoch 0, active from epoch 1
+		}, &commonMock.EpochNotifierStub{})
+		require.NoError(t, err)
+
+		host := InitializeVMAndWasmer()
+		host.ForkControllerContext = fc
+		ctx := makeDefaultRuntimeContext(t, host)
+		ctx.SetMaxInstanceStackSize(2)
+		return ctx, fc
+	}
+
+	restoredCtx, restoredFork := newCtx(t)
+	defer restoredCtx.ClearWarmInstanceCache()
+	restoredFork.EpochConfirmed(0)
+	require.NoError(t, restoredCtx.StartWasmerInstance(oversized, 100_000_000, false),
+		"pre-fork instantiation succeeds and caches the compiled module")
+	found, _ := restoredCtx.host.Blockchain().GetCompiledCode(restoredCtx.hasher.Compute(string(oversized)))
+	require.True(t, found, "the compiled module must be cached, or the restore path is not exercised")
+	restoredCtx.ClearWarmInstanceCache() // the warm path is covered by WarmAndColdRejectionsAreIdentical
+	restoredFork.EpochConfirmed(1)
+	restoredErr := restoredCtx.StartWasmerInstance(oversized, 100_000_000, false)
+
+	coldCtx, coldFork := newCtx(t)
+	defer coldCtx.ClearWarmInstanceCache()
+	coldFork.EpochConfirmed(1)
+	coldErr := coldCtx.StartWasmerInstance(oversized, 100_000_000, false)
+
+	require.Error(t, restoredErr, "a module compiled before the cap must not run once it applies")
+	require.Error(t, coldErr)
+	require.Equal(t, coldErr.Error(), restoredErr.Error(),
+		"a restored module and a cold compile must be rejected identically")
+}
+
 // TestRuntimeContext_VerifyContractCode_TableCheckSkippedPreFork is the
 // pre-fork counterpart to TestRuntimeContext_VerifyContractCode_RedundantTableCheck.
 // The same instance that is rejected once FixAuditChangesV4 is active must be

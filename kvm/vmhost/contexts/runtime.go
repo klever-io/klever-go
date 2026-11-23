@@ -247,6 +247,20 @@ func (context *runtimeContext) makeInstanceFromCompiledCode(gasLimit uint64, new
 		newInstance.Clean()
 		return false, err
 	}
+
+	// KLC-3001: a cached module may have been compiled before the declared-table cap applied,
+	// by the block path before FixAuditChangesV4 or by the compiled-code warmer before the first
+	// CheckEpoch after a start. The executor checks the cap again on restore; this check makes
+	// the restore path independent of that, as the warm path is. On a failure the fresh instance
+	// is dropped and the call falls through to instantiation from bytecode, which rejects the
+	// module the same way on every node (see useWarmInstanceIfExists for why the error itself
+	// is not returned).
+	err = context.verifyTableDeclarationIfActive()
+	if err != nil {
+		context.iTracker.ForceCleanInstance(true)
+		logRuntime.Trace("compiled code rejected, falling through to instantiation", "error", err)
+		return false, nil
+	}
 	context.verifyCode = false
 
 	context.saveWarmInstance()

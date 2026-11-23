@@ -12,11 +12,13 @@ type TxPool interface {
 	IsInterfaceNil() bool
 }
 
-// AccountsReader reads contract code from the accounts adapter. GetAccountCode must read the
-// account and its code under one hold of the adapter lock and must not load the account's data
-// trie (state.AccountsDB.GetAccountCode does both), so the warmer's reads neither race a trie
-// swap nor change what the consensus adapter tracks for the next Commit.
+// AccountsReader reads contract code from the accounts adapter. GetAccountCodeHash reads only
+// the account; GetAccountCode reads the account and its code under one hold of the adapter lock.
+// Neither may load the account's data trie or count toward the block path's code-load stats
+// (state.AccountsDB implements both that way), so the warmer's reads neither race a trie swap
+// nor change what the consensus adapter tracks for the next Commit.
 type AccountsReader interface {
+	GetAccountCodeHash(address []byte) ([]byte, error)
 	GetAccountCode(address []byte) ([]byte, error)
 	IsInterfaceNil() bool
 }
@@ -45,7 +47,6 @@ type ForkFlags interface {
 
 // CompiledCodeWarmer precompiles the modules of contracts called by pending transactions
 type CompiledCodeWarmer interface {
-	TriggerRescan()
 	Counters() Counters
 	Close() error
 	IsInterfaceNil() bool

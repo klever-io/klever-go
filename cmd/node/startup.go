@@ -1032,8 +1032,9 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		clockMetricsCloser,
 		currentNode.GetPeerHonestyHandler(),
 		currentNode.GetHeartbeatHandler(),
-		// KLC-3001: stop the warm-up worker before the stores and tries it reads are closed
-		compiledCodeWarmerCloser(processComponents),
+		// KLC-3001: stop the warm-up worker before the stores and tries it reads are closed. A nil
+		// warmer (warm-up off) is a nil closer, which closeAllComponents skips.
+		processComponents.CompiledCodeWarmer,
 	}
 
 	log.Trace("creating klever node facade")
@@ -1188,16 +1189,6 @@ func applyStoragePruningFlags(ctx *cli.Context, cfg *config.Config, log logger.L
 
 	cfg.StoragePruning.CleanOldEpochsData = false
 	log.Info("old epochs data will be kept via --keep-old-epochs-data flag")
-}
-
-// compiledCodeWarmerCloser returns the compiled-code warmer as a closer, or nil when the node
-// runs without one; closeAllComponents skips nil closers
-func compiledCodeWarmerCloser(processComponents *factory.Process) io.Closer {
-	if check.IfNil(processComponents.CompiledCodeWarmer) {
-		return nil
-	}
-
-	return processComponents.CompiledCodeWarmer
 }
 
 func closeAllComponents(

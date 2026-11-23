@@ -1029,7 +1029,7 @@ func newBlockProcessor(
 	// (see the warmup package documentation for the lock order), so no later step in this
 	// function can fail and leave its goroutine running. Only the main block processor gets one;
 	// the simulator shares the compiled-code pool and benefits from it.
-	compiledCodeWarmer, err := createCompiledCodeWarmer(processArgs, blockChainHookImpl, gasScheduleNotifier, virtualMachineFactory)
+	compiledCodeWarmer, err := createCompiledCodeWarmer(processArgs, blockChainHookImpl, gasScheduleNotifier)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1037,18 +1037,12 @@ func newBlockProcessor(
 	return processor, &liveProcessors{transactionProcessor: txProcessor, scProcessor: scProcessor}, compiledCodeWarmer, nil
 }
 
-// mainVMContainerFactory is the part of the main VM container factory newBlockProcessor uses
-type mainVMContainerFactory interface {
-	process.VirtualMachinesContainerFactory
-	SetCompiledCodeRescanTrigger(trigger func())
-}
-
 // mainVMComponents holds the VM components of the main block processor
 type mainVMComponents struct {
 	builtInFuncFactory vmcommon.BuiltInFunctionFactory
 	kdaTransferParser  vmcommon.KDATransferParser
 	blockChainHook     *hooks.BlockChainHookImpl
-	vmFactory          mainVMContainerFactory
+	vmFactory          process.VirtualMachinesContainerFactory
 	vmContainer        process.VirtualMachinesContainer
 }
 
@@ -1146,14 +1140,14 @@ func createMainVMComponents(
 
 // createCompiledCodeWarmer creates the KLC-3001 compiled-code warmer, unless the
 // virtualMachine.execution.compiledCodeWarmUp setting turns it off. It reads contract code
-// through GetAccountCode, which holds the adapter lock for the whole read and leaves the
-// consensus adapter's tracked data tries alone; an accounts adapter without it gets no warmer.
+// through GetAccountCodeHash and GetAccountCode, which hold the adapter lock for each read and
+// leave the consensus adapter's tracked data tries alone; an accounts adapter without them gets
+// no warmer.
 // No warmer only means cold first calls, as before.
 func createCompiledCodeWarmer(
 	processArgs *ProcessComponentsFactoryArgs,
 	compiledCode warmup.CompiledCodeCache,
 	gasScheduleNotifier core.GasScheduleNotifier,
-	rescanTriggerSetter compiledCodeRescanTriggerSetter,
 ) (warmup.CompiledCodeWarmer, error) {
 	if !processArgs.mainConfig.VirtualMachine.Execution.CompiledCodeWarmUp.IsEnabled() {
 		log.Info("compiled-code warm-up disabled by virtualMachine.execution.compiledCodeWarmUp")
@@ -1178,17 +1172,7 @@ func createCompiledCodeWarmer(
 	if err != nil {
 		return nil, err
 	}
-	if !check.IfNil(rescanTriggerSetter) {
-		rescanTriggerSetter.SetCompiledCodeRescanTrigger(warmer.TriggerRescan)
-	}
-
 	return warmer, nil
-}
-
-// compiledCodeRescanTriggerSetter is the part of the VM container factory the warmer wiring needs
-type compiledCodeRescanTriggerSetter interface {
-	SetCompiledCodeRescanTrigger(trigger func())
-	IsInterfaceNil() bool
 }
 
 func indexGenesisAccounts(startTime int64, accountsAdapter state.AccountsAdapter, eventsProcessor process.EventsProcessor, marshalizer marshal.Marshalizer) error {

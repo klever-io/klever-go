@@ -1,6 +1,7 @@
 package warmup
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"sync"
@@ -8,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/crypto/hashing/blake2b"
 	"github.com/klever-io/klever-go/data/transaction"
@@ -26,7 +29,7 @@ import (
 
 const basicFeaturesPath = "../../../../kvm/test/features/basic-features/output/basic-features.wasm"
 
-var errTestAccountNotFound = errors.New("account not found")
+var errTestTrieRead = errors.New("trie node missing")
 
 // --- fakes -----------------------------------------------------------------------------
 
@@ -113,9 +116,12 @@ func (f *fakeCompiledCodeCache) IsInterfaceNil() bool {
 }
 
 type fakeAccounts struct {
-	mut          sync.Mutex
-	codes        map[string][]byte
-	numGetCalled atomic.Int64
+	mut              sync.Mutex
+	codes            map[string][]byte
+	readErr          error
+	numHashCalled    atomic.Int64
+	numGetCalled     atomic.Int64
+	afterCodeHashGet func()
 }
 
 func newFakeAccounts() *fakeAccounts {
@@ -130,15 +136,45 @@ func (f *fakeAccounts) setContract(address []byte, code []byte) {
 	f.codes[string(address)] = code
 }
 
-func (f *fakeAccounts) GetAccountCode(address []byte) ([]byte, error) {
-	f.numGetCalled.Add(1)
-
+func (f *fakeAccounts) setReadErr(err error) {
 	f.mut.Lock()
 	defer f.mut.Unlock()
 
+	f.readErr = err
+}
+
+// GetAccountCodeHash returns blake2b(code), the hash the accounts adapter stores for it
+func (f *fakeAccounts) GetAccountCodeHash(address []byte) ([]byte, error) {
+	f.numHashCalled.Add(1)
+	defer func() {
+		if f.afterCodeHashGet != nil {
+			f.afterCodeHashGet()
+		}
+	}()
+
+	code, err := f.read(address)
+	if err != nil || len(code) == 0 {
+		return nil, err
+	}
+	return (&blake2b.Blake2b{}).Compute(string(code)), nil
+}
+
+func (f *fakeAccounts) GetAccountCode(address []byte) ([]byte, error) {
+	f.numGetCalled.Add(1)
+
+	return f.read(address)
+}
+
+func (f *fakeAccounts) read(address []byte) ([]byte, error) {
+	f.mut.Lock()
+	defer f.mut.Unlock()
+
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
 	code, ok := f.codes[string(address)]
 	if !ok {
-		return nil, errTestAccountNotFound
+		return nil, common.ErrAccNotFound
 	}
 	return code, nil
 }
@@ -267,6 +303,7 @@ func (f *warmerFixture) newStopped(t *testing.T, queueSize int) *compiledCodeWar
 
 	w, err := newCompiledCodeWarmer(f.args, queueSize, defaultRecentAddressesSize)
 	require.NoError(t, err)
+	w.readInterval = 0
 	t.Cleanup(func() { _ = w.Close() })
 	return w
 }
@@ -279,8 +316,10 @@ func readBasicFeatures(t *testing.T) []byte {
 	return code
 }
 
+// scAddress is a smart-contract address (core.IsSmartContractAddress)
 func scAddress(id byte) []byte {
 	address := make([]byte, 32)
+	copy(address[core.NumInitCharactersForScAddress-core.VMTypeLen:], common.WasmVirtualMachine)
 	address[31] = id
 	return address
 }
@@ -656,11 +695,19 @@ func TestCompiledCodeWarmer_CountsErrors(t *testing.T) {
 
 	w.warm(scAddress(1)) // unknown account
 	w.warm(scAddress(2)) // no code
-	w.warm(scAddress(3)) // does not compile
+	w.warm(scAddress(3)) // not decodable
 
 	assert.Equal(t, 0, f.cache.len())
-	assert.Equal(t, uint64(3), w.Counters().Errors+w.Counters().SkippedUnsupported)
-	assert.Equal(t, uint64(0), w.Counters().Compiled)
+	counters := w.Counters()
+	assert.Equal(t, uint64(2), counters.SkippedNoCode, "no account and no code are ordinary inputs")
+	assert.Equal(t, uint64(1), counters.Errors, "undecodable code is a failure")
+	assert.Equal(t, uint64(0), counters.SkippedUnsupported, "only a start function is unsupported")
+	assert.Equal(t, uint64(0), counters.Compiled)
+
+	f.accounts.setReadErr(errTestTrieRead)
+	w.warm(scAddress(4))
+	assert.Equal(t, uint64(2), w.Counters().Errors, "an unreadable state is a failure")
+	assert.Equal(t, uint64(2), w.Counters().SkippedNoCode)
 }
 
 // --- rescan --------------------------------------------------------------------------
@@ -702,7 +749,8 @@ func TestCompiledCodeWarmer_RescanReenqueuesPoolContents(t *testing.T) {
 
 	w.rescan()
 
-	assert.ElementsMatch(t, [][]byte{scAddress(1), scAddress(2), scAddress(3)}, queued(w))
+	assert.Empty(t, queued(w), "a rescan fills the backlog, not the queue")
+	assert.ElementsMatch(t, [][]byte{scAddress(1), scAddress(2), scAddress(3)}, w.backlog)
 	assert.Contains(t, f.pool.requestedID, txPoolCacheID)
 	assert.Equal(t, uint64(1), w.Counters().Rescans)
 }
@@ -779,9 +827,11 @@ func TestCompiledCodeWarmer_PublishesMetrics(t *testing.T) {
 
 	mut.Lock()
 	defer mut.Unlock()
-	assert.Equal(t, uint64(1), metrics[metricEnqueued])
-	assert.Equal(t, uint64(1), metrics[metricCompiled])
-	assert.Contains(t, metrics, metricCompileTimeMs)
+	assert.Equal(t, uint64(1), metrics[core.MetricSCWarmupEnqueued])
+	assert.Equal(t, uint64(1), metrics[core.MetricSCWarmupCompiled])
+	assert.Contains(t, metrics, core.MetricSCWarmupCompileTimeMs)
+	assert.Contains(t, metrics, core.MetricSCWarmupSkippedNoCode)
+	assert.Contains(t, metrics, core.MetricSCWarmupSkippedUnsupported)
 }
 
 type recordingStatusHandler struct {
@@ -795,4 +845,134 @@ func (r *recordingStatusHandler) SetUInt64Value(key string, value uint64) {
 
 func (r *recordingStatusHandler) IsInterfaceNil() bool {
 	return r == nil
+}
+
+// --- review follow-ups (#210) --------------------------------------------------------
+
+func TestCompiledCodeWarmer_HandlerSkipsAddressesThatCannotHoldCode(t *testing.T) {
+	t.Parallel()
+
+	f := newWarmerFixture(t)
+	w := f.newStopped(t, 16)
+
+	userAddress := make([]byte, 32)
+	for i := range userAddress {
+		userAddress[i] = byte(i + 1)
+	}
+	f.pool.addTx([]byte("h"), invokeTx(t, userAddress, scAddress(1), nil))
+
+	assert.Equal(t, [][]byte{scAddress(1)}, queued(w))
+	assert.Equal(t, int64(0), f.accounts.numHashCalled.Load(), "the handler itself never reads state")
+}
+
+func TestCompiledCodeWarmer_RetriesOnlyFailuresThatCanPass(t *testing.T) {
+	t.Parallel()
+
+	f := newWarmerFixture(t)
+	f.accounts.setContract(scAddress(2), []byte("definitely not wasm"))
+	f.accounts.setContract(scAddress(3), readBasicFeatures(t))
+	f.exec.beforeCompile = f.cache.clear // the module of scAddress(3) is compiled for a stale cache
+	w := f.newStopped(t, 16)
+	f.accounts.setReadErr(errTestTrieRead)
+
+	seenAndWarmed := func(address []byte) {
+		w.enqueue(address)
+		require.Equal(t, [][]byte{address}, queued(w))
+		w.warm(address)
+	}
+	seenAndWarmed(scAddress(1)) // unreadable state
+	f.accounts.setReadErr(nil)
+	seenAndWarmed(scAddress(2)) // undecodable code
+	seenAndWarmed(scAddress(3)) // stale discard
+	seenAndWarmed(scAddress(4)) // no account
+
+	w.enqueue(scAddress(1))
+	w.enqueue(scAddress(2))
+	w.enqueue(scAddress(3))
+	w.enqueue(scAddress(4))
+	assert.Equal(t, [][]byte{scAddress(1), scAddress(3), scAddress(4)}, queued(w),
+		"unreadable state, a stale cache and a missing account can pass; undecodable code cannot")
+}
+
+func TestCompiledCodeWarmer_ReadsCodeOnlyWhenTheModuleIsMissing(t *testing.T) {
+	t.Parallel()
+
+	f := newWarmerFixture(t)
+	code := readBasicFeatures(t)
+	f.accounts.setContract(scAddress(1), code)
+	f.cache.put(f.hasher.Compute(string(code)), []byte("module from an earlier cold call"))
+	w := f.newStopped(t, 16)
+
+	w.warm(scAddress(1))
+
+	assert.Equal(t, int64(1), f.accounts.numHashCalled.Load())
+	assert.Equal(t, int64(0), f.accounts.numGetCalled.Load(), "a cached module costs no code read")
+	assert.Equal(t, uint64(1), w.Counters().SkippedPresent)
+}
+
+func TestCompiledCodeWarmer_KeysTheModuleOnTheCodeActuallyRead(t *testing.T) {
+	t.Parallel()
+
+	f := newWarmerFixture(t)
+	oldCode := readBasicFeatures(t)
+	newCode := append(bytes.Clone(oldCode), 0x00, 0x01, 0x00) // plus an empty custom section: still valid wasm
+	f.accounts.setContract(scAddress(1), oldCode)
+	f.accounts.afterCodeHashGet = func() { f.accounts.setContract(scAddress(1), newCode) } // an upgrade
+	w := f.newStopped(t, 16)
+
+	w.warm(scAddress(1))
+
+	found, _ := f.cache.GetCompiledCode(f.hasher.Compute(string(newCode)))
+	assert.True(t, found, "the module is stored under the hash of the code it was compiled from")
+	found, _ = f.cache.GetCompiledCode(f.hasher.Compute(string(oldCode)))
+	assert.False(t, found)
+}
+
+func TestCompiledCodeWarmer_RescanKeepsEveryContractBeyondTheQueue(t *testing.T) {
+	t.Parallel()
+
+	f := newWarmerFixture(t)
+	w := f.newStopped(t, 2)
+	for i := byte(1); i <= 10; i++ {
+		f.pool.store.Put([]byte{i}, invokeTx(t, scAddress(i)), 0)
+	}
+
+	w.rescan()
+	require.Len(t, w.backlog, 10)
+	assert.Equal(t, uint64(0), w.Counters().Dropped)
+
+	// a transaction added meanwhile goes before the backlog
+	f.pool.addTx([]byte("new"), invokeTx(t, scAddress(50)))
+	w.step()
+	assert.Equal(t, int64(1), f.accounts.numHashCalled.Load())
+	assert.Len(t, w.backlog, 10, "the queued address was taken first")
+
+	for len(w.backlog) > 0 {
+		w.step()
+	}
+	assert.Equal(t, int64(11), f.accounts.numHashCalled.Load(), "every backlog address was worked")
+}
+
+func TestCompiledCodeWarmer_SpacesAccountReads(t *testing.T) {
+	t.Parallel()
+
+	f := newWarmerFixture(t)
+	code := readBasicFeatures(t)
+	f.cache.put(f.hasher.Compute(string(code)), []byte("cached"))
+	f.accounts.setContract(scAddress(1), code)
+	f.accounts.setContract(scAddress(2), code)
+	w := f.newStopped(t, 16)
+	w.readInterval = 50 * time.Millisecond
+
+	start := time.Now()
+	w.warm(scAddress(1))
+	w.warm(scAddress(2))
+	assert.GreaterOrEqual(t, time.Since(start), w.readInterval)
+
+	// closing interrupts the wait
+	w.readInterval = time.Hour
+	require.NoError(t, w.Close())
+	start = time.Now()
+	assert.False(t, w.waitForRead())
+	assert.Less(t, time.Since(start), time.Second)
 }

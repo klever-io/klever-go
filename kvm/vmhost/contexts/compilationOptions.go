@@ -45,4 +45,3 @@ func effectiveMaxDeclaredTableSize(gasSchedule *config.GasCost, tableCheckActive
 	}
 	return uint64(gasSchedule.WASMOpcodeCost.MaxDeclaredTableSize)
 }
-

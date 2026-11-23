@@ -651,15 +651,42 @@ func (adb *AccountsDB) getAccount(address []byte) (AccountHandler, error) {
 	return acnt, nil
 }
 
+// GetAccountCodeHash returns the code hash of an existing account, nil for an account without
+// code. It reads only the account, under mutOp and without loading its data trie, so it leaves
+// the data tries tracked for the next Commit untouched. It is meant for readers outside block
+// processing (KLC-3001).
+func (adb *AccountsDB) GetAccountCodeHash(address []byte) ([]byte, error) {
+	adb.mutOp.Lock()
+	defer adb.mutOp.Unlock()
+
+	userAccount, err := adb.getUserAccountForCodeRead(address)
+	if err != nil || userAccount == nil {
+		return nil, err
+	}
+
+	return userAccount.GetCodeHash(), nil
+}
+
 // GetAccountCode returns the code of an existing account, nil for an account without code.
-// Unlike GetExistingAccount it does not load the account's data trie, so it leaves the data
-// tries tracked for the next Commit untouched, and it reads the account and its code under one
-// hold of mutOp, so RecreateTrie cannot swap the main trie between the two reads. It is meant
-// for readers outside block processing (KLC-3001).
+// Like GetAccountCodeHash it does not load the account's data trie, and it reads the account
+// and its code under one hold of mutOp, so RecreateTrie cannot swap the main trie between the
+// two reads. The read is not counted in the code-load measurements, which report the block
+// path's code loads. It is meant for readers outside block processing (KLC-3001).
 func (adb *AccountsDB) GetAccountCode(address []byte) ([]byte, error) {
 	adb.mutOp.Lock()
 	defer adb.mutOp.Unlock()
 
+	userAccount, err := adb.getUserAccountForCodeRead(address)
+	if err != nil || userAccount == nil {
+		return nil, err
+	}
+
+	return adb.readCode(userAccount.GetCodeHash()), nil
+}
+
+// getUserAccountForCodeRead returns the user account at address without loading its data
+// trie, or nil for an account that is not a user account. Called with mutOp held.
+func (adb *AccountsDB) getUserAccountForCodeRead(address []byte) (UserAccountHandler, error) {
 	if len(address) == 0 {
 		return nil, fmt.Errorf("%w in GetAccountCode", common.ErrNilAddress)
 	}
@@ -677,7 +704,7 @@ func (adb *AccountsDB) GetAccountCode(address []byte) ([]byte, error) {
 		return nil, nil
 	}
 
-	return adb.getCode(userAccount.GetCodeHash()), nil
+	return userAccount, nil
 }
 
 // GetExistingAccount returns an existing account if exists or nil if missing
@@ -1087,28 +1114,28 @@ func (adb *AccountsDB) GetNumCheckpoints() uint32 {
 
 // GetCode returns the code for the given account
 func (adb *AccountsDB) GetCode(codeHash []byte) []byte {
-	return adb.getCode(codeHash)
+	startTime := time.Now()
+	code := adb.readCode(codeHash)
+	if len(codeHash) > 0 {
+		adb.loadCodeMeasurements.addMeasurement(len(code), time.Since(startTime))
+	}
+
+	return code
 }
 
-// getCode reads the code stored under codeHash; callers that must not race RecreateTrie hold mutOp
-func (adb *AccountsDB) getCode(codeHash []byte) []byte {
+// readCode reads the code stored under codeHash without recording a code-load measurement;
+// callers that must not race RecreateTrie hold mutOp
+func (adb *AccountsDB) readCode(codeHash []byte) []byte {
 	if len(codeHash) == 0 {
 		return nil
 	}
-
-	var codeEntry CodeEntry
-
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		adb.loadCodeMeasurements.addMeasurement(len(codeEntry.Code), duration)
-	}()
 
 	val, err := adb.mainTrie.Get(codeHash)
 	if err != nil {
 		return nil
 	}
 
+	var codeEntry CodeEntry
 	err = adb.marshalizer.Unmarshal(&codeEntry, val)
 	if err != nil {
 		return nil

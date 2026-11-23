@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"sort"
-	"sync/atomic"
 
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
@@ -40,10 +39,6 @@ type vmContainerFactory struct {
 	wasmVMChangeLocker common.Locker
 	kdaTransferParser  vmcommon.KDATransferParser
 	hasher             hashing.Hasher
-
-	// rescanTrigger asks the KLC-3001 compiled-code warmer to re-warm the contracts of the
-	// pending transactions; nil means no warmer
-	rescanTrigger atomic.Pointer[func()]
 }
 
 // ArgVMContainerFactory defines the arguments needed to the new VM factory
@@ -213,30 +208,6 @@ func (vmf *vmContainerFactory) GasScheduleChange(gasSchedule map[string]map[stri
 
 		currentVM.GasScheduleChange(gasSchedule)
 	}
-
-	// ClearCompiledCodes above already fired the hook's cleared handler, so the warmer may have
-	// started re-warming before the loop gave the VMs the new schedule. That is safe: the
-	// notifier stored the new schedule before calling its handlers, and the warmer compiles
-	// against LatestGasSchedule and rechecks it under the cache lock, never against the VMs'
-	// executors. This explicit trigger is a coalesced backstop, not an ordering guarantee.
-	vmf.triggerCompiledCodeRescan()
-}
-
-// SetCompiledCodeRescanTrigger sets the function asking the compiled-code warmer to re-warm
-// the contracts of the pending transactions. It must not block. A nil trigger disables it.
-func (vmf *vmContainerFactory) SetCompiledCodeRescanTrigger(trigger func()) {
-	if trigger == nil {
-		vmf.rescanTrigger.Store(nil)
-		return
-	}
-	vmf.rescanTrigger.Store(&trigger)
-}
-
-func (vmf *vmContainerFactory) triggerCompiledCodeRescan() {
-	trigger := vmf.rescanTrigger.Load()
-	if trigger != nil {
-		(*trigger)()
-	}
 }
 
 // EpochConfirmed updates the VM version in the container, depending on the epoch
@@ -273,11 +244,6 @@ func (vmf *vmContainerFactory) ensureCorrectWasmVMVersion(epoch uint32) {
 	}
 
 	logVMContainerFactory.Debug("Wasm VM replaced", "epoch", epoch)
-
-	// closePreviousVM's clear already fired the hook's cleared handler; this explicit trigger
-	// is a coalesced backstop. Warming does not depend on the VM instance: it compiles against
-	// LatestGasSchedule and the fork flags, which the replacement VM uses too.
-	vmf.triggerCompiledCodeRescan()
 }
 
 func (vmf *vmContainerFactory) shouldReplaceWasmVMInstance(

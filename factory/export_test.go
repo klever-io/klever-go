@@ -30,7 +30,7 @@ func CreateCompiledCodeWarmerForTest(
 		coreData:       &CoreComponents{Hasher: hasher, StatusHandler: statusHandler},
 		forkController: forkController,
 	}
-	return createCompiledCodeWarmer(args, compiledCode, gasScheduleNotifier, nil)
+	return createCompiledCodeWarmer(args, compiledCode, gasScheduleNotifier)
 }
 
 // SetSkPkProviderHandler updates the handler for testing reasons
