@@ -156,7 +156,7 @@ func startNode(ctx *cli.Context) error {
 	}
 
 	apiConfigFileName := ctx.GlobalString(configurationAPIFile.Name)
-	apiRoutesConfig, err := loadAPIRoutesConfig(apiConfigFileName)
+	apiRoutesConfig, err := loadAPIRoutesConfig(apiConfigFileName, ctx.GlobalIsSet(configurationAPIFile.Name))
 	if err != nil {
 		return err
 	}
@@ -398,11 +398,11 @@ func startGinServer(restAPIInterface string, marshalizer marshal.Marshalizer, me
 	}
 }
 
-// loadAPIRoutesConfig falls back to the built-in defaults only when the file is missing; a file that
-// fails to parse stops the start, so a typo cannot reopen routes the operator closed.
-func loadAPIRoutesConfig(path string) (config.APIRoutesConfig, error) {
+// loadAPIRoutesConfig falls back to the built-in defaults only when the default file is missing; any
+// other failure, including a missing explicit --config-api, stops the start.
+func loadAPIRoutesConfig(path string, explicit bool) (config.APIRoutesConfig, error) {
 	cfg, err := config.LoadAPIConfig(path)
-	if errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, os.ErrNotExist) && !explicit {
 		log.Warn("api config not found; using built-in defaults (/log disabled)", "file", path)
 		return api.DefaultRoutesConfig(), nil
 	}

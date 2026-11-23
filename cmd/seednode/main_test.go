@@ -13,7 +13,7 @@ import (
 func TestLoadAPIRoutesConfig_MissingFileUsesDefaults(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := loadAPIRoutesConfig(filepath.Join(t.TempDir(), "missing.yaml"))
+	cfg, err := loadAPIRoutesConfig(filepath.Join(t.TempDir(), "missing.yaml"), false)
 	require.NoError(t, err)
 	assert.Equal(t, api.DefaultRoutesConfig(), cfg)
 }
@@ -24,7 +24,7 @@ func TestLoadAPIRoutesConfig_UnknownKeyFailsInsteadOfFallingBack(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "api.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("loging: true\n"), 0o600))
 
-	_, err := loadAPIRoutesConfig(path)
+	_, err := loadAPIRoutesConfig(path, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "field loging not found")
 }
@@ -32,6 +32,13 @@ func TestLoadAPIRoutesConfig_UnknownKeyFailsInsteadOfFallingBack(t *testing.T) {
 func TestLoadAPIRoutesConfig_ReadErrorFailsInsteadOfFallingBack(t *testing.T) {
 	t.Parallel()
 
-	_, err := loadAPIRoutesConfig(t.TempDir())
+	_, err := loadAPIRoutesConfig(t.TempDir(), false)
 	require.Error(t, err)
+}
+
+func TestLoadAPIRoutesConfig_MissingExplicitFileFails(t *testing.T) {
+	t.Parallel()
+
+	_, err := loadAPIRoutesConfig(filepath.Join(t.TempDir(), "missing.yaml"), true)
+	require.ErrorIs(t, err, os.ErrNotExist)
 }
