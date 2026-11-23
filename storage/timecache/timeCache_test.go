@@ -1,6 +1,7 @@
 package timecache
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -246,4 +247,30 @@ func TestTimeCache_IsInterfaceNil(t *testing.T) {
 	var tc *TimeCache
 
 	assert.True(t, check.IfNil(tc))
+}
+
+// ResetAll replaces tc.data, so it must hold the write lock to exclude readers such as Has and Len.
+// Run with -race.
+func TestTimeCache_ResetAllConcurrentWithHasShouldNotRace(t *testing.T) {
+	t.Parallel()
+
+	tc := NewTimeCache(time.Minute)
+	_ = tc.Add("key")
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			tc.ResetAll()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			_ = tc.Has("key")
+			_ = tc.Len()
+		}
+	}()
+	wg.Wait()
 }
