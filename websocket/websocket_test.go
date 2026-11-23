@@ -112,7 +112,13 @@ type serverEnv struct {
 
 func startServerEnv(t *testing.T, facade WSFacade) *serverEnv {
 	t.Helper()
-	hub := newTestHub(facade)
+	return startServerEnvWith(t, newTestHub(facade))
+}
+
+// startServerEnvWith runs StartServer on a hub the test built itself (one with a mirror
+// configured, for example) against a private event queue, and joins it on cleanup.
+func startServerEnvWith(t *testing.T, hub *SocketHub) *serverEnv {
+	t.Helper()
 	origQueue := indexer.EventQueue
 	testQueue := make(chan indexer.Event, 10)
 	indexer.EventQueue = testQueue
