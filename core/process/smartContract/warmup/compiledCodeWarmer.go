@@ -542,7 +542,6 @@ func (w *compiledCodeWarmer) currentFingerprint() (fingerprint, error) {
 	options := contexts.BuildCompilationOptions(
 		gasCost,
 		w.forkFlags.FixAuditChangesV4(),
-		w.forkFlags.FixAuditChangesV5(),
 		warmupGasLimit,
 	)
 

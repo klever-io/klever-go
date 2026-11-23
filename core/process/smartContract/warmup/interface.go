@@ -40,7 +40,6 @@ type GasScheduleProvider interface {
 // ForkFlags are the fork gates that change how a contract is compiled
 type ForkFlags interface {
 	FixAuditChangesV4() bool
-	FixAuditChangesV5() bool
 	IsInterfaceNil() bool
 }
 

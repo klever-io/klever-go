@@ -218,7 +218,6 @@ func (context *runtimeContext) compilationOptions(gasLimit uint64) executor.Comp
 	return BuildCompilationOptions(
 		context.host.Metering().GasSchedule(),
 		context.isTableCheckActive(),
-		context.isTableInitPerElementChargeActive(),
 		gasLimit,
 	)
 }
@@ -265,16 +264,6 @@ func (context *runtimeContext) makeInstanceFromCompiledCode(gasLimit uint64, new
 func (context *runtimeContext) isTableCheckActive() bool {
 	forkController := context.host.ForkController()
 	return !check.IfNil(forkController) && forkController.FixAuditChangesV4()
-}
-
-// isTableInitPerElementChargeActive reports whether table.init is priced by the
-// number of elements it copies. This activates one fork later than the declared
-// table cap above: that cap already shipped with FixAuditChangesV4, while
-// repricing an opcode changes the gas of transactions that already executed, so
-// it cannot share an epoch that is already in the past.
-func (context *runtimeContext) isTableInitPerElementChargeActive() bool {
-	forkController := context.host.ForkController()
-	return !check.IfNil(forkController) && forkController.FixAuditChangesV5()
 }
 
 // verifyTableDeclarationIfActive runs the declared-table-size check against the

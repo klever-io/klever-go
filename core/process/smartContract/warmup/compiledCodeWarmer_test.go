@@ -190,18 +190,15 @@ func (f *fakeTxPool) IsInterfaceNil() bool {
 
 type fakeForkFlags struct {
 	v4 atomic.Bool
-	v5 atomic.Bool
 }
 
-func newFakeForkFlags(v4 bool, v5 bool) *fakeForkFlags {
+func newFakeForkFlags(v4 bool) *fakeForkFlags {
 	f := &fakeForkFlags{}
 	f.v4.Store(v4)
-	f.v5.Store(v5)
 	return f
 }
 
 func (f *fakeForkFlags) FixAuditChangesV4() bool { return f.v4.Load() }
-func (f *fakeForkFlags) FixAuditChangesV5() bool { return f.v5.Load() }
 func (f *fakeForkFlags) IsInterfaceNil() bool    { return f == nil }
 
 // hookedExecutor wraps a real executor so a test can act in the middle of a compile.
@@ -247,7 +244,7 @@ func newWarmerFixture(t *testing.T) *warmerFixture {
 		accounts: newFakeAccounts(),
 		pool:     newFakeTxPool(t),
 		gas:      notifierMock.NewGasScheduleNotifierMock(kvmConfig.MakeGasMapForTests()),
-		flags:    newFakeForkFlags(true, true),
+		flags:    newFakeForkFlags(true),
 		exec:     &hookedExecutor{Executor: realExec},
 		hasher:   &blake2b.Blake2b{},
 	}
@@ -539,7 +536,7 @@ func TestCompiledCodeWarmer_WarmCompilesAndStoresModule(t *testing.T) {
 	restoreExec, err := wasmer2.CreateExecutor()
 	require.NoError(t, err)
 	restoreExec.SetOpcodeCosts(gasCost.WASMOpcodeCost)
-	inst, err := restoreExec.NewInstanceFromCompiledCodeWithOptions(compiled, contexts.BuildCompilationOptions(gasCost, true, true, 1_000_000))
+	inst, err := restoreExec.NewInstanceFromCompiledCodeWithOptions(compiled, contexts.BuildCompilationOptions(gasCost, true, 1_000_000))
 	require.NoError(t, err)
 	inst.Clean()
 }
@@ -583,9 +580,9 @@ func TestCompiledCodeWarmer_DiscardsModuleWhenForkFlagFlipsDuringCompile(t *test
 	t.Parallel()
 
 	f := newWarmerFixture(t)
-	f.flags.v5.Store(false)
+	f.flags.v4.Store(false)
 	f.accounts.setContract(scAddress(1), readBasicFeatures(t))
-	f.exec.beforeCompile = func() { f.flags.v5.Store(true) }
+	f.exec.beforeCompile = func() { f.flags.v4.Store(true) }
 	w := f.newStopped(t, 16)
 
 	w.warm(scAddress(1))

@@ -13,24 +13,21 @@ import (
 // uses it to precompile modules that the runtime later restores, so the two can never
 // disagree about how the same contract is compiled and metered.
 //
-// tableCheckActive is FixAuditChangesV4 (declared-table-size cap) and
-// tableInitPerElementActive is FixAuditChangesV5 (per-element table.init charge).
+// tableCheckActive is FixAuditChangesV4 (declared-table-size cap).
 func BuildCompilationOptions(
 	gasSchedule *config.GasCost,
 	tableCheckActive bool,
-	tableInitPerElementActive bool,
 	gasLimit uint64,
 ) executor.CompilationOptions {
 	return executor.CompilationOptions{
-		GasLimit:                gasLimit,
-		UnmeteredLocals:         uint64(gasSchedule.WASMOpcodeCost.LocalsUnmetered),
-		MaxMemoryGrow:           uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrow),
-		MaxMemoryGrowDelta:      uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrowDelta),
-		MaxDeclaredTableSize:    effectiveMaxDeclaredTableSize(gasSchedule, tableCheckActive),
-		TableInitPerElementCost: effectiveTableInitPerElementCost(gasSchedule, tableInitPerElementActive),
-		OpcodeTrace:             false,
-		Metering:                true,
-		RuntimeBreakpoints:      true,
+		GasLimit:             gasLimit,
+		UnmeteredLocals:      uint64(gasSchedule.WASMOpcodeCost.LocalsUnmetered),
+		MaxMemoryGrow:        uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrow),
+		MaxMemoryGrowDelta:   uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrowDelta),
+		MaxDeclaredTableSize: effectiveMaxDeclaredTableSize(gasSchedule, tableCheckActive),
+		OpcodeTrace:          false,
+		Metering:             true,
+		RuntimeBreakpoints:   true,
 	}
 }
 
@@ -49,13 +46,3 @@ func effectiveMaxDeclaredTableSize(gasSchedule *config.GasCost, tableCheckActive
 	return uint64(gasSchedule.WASMOpcodeCost.MaxDeclaredTableSize)
 }
 
-// effectiveTableInitPerElementCost returns the per-element table.init price to
-// hand the executor for this instantiation. 0 means "charge the flat opcode cost
-// only", which is exactly the pre-fork behaviour, so the executor stays
-// unconditional and fork-unaware just as it does for the table cap.
-func effectiveTableInitPerElementCost(gasSchedule *config.GasCost, tableInitPerElementActive bool) uint64 {
-	if !tableInitPerElementActive {
-		return 0
-	}
-	return uint64(gasSchedule.WASMOpcodeCost.TableInitPerElement)
-}

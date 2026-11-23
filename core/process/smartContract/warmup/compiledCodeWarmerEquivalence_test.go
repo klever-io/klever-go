@@ -230,9 +230,8 @@ func TestCompiledCodeWarmer_WarmedModuleBehavesLikeColdPath(t *testing.T) {
 		name   string
 		epochs blockchainConfig.EnableEpochs
 	}{
-		{"before V4", blockchainConfig.EnableEpochs{FixAuditChangesV4: 1000, FixAuditChangesV5: 1001}},
-		{"V4 only", blockchainConfig.EnableEpochs{FixAuditChangesV5: 1000}},
-		{"V4 and V5", blockchainConfig.EnableEpochs{}},
+		{"before V4", blockchainConfig.EnableEpochs{FixAuditChangesV4: 1000}},
+		{"V4", blockchainConfig.EnableEpochs{}},
 	}
 	calls := []equivalenceCall{
 		{name: "gas-probe accumulate", contract: "gas-probe", function: "accumulate", arguments: [][]byte{{50}, {32}}},

@@ -31,22 +31,17 @@ func TestBuildCompilationOptions(t *testing.T) {
 	tests := []struct {
 		name          string
 		tableCheck    bool
-		perElement    bool
 		wantTableSize uint64
-		wantPerElem   uint64
 	}{
-		{"no fork", false, false, math.MaxUint64, 0},
-		{"table check only", true, false, uint64(ops.MaxDeclaredTableSize), 0},
-		{"per-element only", false, true, math.MaxUint64, uint64(ops.TableInitPerElement)},
-		{"both", true, true, uint64(ops.MaxDeclaredTableSize), uint64(ops.TableInitPerElement)},
+		{"before V4", false, math.MaxUint64},
+		{"V4", true, uint64(ops.MaxDeclaredTableSize)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			want := base
 			want.MaxDeclaredTableSize = tt.wantTableSize
-			want.TableInitPerElementCost = tt.wantPerElem
 
-			got := BuildCompilationOptions(gasCost, tt.tableCheck, tt.perElement, 12345)
+			got := BuildCompilationOptions(gasCost, tt.tableCheck, 12345)
 			require.Equal(t, want, got)
 		})
 	}
