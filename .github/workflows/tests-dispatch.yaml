@@ -31,7 +31,6 @@ on:
 
 env:
   GO_VERSION: ${{ inputs.go_version }}
-  GOLANGCI_VERSION: ${{ vars.GOLANGCI_VERSION || 'v2.15.0' }}
 
 jobs:
   setup-and-lint:

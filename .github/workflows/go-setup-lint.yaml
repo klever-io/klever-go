@@ -71,6 +71,7 @@ jobs:
           install-only: true
 
       - name: Run golangci-lint
+        id: golangci
         run: |
           # SonarQube enforces ordinary findings; execution errors must fail CI.
           golangci-lint run --issues-exit-code=0 \
@@ -85,7 +86,7 @@ jobs:
           test -s golangci-report.xml
 
       - name: Upload lint results
-        if: always()
+        if: always() && steps.golangci.outcome != 'skipped'
         uses: actions/upload-artifact@v7
         with:
           name: lint-results
