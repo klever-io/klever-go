@@ -12,6 +12,9 @@ export DOCKER_BUILDKIT := 1
 BUILD_FLAGS := --no-cache --pull --build-arg arg_version=${VERSION}
 # GO_VERSION is go.mod's go directive, so the builder image follows go.mod.
 GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod)
+ifeq ($(GO_VERSION),)
+$(error GO_VERSION is empty: run make from the repository root, where go.mod is)
+endif
 DOCKER_PLATFORMS := linux/amd64,linux/arm64
 DOCKER_BUILDER := klever-builder
 
