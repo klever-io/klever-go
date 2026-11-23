@@ -273,6 +273,7 @@ antiflood:
     webSocketMaxAddressesPerClient: 50000
     # WebSocketMaxAddressesPerIP and WebSocketMaxTotalAddresses cap watched addresses per source IP
     # (IPv6 by /56) and node-wide. Behind a proxy all clients share one IP: raise per-IP up to the total.
+    # The total is the memory bound: every other address cap above it is lowered to it, with a warning.
     # 0 = default.
     webSocketMaxAddressesPerIP: 100000
     webSocketMaxTotalAddresses: 2000000

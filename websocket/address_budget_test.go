@@ -385,17 +385,29 @@ func TestLimits_Resolve_AddressBudgetDefaultsAndClamps(t *testing.T) {
 	assert.Equal(t, 9, r.maxTotalAddresses)
 	assert.Equal(t, 9, r.maxAddressesPerIPv6Prefix48, "an unset /48 budget is capped at the total")
 
-	// perIP <= per-/48 <= total: a low /48 is raised to perIP, a high one raises the total.
+	// perIP <= per-/48 <= total: a low /48 is raised to perIP, a high one is clamped to the total.
 	r = Limits{MaxAddressesPerSubscribe: 1, MaxAddressesPerClient: 1, MaxAddressesPerIP: 7, MaxAddressesPerIPv6Prefix48: 3, MaxTotalAddresses: 9}.resolve()
 	assert.Equal(t, 7, r.maxAddressesPerIPv6Prefix48)
 	r = Limits{MaxAddressesPerSubscribe: 1, MaxAddressesPerClient: 1, MaxAddressesPerIP: 7, MaxAddressesPerIPv6Prefix48: 12, MaxTotalAddresses: 9}.resolve()
-	assert.Equal(t, 12, r.maxAddressesPerIPv6Prefix48)
-	assert.Equal(t, 12, r.maxTotalAddresses)
+	assert.Equal(t, 9, r.maxAddressesPerIPv6Prefix48)
+	assert.Equal(t, 9, r.maxTotalAddresses)
 
-	// perClient <= perIP <= total, raised from below.
+	// The total is never raised: every inner tier is clamped down to it.
 	r = Limits{MaxAddressesPerSubscribe: 10, MaxAddressesPerClient: 20, MaxAddressesPerIP: 5, MaxTotalAddresses: 3}.resolve()
-	assert.Equal(t, 20, r.maxAddressesPerIP)
-	assert.Equal(t, 20, r.maxTotalAddresses)
+	assert.Equal(t, 3, r.maxAddressesPerSubscribe)
+	assert.Equal(t, 3, r.maxAddressesPerClient)
+	assert.Equal(t, 3, r.maxAddressesPerIP)
+	assert.Equal(t, 3, r.maxAddressesPerIPv6Prefix48)
+	assert.Equal(t, 3, r.maxTotalAddresses)
+
+	// Shipped config with only the total lowered: the explicit /48 must not lift it back.
+	r = Limits{MaxAddressesPerIP: 100000, MaxAddressesPerIPv6Prefix48: 400000, MaxTotalAddresses: 200000}.resolve()
+	assert.Equal(t, 200000, r.maxAddressesPerIPv6Prefix48)
+	assert.Equal(t, 200000, r.maxTotalAddresses)
+	r = Limits{MaxTotalAddresses: 60000}.resolve()
+	assert.Equal(t, 50000, r.maxAddressesPerClient)
+	assert.Equal(t, 60000, r.maxAddressesPerIP)
+	assert.Equal(t, 60000, r.maxTotalAddresses)
 
 	// An unset per-IP budget below a large per-client cap follows it up.
 	r = Limits{MaxAddressesPerClient: 600000}.resolve()

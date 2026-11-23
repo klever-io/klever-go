@@ -68,11 +68,11 @@ type Limits struct {
 	MaxAddressesPerSubscribe int
 	MaxAddressesPerClient    int
 	// MaxAddressesPerIP and MaxTotalAddresses budget watched addresses across connections, per
-	// source IP and node-wide (0 = defaults). Raised to keep perClient <= perIP <= total.
+	// source IP and node-wide (0 = defaults). perIP is raised to perClient and clamped to the total.
 	MaxAddressesPerIP int
 	MaxTotalAddresses int
 	// MaxAddressesPerIPv6Prefix48 budgets every IPv6 source inside one /48 (0 = default, capped
-	// at the total). Raised to keep perIP <= per-/48 <= total.
+	// at the total). Raised to perIP and clamped to the total.
 	MaxAddressesPerIPv6Prefix48 int
 	// PostWorkers bounds concurrent postWSConnection mirror requests; 0 uses
 	// defaultPostWorkerCount.
@@ -109,10 +109,17 @@ type resolvedLimits struct {
 }
 
 func (l Limits) resolve() resolvedLimits {
+	// The node-wide total is the memory bound: it is never raised, and the inner tiers are
+	// clamped down to it, so perSubscribe <= perClient <= perIP <= per-/48 <= total.
+	total := l.MaxTotalAddresses
+	if total <= 0 {
+		total = defaultMaxTotalAddresses
+	}
 	perSubscribe := l.MaxAddressesPerSubscribe
 	if perSubscribe <= 0 {
 		perSubscribe = defaultMaxAddressesPerSubscribe
 	}
+	perSubscribe = clampToTotal("maxAddressesPerSubscribe", perSubscribe, total)
 	perClient := l.MaxAddressesPerClient
 	if perClient <= 0 {
 		perClient = defaultMaxAddressesPerClient
@@ -122,6 +129,7 @@ func (l Limits) resolve() resolvedLimits {
 	if perClient < perSubscribe {
 		perClient = perSubscribe
 	}
+	perClient = clampToTotal("maxAddressesPerClient", perClient, total)
 	perIP := l.MaxAddressesPerIP
 	if perIP <= 0 {
 		perIP = defaultMaxAddressesPerIP
@@ -129,13 +137,7 @@ func (l Limits) resolve() resolvedLimits {
 	if perIP < perClient {
 		perIP = perClient
 	}
-	total := l.MaxTotalAddresses
-	if total <= 0 {
-		total = defaultMaxTotalAddresses
-	}
-	if total < perIP {
-		total = perIP
-	}
+	perIP = clampToTotal("maxAddressesPerIP", perIP, total)
 	perPrefix48 := l.MaxAddressesPerIPv6Prefix48
 	if perPrefix48 <= 0 {
 		perPrefix48 = min(defaultMaxAddressesPerIPv6Prefix48, total)
@@ -143,9 +145,7 @@ func (l Limits) resolve() resolvedLimits {
 	if perPrefix48 < perIP {
 		perPrefix48 = perIP
 	}
-	if total < perPrefix48 {
-		total = perPrefix48
-	}
+	perPrefix48 = clampToTotal("maxAddressesPerIPv6Prefix48", perPrefix48, total)
 
 	readLimit := int64(minMaxMessageSize)
 	if derived := int64(perSubscribe)*addressJSONOverhead + 1024; derived > readLimit {
@@ -202,4 +202,14 @@ func (l Limits) resolve() resolvedLimits {
 		subscribeRatePerSec:         subscribeRate,
 		subscribeBurst:              subscribeBurst,
 	}
+}
+
+// clampToTotal lowers an inner address budget to the node-wide total, warning with both values.
+func clampToTotal(name string, value, total int) int {
+	if value <= total {
+		return value
+	}
+	log.Warn("websocket address budget clamped to the node-wide total",
+		"limit", name, "configured", value, "effective", total)
+	return total
 }
