@@ -1666,27 +1666,36 @@ func buildResourceManager(args ArgsNetworkMessenger) (resourceManagerSetup, erro
 	}, nil
 }
 
+// scopeLimit reads the limits of the ResourceManager scope that view shows (rm.ViewSystem or
+// rm.ViewTransient). ok is false when the scope exposes no limits (strategy "null") or cannot be read.
+func scopeLimit(name string, view func(func(network.ResourceScope) error) error) (limit rcmgr.Limit, ok bool) {
+	err := view(func(scope network.ResourceScope) error {
+		limiter, isLimiter := scope.(rcmgr.ResourceScopeLimiter)
+		if isLimiter {
+			limit, ok = limiter.Limit(), true
+		}
+		return nil
+	})
+	if err != nil {
+		log.Warn("cannot read the ResourceManager's connection limits", "scope", name, "error", err)
+		return nil, false
+	}
+
+	return limit, ok
+}
+
 // transientConnsInbound reads the inbound connection limit of the ResourceManager's transient scope,
-// which holds connections that have not finished their handshake. ok is false when the manager
-// exposes no limits.
+// which holds connections still in their handshake. ok is false when the manager exposes no limits.
 func transientConnsInbound(rm network.ResourceManager) (connsInbound int, ok bool) {
 	if rm == nil {
 		return 0, false
 	}
-	err := rm.ViewTransient(func(scope network.ResourceScope) error {
-		limiter, isLimiter := scope.(rcmgr.ResourceScopeLimiter)
-		if !isLimiter {
-			return nil
-		}
-		connsInbound, ok = limiter.Limit().GetConnLimit(network.DirInbound), true
-		return nil
-	})
-	if err != nil {
-		log.Warn("cannot read the ResourceManager's transient connection limits", "error", err)
+	limit, ok := scopeLimit("transient", rm.ViewTransient)
+	if !ok {
 		return 0, false
 	}
 
-	return connsInbound, ok
+	return limit.GetConnLimit(network.DirInbound), true
 }
 
 // systemConnLimits reads the inbound and total connection limits of the ResourceManager's system
@@ -1695,21 +1704,12 @@ func systemConnLimits(rm network.ResourceManager) (connsInbound int, conns int, 
 	if rm == nil {
 		return 0, 0, false
 	}
-	err := rm.ViewSystem(func(scope network.ResourceScope) error {
-		limiter, isLimiter := scope.(rcmgr.ResourceScopeLimiter)
-		if !isLimiter {
-			return nil
-		}
-		limit := limiter.Limit()
-		connsInbound, conns, ok = limit.GetConnLimit(network.DirInbound), limit.GetConnTotalLimit(), true
-		return nil
-	})
-	if err != nil {
-		log.Warn("cannot read the ResourceManager's system connection limits", "error", err)
+	limit, ok := scopeLimit("system", rm.ViewSystem)
+	if !ok {
 		return 0, 0, false
 	}
 
-	return connsInbound, conns, ok
+	return limit.GetConnLimit(network.DirInbound), limit.GetConnTotalLimit(), true
 }
 
 // connManagerLimitWarnings returns what is wrong with the watermarks and the unprotected inbound

@@ -136,18 +136,12 @@ type inboundCandidate struct {
 // cap exists to protect. libp2p's per-IP limits (8 connections per IPv4 /32) bound how much of the
 // cap one address can take.
 //
-// The pass only acts above the cap. At the cap, the connection gater evicts at admission instead
-// (see evictionCandidate): a new non-exempt inbound connection gets in only by displacing a class 1
-// peer or, when there is none, the newest observer that has been connected longer than
-// unknownPeerIdentificationWindow. So the cap never locks newcomers out behind peers that failed to
-// identify themselves, nor behind observer identities that cost one self-signed heartbeat each:
-// holding the cap with observers takes continuous reconnects, and established observers, the
-// oldest, are displaced last. Young unknown peers are never evicted.
+// The pass only acts above the cap; at the cap, inboundCapGater evicts at admission (see its doc and
+// evictionCandidate).
 //
-// A validator protected by an earlier pass stays protected while it is connected and the resolver
-// only reports it as unknown, so a resolver cache miss does not expose it to the cap; an observer
-// reading or a disconnect unprotects it, including a disconnect followed by a reconnect between two
-// passes; replacing one connection with another while staying connected does not (see passPeerType).
+// A validator protected by an earlier pass stays protected for a bounded number of passes while it
+// is connected and the resolver only reports it as unknown, so a resolver cache miss does not expose
+// it to the cap (see passPeerType).
 type peerProtector struct {
 	mut                        sync.Mutex
 	cm                         connmgr.ConnManager
@@ -163,6 +157,9 @@ type peerProtector struct {
 	droppedMut sync.Mutex
 	// dropped holds the peers that have had zero connections since the current pass started.
 	dropped map[peer.ID]struct{}
+	// unknownPasses counts, per protected peer, the consecutive passes it was kept protected on an
+	// UnknownPeer reading. Guarded by mut.
+	unknownPasses map[peer.ID]int
 	// identificationWindow is unknownPeerIdentificationWindow, copied at construction so passes on
 	// the protector's goroutine never read the package variable.
 	identificationWindow time.Duration
@@ -188,6 +185,7 @@ func newPeerProtector(
 		protected:                  make(map[peer.ID]struct{}),
 		tagged:                     make(map[peer.ID]struct{}),
 		dropped:                    make(map[peer.ID]struct{}),
+		unknownPasses:              make(map[peer.ID]int),
 		now:                        now,
 		warmUp:                     warmUp,
 		identificationWindow:       unknownPeerIdentificationWindow,
@@ -241,6 +239,7 @@ func (pp *peerProtector) runPass() peerProtectorPassResult {
 			continue
 		}
 		pp.cm.Unprotect(pid, validatorProtectionTag)
+		delete(pp.unknownPasses, pid)
 		res.Unprotected++
 	}
 
@@ -263,26 +262,36 @@ func (pp *peerProtector) runPass() peerProtectorPassResult {
 	return res
 }
 
-// passPeerType is pid's type for this pass. A validator protected last pass stays a validator while
-// it is connected and the resolver merely stops knowing it (its entry evicted from the resolver's
-// cache, for instance); only an observer reading, or a disconnect, unprotects it. A peer that had
-// zero connections since the previous pass (in dropped) gets the resolver's reading, so a reconnect
-// does not inherit the old protection, while one that replaced a connection without ever dropping to
-// zero keeps it. The swarm sends Disconnected from a goroutine after removing the connection, so a
-// reconnect whose handshake completes before that notification is taken for a replacement. Called
-// with mut held.
+// maxUnknownPassesProtected is how many consecutive passes a validator protected last pass stays
+// protected while the resolver reports it as unknown: about 60s, two to three heartbeat windows. A
+// validator still in the set heartbeats within that time, which refreshes the resolver, so only a
+// peer that stopped identifying itself (one that left the validator set, for instance) loses
+// protection, and flushing the resolver's cache has to be sustained that long to expose a validator.
+const maxUnknownPassesProtected = 6
+
+// passPeerType is pid's type for this pass. A validator protected last pass stays a validator for up
+// to maxUnknownPassesProtected consecutive passes while it is connected and the resolver merely stops
+// knowing it (its entry evicted from the resolver's cache, for instance); an observer reading, a
+// disconnect, or running out of those passes unprotects it. A peer that had zero connections since
+// the previous pass (in dropped) gets the resolver's reading, so a reconnect does not inherit the old
+// protection, while one that replaced a connection without ever dropping to zero keeps it. The swarm
+// sends Disconnected from a goroutine after removing the connection, so a reconnect whose handshake
+// completes before that notification is taken for a replacement. Called with mut held.
 func (pp *peerProtector) passPeerType(resolver p2p.PeerShardResolver, pid peer.ID, dropped map[peer.ID]struct{}) core.P2PPeerType {
 	peerType := resolver.GetPeerInfo(core.PeerID(pid)).PeerType
 	if peerType != core.UnknownPeer {
+		delete(pp.unknownPasses, pid)
 		return peerType
 	}
 	_, wasProtected := pp.protected[pid]
 	_, wasDropped := dropped[pid]
-	if wasProtected && !wasDropped {
-		return core.ValidatorPeer
+	if !wasProtected || wasDropped || pp.unknownPasses[pid] >= maxUnknownPassesProtected {
+		delete(pp.unknownPasses, pid)
+		return peerType
 	}
+	pp.unknownPasses[pid]++
 
-	return peerType
+	return core.ValidatorPeer
 }
 
 // takeDropped returns the peers that dropped to zero connections since the previous pass and starts
@@ -467,7 +476,7 @@ func (pp *peerProtector) admitInbound(pid peer.ID) bool {
 	if count < pp.maxUnprotectedInboundConns {
 		return true
 	}
-	victim := pp.evictionCandidate(pid, nil)
+	victim := pp.evictionCandidate(pid, nil, 0)
 	return len(victim) > 0 && count-len(victim) < pp.maxUnprotectedInboundConns
 }
 
@@ -483,28 +492,50 @@ func (v *evictionVictim) offer(conns []network.Conn, firstInbound time.Time) {
 	}
 }
 
+// youngUnknownShareDivisor sets the young unknown peers' share of the cap that observer evictions
+// stop at: maxUnprotectedInboundConns/youngUnknownShareDivisor (see evictionCandidate).
+const youngUnknownShareDivisor = 4
+
+// youngUnknownBudget is how many inbound connections young unknown peers may hold before a newcomer
+// can no longer displace an observer. At least 1.
+func (pp *peerProtector) youngUnknownBudget() int {
+	return max(1, pp.maxUnprotectedInboundConns/youngUnknownShareDivisor)
+}
+
 // evictionCandidate returns the inbound connections of the peer whose eviction may admit a new
 // inbound connection from pid at a full cap, or nil. Only peers other than pid, not carrying
 // validatorProtectionTag, whose first inbound connection is older than identificationWindow
 // qualify: the class 1 peer (unknown) that connected last or, when there is none, the observer that
 // connected last. Peers with a connection for which skip returns true (being evicted already) are
-// passed over. It does not take mut.
-func (pp *peerProtector) evictionCandidate(pid peer.ID, skip func(network.Conn) bool) []network.Conn {
+// passed over.
+//
+// An observer is offered only while young unknown peers (inside identificationWindow) hold fewer
+// than youngUnknownBudget inbound connections, pendingInbound (admitted, not registered yet)
+// included. A young identity cannot be evicted, so without that bound an attacker that redials
+// under fresh peer IDs every <60s would displace every honest observer, one per dial. With it,
+// such an attacker displaces observers only up to its share; past it, it gets only the slots that
+// others free. A peer that identifies leaves the young share, so honest newcomers keep displacing
+// observer identities that hold the cap. It does not take mut.
+func (pp *peerProtector) evictionCandidate(pid peer.ID, skip func(network.Conn) bool, pendingInbound int) []network.Conn {
 	identifiedBy := pp.now().Add(-pp.identificationWindow)
-	var resolver p2p.PeerShardResolver
+	resolver := pp.resolver()
 
+	youngUnknown := pendingInbound
 	var unknown, observer evictionVictim
 	for _, candidate := range pp.net.Peers() {
-		inbound, firstInbound, ok := pp.staleInboundConns(candidate, pid, identifiedBy, skip)
+		inbound, firstInbound, ok := pp.capInboundConns(candidate, pid)
 		if !ok {
 			continue
 		}
-		if resolver == nil {
-			resolver = pp.resolver()
-		}
-		switch resolver.GetPeerInfo(core.PeerID(candidate)).PeerType {
-		case core.ValidatorPeer:
-		case core.ObserverPeer:
+		peerType := resolver.GetPeerInfo(core.PeerID(candidate)).PeerType
+		switch {
+		case peerType == core.ValidatorPeer:
+		case firstInbound.After(identifiedBy):
+			if peerType != core.ObserverPeer {
+				youngUnknown += len(inbound)
+			}
+		case anyConn(inbound, skip):
+		case peerType == core.ObserverPeer:
 			observer.offer(inbound, firstInbound)
 		default:
 			unknown.offer(inbound, firstInbound)
@@ -514,19 +545,16 @@ func (pp *peerProtector) evictionCandidate(pid peer.ID, skip func(network.Conn) 
 	if len(unknown.conns) > 0 {
 		return unknown.conns
 	}
+	if youngUnknown >= pp.youngUnknownBudget() {
+		return nil
+	}
 	return observer.conns
 }
 
-// staleInboundConns returns candidate's inbound connections and when the oldest was opened, and
-// whether candidate may be evicted on those grounds: it is not pid, does not carry
-// validatorProtectionTag, has an inbound connection opened no later than identifiedBy, and skip
-// returns true for none of its inbound connections. The caller still checks its peer type.
-func (pp *peerProtector) staleInboundConns(
-	candidate peer.ID,
-	pid peer.ID,
-	identifiedBy time.Time,
-	skip func(network.Conn) bool,
-) ([]network.Conn, time.Time, bool) {
+// capInboundConns returns candidate's inbound connections and when the oldest was opened, and
+// whether candidate counts for eviction at all: it is not pid, does not carry
+// validatorProtectionTag, and has an inbound connection.
+func (pp *peerProtector) capInboundConns(candidate peer.ID, pid peer.ID) ([]network.Conn, time.Time, bool) {
 	if candidate == pid || pp.cm.IsProtected(candidate, validatorProtectionTag) {
 		return nil, time.Time{}, false
 	}
@@ -534,17 +562,21 @@ func (pp *peerProtector) staleInboundConns(
 	if len(inbound) == 0 {
 		return nil, time.Time{}, false
 	}
-	firstInbound := oldestOpened(inbound)
-	if firstInbound.After(identifiedBy) {
-		return nil, time.Time{}, false
+
+	return inbound, oldestOpened(inbound), true
+}
+
+// anyConn reports whether match returns true for one of conns; a nil match matches nothing.
+func anyConn(conns []network.Conn, match func(network.Conn) bool) bool {
+	if match == nil {
+		return false
 	}
-	for _, conn := range inbound {
-		if skip != nil && skip(conn) {
-			return nil, time.Time{}, false
+	for _, conn := range conns {
+		if match(conn) {
+			return true
 		}
 	}
-
-	return inbound, firstInbound, true
+	return false
 }
 
 // capEnforcedNow reports whether the cap is armed and past its warm-up.

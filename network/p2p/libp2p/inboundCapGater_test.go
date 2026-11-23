@@ -376,17 +376,20 @@ func TestInboundCapGater_AtCapEvictsAStaleUnknownPeerForANewcomer(t *testing.T) 
 
 func TestInboundCapGater_AtCapEvictsEstablishedObservers(t *testing.T) {
 	t.Run("with no stale unknown peer, the newest established observer makes room", func(t *testing.T) {
+		// cap 8: young unknown peers may hold 2 before observers stop being evicted
 		mp := &mutablePeers{}
-		mp.connect("oldest-observer", core.ObserverPeer, stubConn("oldest-observer", network.DirInbound, at(1)))
+		for _, pid := range []peer.ID{"obs-1", "obs-2", "obs-3", "obs-4", "obs-5", "oldest-observer"} {
+			mp.connect(pid, core.ObserverPeer, stubConn(pid, network.DirInbound, at(1)))
+		}
 		mp.connect("newer-observer", core.ObserverPeer, stubConn("newer-observer", network.DirInbound, at(2)))
 		mp.connect("young", core.UnknownPeer, connFrom("young", network.DirInbound))
-		_, g := upgradedGater(t, mp, 3, time.Now)
+		_, g := upgradedGater(t, mp, 8, time.Now)
 
 		allow, _ := g.InterceptUpgraded(connFrom("newcomer", network.DirInbound))
 		require.True(t, allow)
 		assert.Eventually(t, func() bool { return len(mp.ConnsToPeer("newer-observer")) == 0 }, 5*time.Second,
 			10*time.Millisecond, "the newest established observer is evicted")
-		assert.Len(t, mp.ConnsToPeer("oldest-observer"), 1, "the oldest observer is displaced last")
+		assert.Len(t, mp.ConnsToPeer("oldest-observer"), 1, "older observers stay")
 		assert.Len(t, mp.ConnsToPeer("young"), 1, "a young unknown peer is never evicted")
 	})
 
@@ -401,6 +404,69 @@ func TestInboundCapGater_AtCapEvictsEstablishedObservers(t *testing.T) {
 		assert.Eventually(t, func() bool { return len(mp.ConnsToPeer("stale")) == 0 }, 5*time.Second,
 			10*time.Millisecond)
 		assert.Len(t, mp.ConnsToPeer("observer"), 1)
+	})
+}
+
+func TestInboundCapGater_AtCapYoungShareBoundsObserverEvictions(t *testing.T) {
+	// cap 4: young unknown peers may hold 1 inbound connection before observers stop being evicted
+	fill := func(mp *mutablePeers) {
+		for _, pid := range []peer.ID{"obs-1", "obs-2", "obs-3"} {
+			mp.connect(pid, core.ObserverPeer, stubConn(pid, network.DirInbound, at(1)))
+		}
+	}
+
+	t.Run("young unknown peers at their share: the observer stays and the newcomer is refused", func(t *testing.T) {
+		mp := &mutablePeers{}
+		fill(mp)
+		mp.connect("young-attacker", core.UnknownPeer, connFrom("young-attacker", network.DirInbound))
+		_, g := upgradedGater(t, mp, 4, time.Now)
+
+		allow, _ := g.InterceptUpgraded(connFrom("fresh-identity", network.DirInbound))
+		assert.False(t, allow)
+		assert.Zero(t, mp.closedConnCount(), "no honest observer is displaced")
+		assert.Zero(t, g.PendingLen())
+	})
+
+	t.Run("young unknown peers below their share: the newest observer is evicted", func(t *testing.T) {
+		mp := &mutablePeers{}
+		fill(mp)
+		mp.connect("obs-4", core.ObserverPeer, stubConn("obs-4", network.DirInbound, at(2)))
+		_, g := upgradedGater(t, mp, 4, time.Now)
+
+		allow, _ := g.InterceptUpgraded(connFrom("newcomer", network.DirInbound))
+		require.True(t, allow)
+		assert.Eventually(t, func() bool { return len(mp.ConnsToPeer("obs-4")) == 0 }, 5*time.Second,
+			10*time.Millisecond)
+	})
+
+	t.Run("pending admissions count toward the share", func(t *testing.T) {
+		mp := &mutablePeers{}
+		fill(mp)
+		mp.connect("obs-4", core.ObserverPeer, stubConn("obs-4", network.DirInbound, at(2)))
+		mp.connect("obs-5", core.ObserverPeer, stubConn("obs-5", network.DirInbound, at(3)))
+		_, g := upgradedGater(t, mp, 5, time.Now) // over the cap by nothing: 5 of 5, share 1
+
+		first, _ := g.InterceptUpgraded(connFrom("first", network.DirInbound))
+		require.True(t, first, "the first newcomer displaces an observer")
+		require.Equal(t, 1, g.PendingLen())
+		second, _ := g.InterceptUpgraded(connFrom("second", network.DirInbound))
+		assert.False(t, second, "the first newcomer, still pending, already holds the young share")
+	})
+
+	t.Run("a stale unknown peer is still evicted with the share full", func(t *testing.T) {
+		mp := &mutablePeers{}
+		mp.connect("obs-1", core.ObserverPeer, stubConn("obs-1", network.DirInbound, at(2)))
+		mp.connect("obs-2", core.ObserverPeer, stubConn("obs-2", network.DirInbound, at(2)))
+		mp.connect("stale", core.UnknownPeer, stubConn("stale", network.DirInbound, at(1)))
+		mp.connect("young", core.UnknownPeer, connFrom("young", network.DirInbound))
+		_, g := upgradedGater(t, mp, 4, time.Now)
+
+		allow, _ := g.InterceptUpgraded(connFrom("newcomer", network.DirInbound))
+		require.True(t, allow)
+		assert.Eventually(t, func() bool { return len(mp.ConnsToPeer("stale")) == 0 }, 5*time.Second,
+			10*time.Millisecond)
+		assert.Len(t, mp.ConnsToPeer("obs-1"), 1)
+		assert.Len(t, mp.ConnsToPeer("obs-2"), 1)
 	})
 }
 

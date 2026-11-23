@@ -310,6 +310,36 @@ func TestPeerProtector_ReconnectedValidatorDoesNotInheritProtection(t *testing.T
 	assert.Zero(t, res.Closed, "a young unknown peer within the cap is not closed")
 }
 
+func TestPeerProtector_UnknownReadingKeepsProtectionForBoundedPasses(t *testing.T) {
+	cm := newTestConnMgr(t)
+	pid := peer.ID("ex-validator")
+	mp := &mutablePeers{}
+	mp.connect(pid, core.ValidatorPeer, stubConn(pid, network.DirInbound, at(1)))
+	pp := libp2p.NewPeerProtector(cm, mp, mp.resolver(), noCap)
+	require.Equal(t, 1, pp.RunPass().Validators)
+
+	// it stays connected and the resolver stops knowing it (it left the set and stopped heartbeating)
+	mp.set(pid, core.UnknownPeer)
+	for pass := 1; pass <= libp2p.MaxUnknownPassesProtected; pass++ {
+		require.Equal(t, 1, pp.RunPass().Validators, "pass %d", pass)
+		require.True(t, cm.IsProtected(pid, libp2p.ValidatorProtectionTag), "pass %d", pass)
+	}
+
+	res := pp.RunPass()
+	assert.Zero(t, res.Validators)
+	assert.Equal(t, 1, res.Unprotected)
+	assert.False(t, cm.IsProtected(pid, libp2p.ValidatorProtectionTag), "protection ends after the bounded passes")
+
+	t.Run("a validator reading resets the count", func(t *testing.T) {
+		mp.set(pid, core.ValidatorPeer)
+		require.Equal(t, 1, pp.RunPass().Validators)
+		mp.set(pid, core.UnknownPeer)
+		for pass := 1; pass <= libp2p.MaxUnknownPassesProtected; pass++ {
+			require.Equal(t, 1, pp.RunPass().Validators, "pass %d", pass)
+		}
+	})
+}
+
 func TestPeerProtector_ReplacedConnectionKeepsValidatorProtection(t *testing.T) {
 	cm := newTestConnMgr(t)
 	validator := peer.ID("validator")

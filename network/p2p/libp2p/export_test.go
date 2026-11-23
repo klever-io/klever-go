@@ -237,6 +237,9 @@ func SetInboundCapWarmUp(d time.Duration) func() {
 	return func() { inboundCapWarmUp = old }
 }
 
+// MaxUnknownPassesProtected exposes maxUnknownPassesProtected for testing.
+const MaxUnknownPassesProtected = maxUnknownPassesProtected
+
 // RunPass runs one protector pass.
 func (pp *peerProtector) RunPass() PeerProtectorPassResult {
 	return pp.runPass()

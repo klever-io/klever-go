@@ -192,13 +192,8 @@ func TestNewNetworkMessenger_RegularNodeWithoutRMSectionGetsScaledLimits(t *test
 	assert.Equal(t, config.ResourceManagerStrategyScaled,
 		libp2p.EffectiveResourceManagerConfig(arg.P2pConfig.ResourceManager, arg.IsSeedNode).Strategy)
 
-	var inbound, total int
-	err = mes.Host().Network().ResourceManager().ViewSystem(func(scope network.ResourceScope) error {
-		limit := scope.(rcmgr.ResourceScopeLimiter).Limit()
-		inbound, total = limit.GetConnLimit(network.DirInbound), limit.GetConnTotalLimit()
-		return nil
-	})
-	require.NoError(t, err)
+	inbound, total, ok := libp2p.SystemConnLimits(mes.Host().Network().ResourceManager())
+	require.True(t, ok)
 
 	expected := expectedScaled4096SystemLimits()
 	assert.Equal(t, int(expected.ConnsInbound), inbound)

@@ -84,19 +84,13 @@ type DirectSendConfig struct {
 	MaxSeenMessages          int `yaml:"maxSeenMessages"`
 }
 
-// ConnectionManagerConfig configures regular (non-seed) nodes' libp2p BasicConnMgr and the inbound
-// cap of the peer protector; seed nodes ignore it and never trim. LowWater, HighWater and
-// GracePeriodInSec are the BasicConnMgr watermarks (in connections) and grace period;
-// MaxUnprotectedInboundConns caps the inbound connections of peers that are not validators. A zero
-// value selects the built-in default: 100, 300, 60 and 100. A nonzero GracePeriodInSec must be
-// above the peer protector's 10s interval, or a trim could close a validator before it is
-// protected; below 60s the node warns, because a validator with a fresh peer ID can stay
-// unidentified until its next heartbeat. How the watermarks, the cap and its
-// closing order interact is documented on peerProtector (network/p2p/libp2p/peerProtector.go) and,
-// for operators, in config/node/config.yaml.
+// ConnectionManagerConfig configures regular (non-seed) nodes' libp2p BasicConnMgr and the peer
+// protector's inbound cap; seed nodes ignore it. Zero selects the built-in default. Defaults and
+// bounds are in validateConnectionManagerConfig, how the fields interact on peerProtector (both in
+// network/p2p/libp2p), and the operator view in config/node/config.yaml.
 type ConnectionManagerConfig struct {
-	LowWater                   int `yaml:"lowWater"`
-	HighWater                  int `yaml:"highWater"`
-	GracePeriodInSec           int `yaml:"gracePeriodInSec"`
-	MaxUnprotectedInboundConns int `yaml:"maxUnprotectedInboundConns"`
+	LowWater                   int `yaml:"lowWater"`                   // trim target, in unprotected connections
+	HighWater                  int `yaml:"highWater"`                  // connection count that triggers a trim
+	GracePeriodInSec           int `yaml:"gracePeriodInSec"`           // how long a new connection is never trimmed
+	MaxUnprotectedInboundConns int `yaml:"maxUnprotectedInboundConns"` // inbound cap for non-validator peers
 }
