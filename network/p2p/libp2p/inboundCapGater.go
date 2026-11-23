@@ -28,25 +28,19 @@ const inboundCapPendingTTL = 5 * time.Second
 // ResourceManager admits any inbound connection while it is below its limit, so an attacker refills
 // the slots a pass frees before a restarted validator's dials get through. While the cap is
 // reached, the gater admits an inbound connection from a peer that is not exempt
-// (peerProtector.exemptFromCap) only by evicting an unknown peer that outstayed the identification
-// window or, when there is none and young peers (inside that window, not validators) hold less than
-// a quarter of the cap, the newest observer connected for longer than that window
-// (peerProtector.evictionCandidate), closing that peer's inbound connections; otherwise it refuses.
-// So the cap never locks newcomers out behind peers that failed to identify themselves, nor behind
-// observer identities that cost one self-signed heartbeat each (holding the cap with them takes
-// continuous reconnects), while identities that keep redialling under fresh peer IDs, heartbeat or
-// not, cannot displace more than their quarter of honest observers. Young peers are never evicted.
-// Outbound connections, and every connection before the cap is armed and past its warm-up, are
-// admitted. libp2p needs the gater before the host exists, so the protector is bound
-// late; until then everything is admitted.
+// (peerProtector.exemptFromCap) only by closing the inbound connections of the victim
+// peerProtector.evictionCandidate picks, and refuses it when there is none; the eviction rules and
+// what they bound are documented there. Outbound connections, and every connection before the cap
+// is armed and past its warm-up, are admitted. libp2p needs the gater before the host exists, so
+// the protector is bound late; until then everything is admitted.
 //
 // A validator that starts with a fresh peer ID is unknown to every node. Where the cap is full it
-// gets in by evicting a stale unknown peer or an established observer; where only young peers
-// hold the cap, or they hold their quarter of it and no stale unknown peer is left, its own
-// dials are refused, and it gets in when another node dials it (discovered through
-// the DHT; that connection is outbound on the other side, so never gated), or when it reaches a node
-// below the cap. Once one such link exists it joins the heartbeat mesh and its heartbeat identifies
-// it everywhere. Seeds do not help here: they join no topic, so they never relay heartbeats.
+// gets in by evicting a stale unknown peer or an established observer; where evictionCandidate has
+// no victim for it, its own dials are refused, and it gets in when another node dials it
+// (discovered through the DHT; that connection is outbound on the other side, so never gated), or
+// when it reaches a node below the cap. Once one such link exists it joins the heartbeat mesh and
+// its heartbeat identifies it everywhere. Seeds do not help here: they join no topic, so they never
+// relay heartbeats.
 //
 // Two checks, because the swarm only lists a connection once it is fully set up:
 //   - InterceptSecured runs right after the security handshake and rejects early, from the
@@ -185,9 +179,9 @@ func (g *inboundCapGater) admitLocked(pp *peerProtector, conn network.Conn, pid 
 }
 
 // usedBudgetLocked counts the unprotected inbound connections that hold cap budget: the registered
-// ones that are not being evicted plus the pending ones that are not registered yet, and how many of
-// them are pending. It drops pending entries older than inboundCapPendingTTL. Called with mut held.
-func (g *inboundCapGater) usedBudgetLocked(pp *peerProtector, now time.Time) (used int, pendingUnregistered int) {
+// ones that are not being evicted plus the pending ones that are not registered yet, and those pending
+// ones. It drops pending entries older than inboundCapPendingTTL. Called with mut held.
+func (g *inboundCapGater) usedBudgetLocked(pp *peerProtector, now time.Time) (used int, pendingUnregistered []network.Conn) {
 	registeredConns := pp.unprotectedInboundConns()
 	for c := range registeredConns {
 		if !g.isEvicting(c) {
@@ -200,11 +194,11 @@ func (g *inboundCapGater) usedBudgetLocked(pp *peerProtector, now time.Time) (us
 			continue
 		}
 		if _, isRegistered := registeredConns[c]; !isRegistered {
-			pendingUnregistered++
+			pendingUnregistered = append(pendingUnregistered, c)
 		}
 	}
 
-	return used + pendingUnregistered, pendingUnregistered
+	return used + len(pendingUnregistered), pendingUnregistered
 }
 
 // isEvicting reports whether conn belongs to an eviction victim. Called with mut held.

@@ -34,6 +34,14 @@ func connFrom(pid peer.ID, dir network.Direction) network.Conn {
 	return stubConn(pid, dir, time.Now())
 }
 
+// connFromAddr is a connection from pid, opened now, whose remote address is addr.
+func connFromAddr(pid peer.ID, dir network.Direction, addr string) *mock.ConnStub {
+	c := stubConn(pid, dir, time.Now())
+	remote := ma.StringCast(addr)
+	c.RemoteMultiaddrCalled = func() ma.Multiaddr { return remote }
+	return c
+}
+
 func conn(dir network.Direction, opened time.Time) network.Conn {
 	return stubConn("", dir, opened)
 }
@@ -679,4 +687,20 @@ func TestPeerProtector_InboundCapCountsWhatAFailedCloseRemoved(t *testing.T) {
 		assert.Equal(t, 1, res.Closed)
 		assert.Equal(t, 1, res.ClosedConns)
 	})
+}
+
+func TestYoungShareKey_CountsAddressesNotConnections(t *testing.T) {
+	key := func(addr string) any {
+		return libp2p.YoungShareKey(connFromAddr("p", network.DirInbound, addr))
+	}
+
+	assert.Equal(t, key("/ip4/198.51.100.7/tcp/1"), key("/ip4/198.51.100.7/udp/2/quic-v1"), "same IPv4 address")
+	assert.NotEqual(t, key("/ip4/198.51.100.7/tcp/1"), key("/ip4/198.51.100.8/tcp/1"), "IPv4 counts per /32")
+	assert.Equal(t, key("/ip6/2001:db8:0:1::1/tcp/1"), key("/ip6/2001:db8:0:ff::2/tcp/1"), "same IPv6 /56")
+	assert.NotEqual(t, key("/ip6/2001:db8:0:100::1/tcp/1"), key("/ip6/2001:db8:0:1::1/tcp/1"), "IPv6 counts per /56")
+	assert.Equal(t, key("/ip4/198.51.100.7/tcp/1"), key("/ip6/::ffff:198.51.100.7/tcp/1"), "an IPv4-mapped address is its IPv4 address")
+
+	noIP1, noIP2 := connFrom("a", network.DirInbound), connFrom("b", network.DirInbound)
+	assert.NotEqual(t, libp2p.YoungShareKey(noIP1), libp2p.YoungShareKey(noIP2), "without an IP each connection counts on its own")
+	assert.Equal(t, noIP1, libp2p.YoungShareKey(noIP1))
 }

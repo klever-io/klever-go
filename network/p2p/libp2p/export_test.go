@@ -328,6 +328,14 @@ func BuildResourceManagerStrategy(args ArgsNetworkMessenger) (strategy string, c
 	return setup.strategy, connsInbound, conns, hasLimits, nil
 }
 
+// YoungShareKey exposes youngShareKey for testing.
+func YoungShareKey(conn network.Conn) any {
+	return youngShareKey(conn)
+}
+
+// InboundCapGater exposes inboundCapGater for testing.
+type InboundCapGater = inboundCapGater
+
 // NewInboundCapGater exposes newInboundCapGater for testing, on the wall clock.
 func NewInboundCapGater() *inboundCapGater {
 	return newInboundCapGater(time.Now)

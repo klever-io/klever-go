@@ -2,6 +2,8 @@ package libp2p
 
 import (
 	"context"
+	"net/netip"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -12,6 +14,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/connmgr"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	manet "github.com/multiformats/go-multiaddr/net"
 )
 
 const (
@@ -476,7 +479,7 @@ func (pp *peerProtector) admitInbound(pid peer.ID) bool {
 	if count < pp.maxUnprotectedInboundConns {
 		return true
 	}
-	victim := pp.evictionCandidate(pid, nil, 0)
+	victim := pp.evictionCandidate(pid, nil, nil)
 	return len(victim) > 0 && count-len(victim) < pp.maxUnprotectedInboundConns
 }
 
@@ -494,10 +497,14 @@ func (v *evictionVictim) offer(conns []network.Conn, firstInbound time.Time) {
 
 // youngShareDivisor sets the share of the cap that young peers (inside identificationWindow, not
 // validators) may hold before observer evictions stop: maxUnprotectedInboundConns/youngShareDivisor
-// (see evictionCandidate).
+// addresses (see evictionCandidate).
 const youngShareDivisor = 4
 
-// youngBudget is how many inbound connections young peers may hold before a newcomer can no longer
+// youngIPv6PrefixLen is the IPv6 prefix a young connection counts under in the young share, the
+// granularity of the per-subnet connection limits; IPv4 counts per /32.
+const youngIPv6PrefixLen = 56
+
+// youngBudget is how many distinct addresses young peers may hold before a newcomer can no longer
 // displace an observer. At least 1.
 func (pp *peerProtector) youngBudget() int {
 	return max(1, pp.maxUnprotectedInboundConns/youngShareDivisor)
@@ -511,17 +518,24 @@ func (pp *peerProtector) youngBudget() int {
 // passed over.
 //
 // An observer is offered only while young peers that are not validators, unknown and observers
-// alike, hold fewer than youngBudget inbound connections, pendingInbound (admitted, not registered
-// yet) included. A young identity cannot be evicted, so without that bound an attacker that redials
-// under fresh peer IDs every <60s, with or without a self-signed heartbeat, would displace every
-// honest observer, one per dial. With it, such an attacker displaces observers only up to its share;
-// past it, it gets only the slots that others free. An honest peer that connected inside the window
-// also uses up the share until it ages past it. It does not take mut.
-func (pp *peerProtector) evictionCandidate(pid peer.ID, skip func(network.Conn) bool, pendingInbound int) []network.Conn {
+// alike, hold fewer than youngBudget distinct addresses (youngShareKey), pendingInbound (admitted,
+// not registered yet) included. Young peers cannot be evicted, so the share keeps identities that
+// redial under fresh peer IDs every <60s, heartbeat or not, from displacing every honest observer.
+// It counts addresses rather than connections because a full share also shields the established
+// observers in the rest of the cap: keeping it full takes youngBudget addresses (25 at the default
+// cap), and with libp2p's 8 connections per IPv4 /32 that many addresses could fill the whole cap
+// anyway. Below that, each address holds at most its per-subnet limit of the cap, and the observers
+// it displaces get back in by displacing the newest established observer in turn. So the bound is
+// on addresses, not on reconnects: an attacker with as many addresses as the cap needs holds it, and
+// one that keeps a dial pending wins the slots that honest peers free while the share is full. An
+// honest peer inside the window also counts toward the share until it ages past it. It does not take
+// mut.
+func (pp *peerProtector) evictionCandidate(pid peer.ID, skip func(network.Conn) bool, pendingInbound []network.Conn) []network.Conn {
 	identifiedBy := pp.now().Add(-pp.identificationWindow)
 	resolver := pp.resolver()
 
-	young := pendingInbound
+	young := make(map[any]struct{})
+	addYoung(young, pendingInbound)
 	var unknown, observer evictionVictim
 	for _, candidate := range pp.net.Peers() {
 		inbound, firstInbound, ok := pp.capInboundConns(candidate, pid)
@@ -532,8 +546,8 @@ func (pp *peerProtector) evictionCandidate(pid peer.ID, skip func(network.Conn) 
 		switch {
 		case peerType == core.ValidatorPeer:
 		case firstInbound.After(identifiedBy):
-			young += len(inbound)
-		case anyConn(inbound, skip):
+			addYoung(young, inbound)
+		case skip != nil && slices.ContainsFunc(inbound, skip):
 		case peerType == core.ObserverPeer:
 			observer.offer(inbound, firstInbound)
 		default:
@@ -544,10 +558,45 @@ func (pp *peerProtector) evictionCandidate(pid peer.ID, skip func(network.Conn) 
 	if len(unknown.conns) > 0 {
 		return unknown.conns
 	}
-	if young >= pp.youngBudget() {
+	if len(young) >= pp.youngBudget() {
 		return nil
 	}
 	return observer.conns
+}
+
+// addYoung records the young-share keys of conns in young.
+func addYoung(young map[any]struct{}, conns []network.Conn) {
+	for _, conn := range conns {
+		young[youngShareKey(conn)] = struct{}{}
+	}
+}
+
+// youngShareKey is what a young inbound connection counts under in the young share: its remote
+// IPv4 /32 or IPv6 /56 prefix, or, when the remote address carries no IP, the connection itself.
+func youngShareKey(conn network.Conn) any {
+	addr := conn.RemoteMultiaddr()
+	if addr == nil {
+		return conn
+	}
+	ip, err := manet.ToIP(addr)
+	if err != nil {
+		return conn
+	}
+	ipAddr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return conn
+	}
+	ipAddr = ipAddr.Unmap()
+	bits := 32
+	if ipAddr.Is6() {
+		bits = youngIPv6PrefixLen
+	}
+	prefix, err := ipAddr.Prefix(bits)
+	if err != nil {
+		return conn
+	}
+
+	return prefix
 }
 
 // capInboundConns returns candidate's inbound connections and when the oldest was opened, and
@@ -563,19 +612,6 @@ func (pp *peerProtector) capInboundConns(candidate peer.ID, pid peer.ID) ([]netw
 	}
 
 	return inbound, oldestOpened(inbound), true
-}
-
-// anyConn reports whether match returns true for one of conns; a nil match matches nothing.
-func anyConn(conns []network.Conn, match func(network.Conn) bool) bool {
-	if match == nil {
-		return false
-	}
-	for _, conn := range conns {
-		if match(conn) {
-			return true
-		}
-	}
-	return false
 }
 
 // capEnforcedNow reports whether the cap is armed and past its warm-up.

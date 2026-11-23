@@ -59,6 +59,9 @@ p2p:
   #   gracePeriodInSec: minimum age before a connection can be trimmed (default 60; 11 to 3600)
   #   maxUnprotectedInboundConns: inbound cap for peers that are not known validators (default 100;
   #     at most 100000; keep it below the ResourceManager inbound limit)
+  #     When more non-validators dial in than the cap allows, each newcomer displaces an
+  #     established observer, so observers connecting and dropping about every minute is expected,
+  #     not a fault.
   connectionManager:
     lowWater: 100
     highWater: 300
