@@ -10,6 +10,11 @@ DOCKER_REGISTRY := kleverapp
 DOCKER_REPO := $(DOCKER_REGISTRY)/klever-go
 export DOCKER_BUILDKIT := 1
 BUILD_FLAGS := --no-cache --pull --build-arg arg_version=${VERSION}
+# GO_VERSION is go.mod's go directive, so the builder image follows go.mod.
+GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod)
+ifeq ($(GO_VERSION),)
+$(error GO_VERSION is empty: run make from the repository root, where go.mod is)
+endif
 DOCKER_PLATFORMS := linux/amd64,linux/arm64
 DOCKER_BUILDER := klever-builder
 
@@ -68,26 +73,26 @@ docker-builder-remove: ## Remove Docker buildx builder
 
 docker-build: docker-vendor ## Build Debian-based full Docker image (production, no cache)
 	@echo "Building Debian full docker image for version ${VERSION}"
-	docker build --no-cache --pull --build-arg arg_version=${VERSION} \
+	docker build --no-cache --pull --build-arg arg_version=${VERSION} --build-arg GO_VERSION=${GO_VERSION} \
 		-t $(DOCKER_REPO):${FOR_DEV}${VERSION}${FOR_TESTNET} \
 		-t $(DOCKER_REPO):${FOR_DEV}latest${FOR_TESTNET} \
 		-f docker/Dockerfile .
 
 docker-build-validator: docker-vendor ## Build Debian-based validator Docker image (production, no cache)
 	@echo "Building Debian validator docker image for version ${VERSION}"
-	docker build --no-cache --pull --build-arg arg_version=${VERSION} \
+	docker build --no-cache --pull --build-arg arg_version=${VERSION} --build-arg GO_VERSION=${GO_VERSION} \
 		-t $(DOCKER_REPO):val-${FOR_DEV}${VERSION}${FOR_TESTNET} \
 		-f docker/Dockerfile.validator .
 
 docker-build-alpine: docker-vendor ## Build Alpine-based full Docker image (production, no cache)
 	@echo "Building Alpine full docker image for version ${VERSION}"
-	docker build --no-cache --pull --build-arg arg_version=${VERSION} \
+	docker build --no-cache --pull --build-arg arg_version=${VERSION} --build-arg GO_VERSION=${GO_VERSION} \
 		-t $(DOCKER_REPO):alpine-${FOR_DEV}${VERSION}${FOR_TESTNET} \
 		-f docker/Dockerfile.alpine .
 
 docker-build-alpine-validator: docker-vendor ## Build Alpine-based validator Docker image (production, no cache)
 	@echo "Building Alpine validator docker image for version ${VERSION}"
-	docker build --no-cache --pull --build-arg arg_version=${VERSION} \
+	docker build --no-cache --pull --build-arg arg_version=${VERSION} --build-arg GO_VERSION=${GO_VERSION} \
 		-t $(DOCKER_REPO):alpine-val-${FOR_DEV}${VERSION}${FOR_TESTNET} \
 		-f docker/Dockerfile.alpine.validator .
 
@@ -105,6 +110,7 @@ docker-buildx-full: docker-vendor docker-builder-setup ## Build and push multi-a
 		--progress=plain \
 		--platform $(DOCKER_PLATFORMS) \
 		--build-arg arg_version=${VERSION} \
+		--build-arg GO_VERSION=${GO_VERSION} \
 		--tag $(DOCKER_REPO):${FOR_DEV}${VERSION}${FOR_TESTNET} \
 		$(LATEST_TAG_FULL) \
 		--file docker/Dockerfile \
@@ -117,6 +123,7 @@ docker-buildx-validator: docker-vendor docker-builder-setup ## Build and push mu
 		--progress=plain \
 		--platform $(DOCKER_PLATFORMS) \
 		--build-arg arg_version=${VERSION} \
+		--build-arg GO_VERSION=${GO_VERSION} \
 		--tag $(DOCKER_REPO):val-${FOR_DEV}${VERSION}${FOR_TESTNET} \
 		$(LATEST_TAG_VALIDATOR) \
 		--file docker/Dockerfile.validator \
@@ -129,6 +136,7 @@ docker-buildx-alpine-full: docker-vendor docker-builder-setup ## Build and push 
 		--progress=plain \
 		--platform $(DOCKER_PLATFORMS) \
 		--build-arg arg_version=${VERSION} \
+		--build-arg GO_VERSION=${GO_VERSION} \
 		--tag $(DOCKER_REPO):alpine-${FOR_DEV}${VERSION}${FOR_TESTNET} \
 		$(LATEST_TAG_ALPINE) \
 		--file docker/Dockerfile.alpine \
@@ -141,6 +149,7 @@ docker-buildx-alpine-validator: docker-vendor docker-builder-setup ## Build and 
 		--progress=plain \
 		--platform $(DOCKER_PLATFORMS) \
 		--build-arg arg_version=${VERSION} \
+		--build-arg GO_VERSION=${GO_VERSION} \
 		--tag $(DOCKER_REPO):alpine-val-${FOR_DEV}${VERSION}${FOR_TESTNET} \
 		$(LATEST_TAG_ALPINE_VALIDATOR) \
 		--file docker/Dockerfile.alpine.validator \
