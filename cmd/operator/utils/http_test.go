@@ -128,8 +128,8 @@ func TestGetURLSurfacesEOFOnEmptyBody(t *testing.T) {
 // TestErrorBodyIsReportedWhole pins that a failed call's body reaches the operator intact
 // past the old 512-byte snippet (which cut the node's `{"error":"..."}` reason mid-string),
 // and that only a body past the 64 KiB cap is cut, with the message saying so and no
-// artefact of the cut (split rune, stray spaces). GetURL and PostURL share checkStatus, so
-// both are driven through the same table.
+// artefact of the cut (split rune, stray spaces). Only checkStatus is under test; that both
+// GetURL and PostURL reach it is pinned by TestURLHandlesHTTPStatus.
 func TestErrorBodyIsReportedWhole(t *testing.T) {
 	const capBytes = 64 << 10
 	reason := `{"error":"invalid argument: ` + strings.Repeat("the fee estimate needs a valid sender; ", 40) + `","code":"internal_issue"}`
@@ -149,44 +149,40 @@ func TestErrorBodyIsReportedWhole(t *testing.T) {
 		// A cut that lands inside a multi-byte rune must drop the rune, not leave U+FFFD in
 		// front of the marker: the split bytes are invalid UTF-8, which the sanitiser drops.
 		{name: "cut inside a multi-byte rune drops it", body: strings.Repeat("Z", capBytes-1) + "é" + strings.Repeat("Z", 1000), wantZ: capBytes - 1, wantTruncated: true},
-		// A rune that ends exactly at the cap is complete and must be kept before the marker.
-		{name: "rune ending exactly at the cap is kept", body: strings.Repeat("Z", capBytes-2) + "é" + strings.Repeat("Z", 1000), wantZ: capBytes - 2, wantTruncated: true, wantWhole: "é ... (response body truncated"},
-		// 64 KiB of whitespace sanitises to nothing: the marker stands alone, no stray spaces.
-		{name: "whitespace past the cap leaves only the marker", body: strings.Repeat(" ", capBytes+1000), wantZ: 0, wantTruncated: true, wantWhole: "502 Bad Gateway: (response body truncated at 65536 bytes)"},
+		// A rune that ends exactly at the cap is complete and must be kept at the end.
+		{name: "rune ending exactly at the cap is kept", body: strings.Repeat("Z", capBytes-2) + "é" + strings.Repeat("Z", 1000), wantZ: capBytes - 2, wantTruncated: true, wantWhole: "Zé"},
+		// 64 KiB of whitespace sanitises to nothing: the note stands alone, no empty body slot.
+		{name: "whitespace past the cap leaves only the note", body: strings.Repeat(" ", capBytes+1000), wantZ: 0, wantTruncated: true, wantWhole: "502 Bad Gateway (response body truncated at 65536 bytes)"},
 	}
 
 	for _, tt := range tests {
-		for _, method := range []string{http.MethodGet, http.MethodPost} {
-			t.Run(tt.name+"/"+method, func(t *testing.T) {
-				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(http.StatusBadGateway)
-					_, _ = w.Write([]byte(tt.body))
-				}))
-				defer srv.Close()
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadGateway)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
 
-				var got sampleResult
-				var err error
-				if method == http.MethodGet {
-					err = utils.GetURL(srv.URL, &got)
-				} else {
-					err = utils.PostURL(srv.URL, `{}`, nil, &got)
-				}
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), "502")
-				assert.NotContains(t, err.Error(), string(rune(0xFFFD)), "a byte-boundary cut must not leave a replacement character")
-				if tt.wantWhole != "" {
-					assert.Contains(t, err.Error(), tt.wantWhole, "the full reason must survive into the error")
-				}
-				if tt.wantZ >= 0 {
-					assert.Equal(t, tt.wantZ, strings.Count(err.Error(), "Z"))
-				}
-				if tt.wantTruncated {
-					assert.Contains(t, err.Error(), "response body truncated at 65536 bytes")
-				} else {
-					assert.NotContains(t, err.Error(), "truncated")
-				}
-			})
-		}
+			var got sampleResult
+			err := utils.GetURL(srv.URL, &got)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "502")
+			assert.NotContains(t, err.Error(), string(rune(0xFFFD)), "a byte-boundary cut must not leave a replacement character")
+			if tt.wantWhole != "" {
+				assert.Contains(t, err.Error(), tt.wantWhole, "the full reason must survive into the error")
+			}
+			if tt.wantZ >= 0 {
+				assert.Equal(t, tt.wantZ, strings.Count(err.Error(), "Z"))
+			}
+			// The truncation note is the client's and precedes the body, so a body cannot forge it.
+			prefix := "GET " + srv.URL + ": unexpected HTTP status 502 Bad Gateway"
+			if tt.wantTruncated {
+				prefix += " (response body truncated at 65536 bytes)"
+			} else {
+				assert.NotContains(t, err.Error(), "truncated")
+			}
+			assert.True(t, strings.HasPrefix(err.Error(), prefix), "message must start with %q, got %q", prefix, err.Error()[:min(len(err.Error()), len(prefix)+20)])
+		})
 	}
 }
 
@@ -278,6 +274,7 @@ func TestErrorCarriesFieldsForLoggers(t *testing.T) {
 	assert.Equal(t, srv.URL, statusErr.URL)
 	assert.Equal(t, "502 Bad Gateway", statusErr.Status)
 	assert.Equal(t, reason, statusErr.Body)
+	assert.False(t, statusErr.Truncated)
 	assert.Empty(t, statusErr.ReadErr)
 	assert.Equal(t, "POST "+srv.URL+": unexpected HTTP status 502 Bad Gateway: "+reason, err.Error())
 }
@@ -298,6 +295,42 @@ func TestErrorDropsInvalidUTF8(t *testing.T) {
 	assert.NotContains(t, err.Error(), string(rune(0xFFFD)))
 	assert.Contains(t, err.Error(), "502 Bad Gateway: okend")
 	assert.Less(t, len(err.Error()), 200)
+}
+
+// TestErrorRedactsURLCredentials pins that a URL configured with userinfo does not print
+// its password in every failure: the message and the typed error carry the redacted form,
+// as net/http's own errors do.
+func TestErrorRedactsURLCredentials(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	withCreds := strings.Replace(srv.URL, "http://", "http://operator:s3cret@", 1)
+	err := utils.PostURL(withCreds, `{}`, nil, nil)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "s3cret")
+	assert.Contains(t, err.Error(), "operator:xxxxx@")
+
+	var statusErr *utils.HTTPStatusError
+	require.ErrorAs(t, err, &statusErr)
+	assert.NotContains(t, statusErr.URL, "s3cret")
+}
+
+// TestErrorBodyCannotForgeClientNotes pins that the client's own notes come before the body:
+// a body carrying the exact text of a read-failure note is still printed after the real
+// status and notes, so the operator can tell what the client said from what the server sent.
+func TestErrorBodyCannotForgeClientNotes(t *testing.T) {
+	forged := `{"error":"ok"} (failed to read response body: unexpected EOF)`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(forged))
+	}))
+	defer srv.Close()
+
+	err := utils.PostURL(srv.URL, `{}`, nil, nil)
+	require.Error(t, err)
+	assert.Equal(t, "POST "+srv.URL+": unexpected HTTP status 400 Bad Request: "+forged, err.Error())
 }
 
 // TestErrorKeepsGenuineReplacementChar pins the other side of that rule: a U+FFFD the server

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"time"
 	"unicode"
@@ -98,34 +99,40 @@ func PostURLWithContext(ctx context.Context, url, body string, headers []string,
 
 // HTTPStatusError is the error for a non-2xx response. The operator prints Error(); a
 // caller that logs it (the node's websocket mirror) can take the fields apart and bound
-// each on its own, so a body the server wrote cannot imitate the attribution or push it
-// past the log's bound.
+// each on its own. Body is the only field the server wrote; everything else is the
+// client's, so a renderer that puts Body last leaves nothing after it for the body to
+// imitate.
 type HTTPStatusError struct {
-	Method  string
-	URL     string
-	Status  string // from the status code alone, e.g. "502 Bad Gateway"
-	Body    string // sanitised, bounded at maxErrorBody, with a marker when cut
-	ReadErr string // sanitised read failure; empty when the body was read whole
+	Method    string
+	URL       string // credentials redacted
+	Status    string // from the status code alone, e.g. "502 Bad Gateway"
+	Body      string // sanitised, bounded at maxErrorBody
+	Truncated bool   // the body was longer than maxErrorBody
+	ReadErr   string // sanitised read failure; empty when the body was read whole
 }
 
-// Error renders the message the operator reads: method and URL first, so the attribution
-// is never something the body wrote, then the status, the body and any read failure.
+// Error renders the message the operator reads: method, URL, status and the client's own
+// notes (read failure, truncation) first, then the body last, so no part of the message
+// that follows the body could have been written by the server.
 func (e *HTTPStatusError) Error() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s %s: unexpected HTTP status %s", e.Method, e.URL, e.Status)
+	if e.ReadErr != "" {
+		fmt.Fprintf(&b, " (failed to read response body: %s)", e.ReadErr)
+	}
+	if e.Truncated {
+		fmt.Fprintf(&b, " (response body truncated at %d bytes)", maxErrorBody)
+	}
 	if e.Body != "" {
 		b.WriteString(": ")
 		b.WriteString(e.Body)
-	}
-	if e.ReadErr != "" {
-		fmt.Fprintf(&b, " (failed to read response body: %s)", e.ReadErr)
 	}
 	return b.String()
 }
 
 // checkStatus returns nil for a 2xx response. For anything else it returns an
 // *HTTPStatusError with the status and the response body (sanitised, bounded at
-// maxErrorBody, with a marker when cut), so the node's reason is not lost.
+// maxErrorBody, flagged when cut), so the node's reason is not lost.
 func checkStatus(method, url string, r *http.Response) error {
 	if r.StatusCode >= http.StatusOK && r.StatusCode < http.StatusMultipleChoices {
 		return nil
@@ -136,7 +143,7 @@ func checkStatus(method, url string, r *http.Response) error {
 	// phrase for.
 	statusErr := &HTTPStatusError{
 		Method: method,
-		URL:    url,
+		URL:    redactURL(url),
 		Status: strings.TrimSpace(fmt.Sprintf("%d %s", r.StatusCode, http.StatusText(r.StatusCode))),
 	}
 	// io.ReadAll returns the bytes it did manage to read alongside a non-nil error on a
@@ -148,19 +155,25 @@ func checkStatus(method, url string, r *http.Response) error {
 	// reported as cut.
 	snippet, readErr := io.ReadAll(io.LimitReader(r.Body, maxErrorBody+1))
 	// A multi-byte rune the cut splits is invalid UTF-8, and sanitizeServerBytes drops
-	// invalid bytes, so no U+FFFD precedes the marker.
+	// invalid bytes, so the cut leaves no U+FFFD behind.
 	statusErr.Body = sanitizeServerBytes(snippet[:min(len(snippet), maxErrorBody)])
-	if len(snippet) > maxErrorBody {
-		if statusErr.Body != "" {
-			statusErr.Body += " ... "
-		}
-		statusErr.Body += fmt.Sprintf("(response body truncated at %d bytes)", maxErrorBody)
-	}
+	statusErr.Truncated = len(snippet) > maxErrorBody
 	if readErr != nil {
 		statusErr.ReadErr = sanitizeServerBytes([]byte(readErr.Error()))
 	}
 
 	return statusErr
+}
+
+// redactURL hides the password of a URL with userinfo, as net/http's own errors do, so a
+// mirror or node URL configured with credentials does not print them in every failure.
+// A URL that does not parse is returned as it came.
+func redactURL(raw string) string {
+	u, err := neturl.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return u.Redacted()
 }
 
 // sanitizeServerBytes makes server-supplied text safe to print as one terminal line, and

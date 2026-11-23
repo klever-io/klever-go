@@ -650,27 +650,29 @@ func loggableError(err error) string {
 const maxLoggableErrorLength = 256
 
 // mirrorFailureFields renders a failed mirror post for the log. A non-2xx answer goes in
-// field by field — the status, the body bounded on its own, any read failure, and the
-// operator-configured URL — so a body the mirror wrote can neither imitate the
-// attribution nor push it past the bound, which one flat message would allow. Any other
-// error (transport, context) is one bounded text.
+// field by field, each bounded on its own, with the body — the only text the mirror
+// wrote — last: the logger prints "key = value" unquoted, so a body can imitate a field,
+// but with nothing after it there is no real field for the imitation to displace. Any
+// other error (transport, context) is one bounded text.
 func mirrorFailureFields(err error) []interface{} {
 	var statusErr *utils.HTTPStatusError
 	if !errors.As(err, &statusErr) {
 		return []interface{}{"lastError", loggableError(err)}
 	}
 
-	// The body already went through the operator helper's 64 KiB cap, which leaves its own
-	// marker at the end; loggableText's "… (N bytes)" counts that sanitised, marked body,
-	// not the bytes the mirror sent.
-	fields := []interface{}{"status", statusErr.Status, "body", loggableText(statusErr.Body, maxLoggableErrorLength)}
+	// The URL is operator configuration (credentials already redacted), not peer input,
+	// but it has no length limit and repeats on every warning; bound it like the rest.
+	fields := []interface{}{"status", statusErr.Status, "url", loggableText(statusErr.URL, maxLoggableErrorLength)}
 	if statusErr.ReadErr != "" {
 		fields = append(fields, "readError", loggableText(statusErr.ReadErr, maxLoggableErrorLength))
 	}
+	if statusErr.Truncated {
+		fields = append(fields, "bodyTruncated", true)
+	}
 
-	// The URL is operator configuration, not peer input, but it has no length limit and
-	// repeats on every warning; bound it like the rest.
-	return append(fields, "url", loggableText(statusErr.URL, maxLoggableErrorLength))
+	// The body already went through the operator helper's 64 KiB cap; loggableText's
+	// "... (N bytes)" counts that sanitised body, not the bytes the mirror sent.
+	return append(fields, "body", loggableText(statusErr.Body, maxLoggableErrorLength))
 }
 
 // loggableText bounds and scrubs one field of text that peer input may have reached. Shared
@@ -687,7 +689,10 @@ func loggableText(text string, maxLength int) string {
 		for steps := 0; steps < utf8.UTFMax-1 && cut > 0 && !utf8.RuneStart(text[cut]); steps++ {
 			cut--
 		}
-		text = text[:cut] + fmt.Sprintf("… (%d bytes)", len(text))
+		// ASCII marker: the node's logger renders any string value holding a non-ASCII
+		// byte as hex (convertStringIfNotASCII with ToHex), so a U+2026 ellipsis would turn
+		// every truncated field into an unreadable hex dump.
+		text = text[:cut] + fmt.Sprintf("... (%d bytes)", len(text))
 	}
 
 	// Anything that could end a log line becomes a space: CR/LF, the other control runes,
