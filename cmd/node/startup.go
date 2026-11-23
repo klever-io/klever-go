@@ -167,6 +167,11 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		log.Info("state pruning disabled via --disable-state-pruning flag")
 	}
 
+	// Must run before the epoch-start bootstrapper and the data components
+	// receive their copies of cfg: the pruning storers and the old-database
+	// cleaner read StoragePruning when they are built.
+	applyStoragePruningFlags(ctx, &cfg, log)
+
 	err = applyCompatibleConfigs(log, &cfg)
 	if err != nil {
 		return err
@@ -668,10 +673,6 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 	}
 
 	log.Trace("creating nodes coordinator")
-	if ctx.IsSet(keepOldEpochsData.Name) {
-		cfg.StoragePruning.CleanOldEpochsData = !ctx.GlobalBool(keepOldEpochsData.Name)
-	}
-
 	nodesCoordinator, err := createNodesCoordinator(
 		genesisNodesConfig,
 		coreComponents,
@@ -1172,6 +1173,19 @@ func applyPreferencesConfigs(ctx *cli.Context, cfg *config.Config) {
 	if ctx.IsSet(redundancyLevel.Name) {
 		cfg.Preferences.RedundancyLevel = ctx.GlobalInt64(redundancyLevel.Name)
 	}
+}
+
+// applyStoragePruningFlags folds the storage-pruning command-line flags into
+// cfg. --keep-old-epochs-data only ever turns the old-epoch cleaning off, so
+// a node started with it never deletes an epoch database whatever
+// storagePruning.cleanOldEpochsData says; without it the config is untouched.
+func applyStoragePruningFlags(ctx *cli.Context, cfg *config.Config, log logger.Logger) {
+	if !ctx.GlobalBool(keepOldEpochsData.Name) {
+		return
+	}
+
+	cfg.StoragePruning.CleanOldEpochsData = false
+	log.Info("old epochs data will be kept via --keep-old-epochs-data flag")
 }
 
 func closeAllComponents(
