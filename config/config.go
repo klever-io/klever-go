@@ -209,14 +209,20 @@ func decodeSingleYAMLDocument(data []byte, out interface{}) error {
 		}
 		return err
 	}
-	var extra interface{}
-	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+	// Trailing empty documents (a final "---") are allowed; any content after the first is not.
+	for {
+		var extra interface{}
+		err := dec.Decode(&extra)
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
-		return errors.New("multiple YAML documents are not supported")
+		if extra != nil {
+			return errors.New("multiple YAML documents are not supported")
+		}
 	}
-	return nil
 }
 
 // LoadFromPath of all config files
