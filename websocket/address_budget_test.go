@@ -1,12 +1,15 @@
 package websocket
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"net"
 	"testing"
 
 	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core"
 	indexer "github.com/klever-io/klever-go/indexer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -494,4 +497,47 @@ func TestAddrSub_TeardownChurnRebuildsSharedAddress(t *testing.T) {
 	assert.Zero(t, live)
 	assert.Zero(t, peak, "the peak must go with the emptied address")
 	requireIndexConsistent(t, hub)
+}
+
+func TestHandleDynamicSubscribe_LogsBudgetRefusal(t *testing.T) {
+	var observed lockedBuffer
+	require.NoError(t, logger.AddLogObserver(&observed, &logger.PlainFormatter{}))
+	t.Cleanup(func() { assert.NoError(t, logger.RemoveLogObserver(&observed)) })
+
+	hub := NewHub("", "", nil, Limits{MaxAddressesPerSubscribe: 2, MaxAddressesPerClient: 2, MaxAddressesPerIP: 2, MaxTotalAddresses: 2})
+	require.NoError(t, hub.HandleClientInsertion(accounts, []string{"a", "b"}, ipClient(hub, "1.2.3.4")))
+
+	params, err := json.Marshal(SubscribeParams{Types: []string{"accounts"}, Addresses: []string{"c"}})
+	require.NoError(t, err)
+	resp := sendRequest(hub, ipClient(hub, "5.6.7.8"), WSRequest{ID: "dyn", Method: MethodSubscribe, Params: params})
+
+	require.Equal(t, ErrGlobalAddressBudgetExhausted.Error(), resp.Error)
+	out := observed.String()
+	assert.Contains(t, out, opDynamicSubscribe)
+	assert.Contains(t, out, "node-wide")
+}
+
+func TestAddressBudget_PublishesTotalAddressesGauge(t *testing.T) {
+	hub := NewHub("", "", nil, Limits{MaxAddressesPerSubscribe: 3, MaxAddressesPerClient: 3, MaxAddressesPerIP: 6, MaxTotalAddresses: 100})
+	var last uint64
+	hub.SetAppStatusHandler(&mock.AppStatusHandlerStub{
+		SetUInt64ValueHandler: func(key string, value uint64) {
+			if key == core.MetricWSSubscribedAddresses {
+				last = value
+			}
+		},
+	})
+	c1, c2 := liveIPClient(t, hub, "1.2.3.4"), liveIPClient(t, hub, "1.2.3.4")
+
+	require.NoError(t, hub.HandleClientInsertion(accounts, []string{"a", "b", "a"}, c1))
+	assert.Equal(t, uint64(2), last, "duplicates within a call count once")
+	require.NoError(t, hub.HandleClientInsertion(accounts, []string{"a", "c"}, c2))
+	assert.Equal(t, uint64(4), last)
+
+	hub.HandleClientRemoval(accounts, []string{"a"}, c2)
+	assert.Equal(t, uint64(3), last)
+	hub.handleClientDelete(c1)
+	assert.Equal(t, uint64(1), last)
+	hub.deleteAll()
+	assert.Equal(t, uint64(0), last)
 }

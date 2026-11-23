@@ -43,6 +43,7 @@ const (
 	opLoopIn              = "ws.loopIn"
 	opLoopOut             = "ws.loopOut"
 	opHandleClientRequest = "ws.HandleClientRequest"
+	opDynamicSubscribe    = "ws.dynamicSubscribe"
 
 	postQueueDropLogIntervalSeconds = 10
 
@@ -230,7 +231,8 @@ type SocketHub struct {
 	requestPanicWarn dropWarner
 	otherPanicWarn   dropWarner
 	// appStatusHandler exports the mirror's cumulative drop/failure counts (see
-	// MetricWSMirrorQueueDroppedTotal/MetricWSMirrorPostFailuresTotal) alongside the
+	// MetricWSMirrorQueueDroppedTotal/MetricWSMirrorPostFailuresTotal) and the watched-pair
+	// gauge (MetricWSSubscribedAddresses) alongside the
 	// rate-limited WARN logs above — the log is a periodic sample, this is the exact
 	// total. Defaults to a no-op handler (see NewHub) so it's always safe to call without
 	// a nil check; SetAppStatusHandler swaps in a real one.
@@ -867,6 +869,8 @@ func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, address
 	if err := h.ValidateSubscription(eventType, addresses); err != nil {
 		return err
 	}
+	// Dedup before the write lock, so a refused frame does not pay for it under h.mu.
+	addresses = uniqueAddresses(addresses)
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -922,6 +926,7 @@ func (h *SocketHub) PrecheckAddressBudget(eventType []indexer.EventType, address
 		return nil
 	}
 	probe := &client{ipKey: remoteIPKey(remote), prefix48Key: remotePrefix48Key(remote)}
+	addresses = uniqueAddresses(addresses)
 
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -939,22 +944,31 @@ func containsAddressScoped(eventType []indexer.EventType) bool {
 	return false
 }
 
-// countNewAddresses returns how many of addresses are not yet watched by c, counting
-// duplicates within the call once. The caller must hold h.mu.
+// countNewAddresses returns how many of addresses, already deduplicated by uniqueAddresses,
+// are not yet watched by c. The caller must hold h.mu.
 func (h *SocketHub) countNewAddresses(addresses []string, c *client) int {
 	held := h.clientAddrs[c]
-	seen := make(map[string]struct{}, len(addresses))
 	count := 0
 	for _, address := range addresses {
-		if _, dup := seen[address]; dup {
-			continue
-		}
-		seen[address] = struct{}{}
 		if _, has := held[address]; !has {
 			count++
 		}
 	}
 	return count
+}
+
+// uniqueAddresses returns addresses without duplicates, keeping the first occurrence order.
+func uniqueAddresses(addresses []string) []string {
+	seen := make(map[string]struct{}, len(addresses))
+	unique := addresses[:0:0]
+	for _, address := range addresses {
+		if _, dup := seen[address]; dup {
+			continue
+		}
+		seen[address] = struct{}{}
+		unique = append(unique, address)
+	}
+	return unique
 }
 
 // applyEventTypes registers the global block/transaction subscriptions for c and returns
@@ -1015,6 +1029,13 @@ func (h *SocketHub) addAddressSubscriptions(addresses []string, c *client, accep
 	if len(held) > h.clientAddrPeak[c] {
 		h.clientAddrPeak[c] = len(held)
 	}
+	h.publishTotalAddresses()
+}
+
+// publishTotalAddresses exports the node-wide pair count so a full budget can be alerted on.
+// The caller must hold h.mu.
+func (h *SocketHub) publishTotalAddresses() {
+	h.appStatusHandler.SetUInt64Value(core.MetricWSSubscribedAddresses, uint64(h.totalAddresses))
 }
 
 func (h *SocketHub) deleteAll() {
@@ -1035,6 +1056,7 @@ func (h *SocketHub) deleteAll() {
 	clear(h.ipAddresses)
 	clear(h.prefix48Addresses)
 	h.totalAddresses = 0
+	h.publishTotalAddresses()
 	clear(h.blockSubscription)
 	clear(h.transactionSubscription)
 }
@@ -1059,6 +1081,7 @@ func (h *SocketHub) handleClientDelete(c *client) {
 	delete(h.clientAddrs, c)
 	delete(h.clientAddrPeak, c)
 	h.releaseAddresses(c, len(held))
+	h.publishTotalAddresses()
 }
 
 func (h *SocketHub) HandleClientRequest(c *client, req WSRequest) {
@@ -1173,6 +1196,7 @@ func (h *SocketHub) handleDynamicSubscribe(c *client, req WSRequest) {
 		if errors.Is(err, ErrHubClosed) {
 			err = ErrClientClosed
 		}
+		h.LogRejectedInsertion(opDynamicSubscribe, err)
 		c.send(WSResponse{ID: req.ID, Error: err.Error()})
 		return
 	}
@@ -1217,6 +1241,7 @@ func (h *SocketHub) HandleClientRemoval(eventTypes []indexer.EventType, addresse
 	for _, addr := range addresses {
 		h.removeClientFromAddress(addr, c, removeAccounts, removeTransactions)
 	}
+	h.publishTotalAddresses()
 }
 
 func (h *SocketHub) removeClientFromAddress(addr string, c *client, removeAccounts, removeTransactions bool) {

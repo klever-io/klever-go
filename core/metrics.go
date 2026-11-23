@@ -345,3 +345,6 @@ const MetricSCWarmupErrors = "klv_sc_warmup_errors_total"
 
 // MetricSCWarmupCompileTimeMs is the cumulative time, in milliseconds, spent precompiling modules
 const MetricSCWarmupCompileTimeMs = "klv_sc_warmup_compile_time_ms_total"
+
+// MetricWSSubscribedAddresses is the number of (address, connection) pairs /subscribe watches node-wide, against webSocketMaxTotalAddresses
+const MetricWSSubscribedAddresses = "klv_ws_subscribed_addresses"
