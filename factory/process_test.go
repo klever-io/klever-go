@@ -25,7 +25,6 @@ import (
 	"github.com/klever-io/klever-go/factory"
 	"github.com/klever-io/klever-go/genesis/parsing"
 	"github.com/klever-io/klever-go/kapps"
-	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/network/p2p/libp2p"
 	"github.com/klever-io/klever-go/network/p2p/libp2p/p2pkey"
 	"github.com/klever-io/klever-go/sharding"
@@ -391,18 +390,6 @@ func TestProcessComponentsFactory_SimulationDoesNotTakeLiveVMChangeLock(t *testi
 	}
 }
 
-// requireVMSwapOnEpochChange checks the premise of the epoch tests: the test config's WASM VM
-// version differs from the host's, so every epoch confirmation replaces each container's VM.
-func requireVMSwapOnEpochChange(t *testing.T) {
-	t.Helper()
-
-	versions := getConfig().VirtualMachine.Execution.WasmVMVersions
-	require.Len(t, versions, 1)
-	msg := "the test config's VM version must differ from the host's, or CheckEpoch never swaps the VM"
-	require.NotEqual(t, "*", versions[0].Version, msg)
-	require.NotEqual(t, vmhost.VMVersion, versions[0].Version, msg)
-}
-
 // requireBlockedUntil runs call in a goroutine, checks it does not return while the lock is
 // held, then releases the lock with unlock and checks call returns.
 func requireBlockedUntil(t *testing.T, call func(), unlock func(), blockedMsg string) {
@@ -429,48 +416,42 @@ func requireBlockedUntil(t *testing.T, call func(), unlock func(), blockedMsg st
 	}
 }
 
-// Every epoch confirmation replaces each container's WASM VM (the configured version is not
-// the host's), so each VM factory must lock the change lock its processor runs under: the
-// swap then waits for runs in flight on that container instead of closing their VM.
-func TestProcessComponentsFactory_LiveVMSwapTakesLiveVMChangeLock(t *testing.T) {
-	requireVMSwapOnEpochChange(t)
-
+// Each VM factory must lock the change lock its processor runs under, so a Wasm VM replacement
+// waits for runs in flight on that container instead of closing their VM. Creating the VM
+// container takes the same lock as a replacement, so it shows which lock each factory was given.
+func TestProcessComponentsFactory_LiveVMFactoryTakesLiveVMChangeLock(t *testing.T) {
 	coreData := getCoreComponents()
-	epochNotifier := notifier.NewGenericEpochNotifier()
-	args, _, _, _ := createMockArgumentsWithCoreData("../config/node/gasScheduleV1.yaml", coreData, epochNotifier)
-	_, err := factory.ProcessComponentsFactory(args)
-	require.Nil(t, err)
+	args, _, _, _ := createMockArgumentsWithCoreData("../config/node/gasScheduleV1.yaml", coreData, notifier.NewGenericEpochNotifier())
 
-	// a live run in flight holds the live lock for reading
+	var err error
+	// a live run in flight holds the live lock for reading: the live VM factory waits for it
 	coreData.LiveWasmVMChangeLocker.RLock()
 	requireBlockedUntil(t,
-		func() { epochNotifier.CheckEpoch(1) },
+		func() { _, err = factory.ProcessComponentsFactory(args) },
 		coreData.LiveWasmVMChangeLocker.RUnlock,
-		"the live VM was swapped without taking the live VM change lock",
+		"the live VM factory was created without taking the live VM change lock",
 	)
+	require.Nil(t, err)
 }
 
 // The simulator's VM factory and SC processor must share the simulator's change lock: the
 // factory's VM swap waits for a simulation in flight, and a simulation waits for a swap.
 func TestProcessComponentsFactory_SimulatorVMFactoryAndProcessorShareALock(t *testing.T) {
-	requireVMSwapOnEpochChange(t)
-
 	coreData := getCoreComponents()
-	epochNotifier := notifier.NewGenericEpochNotifier()
-	args, _, dataComponents, _ := createMockArgumentsWithCoreData("../config/node/gasScheduleV1.yaml", coreData, epochNotifier)
-	pc, err := factory.ProcessComponentsFactory(args)
-	require.Nil(t, err)
-	require.Nil(t, dataComponents.Blkc.SetCurrentBlockHeader(&block.Block{Header: &block.BlockHeader{Nonce: 1}}))
-
+	args, _, dataComponents, _ := createMockArgumentsWithCoreData("../config/node/gasScheduleV1.yaml", coreData, notifier.NewGenericEpochNotifier())
 	simulatorLocker := coreData.SimulatorWasmVMChangeLocker
 
-	// a simulation in flight holds the simulator lock for reading: the swap waits for it
+	var pc *factory.Process
+	var err error
+	// a simulation in flight holds the simulator lock for reading: the simulator's VM factory waits for it
 	simulatorLocker.RLock()
 	requireBlockedUntil(t,
-		func() { epochNotifier.CheckEpoch(1) },
+		func() { pc, err = factory.ProcessComponentsFactory(args) },
 		simulatorLocker.RUnlock,
-		"the simulator's VM was swapped without taking the simulator's VM change lock",
+		"the simulator's VM factory was created without taking the simulator's VM change lock",
 	)
+	require.Nil(t, err)
+	require.Nil(t, dataComponents.Blkc.SetCurrentBlockHeader(&block.Block{Header: &block.BlockHeader{Nonce: 1}}))
 
 	code, err := os.ReadFile("../kvm/test/contracts/init-correct/output/init-correct.wasm")
 	require.Nil(t, err)

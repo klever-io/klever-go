@@ -142,7 +142,7 @@ func NewBlockChainHookImpl(
 
 	blockChainHookImpl.ClearCompiledCodes()
 	blockChainHookImpl.currentHdr = &block.Block{}
-	blockChainHookImpl.mapActivationEpochs = createMapActivationEpochs(&args.EnableEpochs)
+	blockChainHookImpl.mapActivationEpochs = CreateMapActivationEpochs(&args.EnableEpochs)
 	blockChainHookImpl.vmContainer = containers.NewVirtualMachinesContainer()
 
 	args.EpochNotifier.RegisterNotifyHandler(blockChainHookImpl)
@@ -151,7 +151,7 @@ func NewBlockChainHookImpl(
 	return blockChainHookImpl, nil
 }
 
-func createMapActivationEpochs(enableEpochs *config.EnableEpochs) map[uint32]struct{} {
+func CreateMapActivationEpochs(enableEpochs *config.EnableEpochs) map[uint32]struct{} {
 	mapActivationEpoch := make(map[uint32]struct{})
 
 	reflectVal := reflect.ValueOf(enableEpochs).Elem()

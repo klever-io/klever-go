@@ -1,11 +1,13 @@
 package hostCore_test
 
 import (
+	"io"
 	"testing"
 	"time"
 
 	commonMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/fork"
 	"github.com/klever-io/klever-go/core/kapp/builtInFunctions"
 	"github.com/klever-io/klever-go/kapps"
@@ -295,5 +297,174 @@ func TestVmHost_GetEffectiveTimeout(t *testing.T) {
 			host.SetExecutionMode(mode)
 			require.Equal(t, mode, host.GetExecutionMode())
 		}
+	})
+}
+
+type compiledCodesClearCounter struct {
+	*worldmock.MockWorld
+	numClears int
+}
+
+func (counter *compiledCodesClearCounter) ClearCompiledCodes() {
+	counter.numClears++
+	counter.MockWorld.ClearCompiledCodes()
+}
+
+func makeHostRegisteredAtEpoch(
+	t *testing.T,
+	activationEpochs map[uint32]struct{},
+	registrationEpoch uint32,
+) (vmhost.VMHost, core.EpochSubscriberHandler, *compiledCodesClearCounter) {
+	blockchainHook := &compiledCodesClearCounter{MockWorld: worldmock.NewMockWorld()}
+
+	hostParameters := makeHostParameters()
+	hostParameters.ActivationEpochs = activationEpochs
+	hostParameters.EpochNotifier = &commonMock.EpochNotifierStub{
+		RegisterNotifyHandlerCalled: func(handler core.EpochSubscriberHandler) {
+			handler.EpochConfirmed(registrationEpoch)
+		},
+	}
+
+	host, err := hostCore.NewVMHost(blockchainHook, hostParameters)
+	require.Nil(t, err)
+	require.NotNil(t, host)
+
+	epochHandler, ok := host.(core.EpochSubscriberHandler)
+	require.True(t, ok)
+
+	return host, epochHandler, blockchainHook
+}
+
+func TestVmHost_EpochConfirmedClearsCachesWhenActivationEpochIsCrossed(t *testing.T) {
+	testCases := []struct {
+		name              string
+		activationEpochs  map[uint32]struct{}
+		registrationEpoch uint32
+		confirmedEpochs   []uint32
+		expectedClears    []int
+	}{
+		{
+			name:              "Moving forward clears once when the activation epoch is reached",
+			activationEpochs:  map[uint32]struct{}{5: {}},
+			registrationEpoch: 0,
+			confirmedEpochs:   []uint32{4, 5, 6},
+			expectedClears:    []int{0, 1, 1},
+		},
+		{
+			name:              "Moving backward over the activation epoch clears",
+			activationEpochs:  map[uint32]struct{}{5: {}},
+			registrationEpoch: 6,
+			confirmedEpochs:   []uint32{4, 3},
+			expectedClears:    []int{1, 1},
+		},
+		{
+			name:              "Moving backward from the activation epoch clears",
+			activationEpochs:  map[uint32]struct{}{5: {}},
+			registrationEpoch: 5,
+			confirmedEpochs:   []uint32{4, 5},
+			expectedClears:    []int{1, 2},
+		},
+		{
+			name:              "Jump over several epochs containing the activation epoch clears once",
+			activationEpochs:  map[uint32]struct{}{5: {}},
+			registrationEpoch: 0,
+			confirmedEpochs:   []uint32{9},
+			expectedClears:    []int{1},
+		},
+		{
+			name:              "Jump over several activation epochs clears once",
+			activationEpochs:  map[uint32]struct{}{3: {}, 5: {}, 7: {}},
+			registrationEpoch: 0,
+			confirmedEpochs:   []uint32{9},
+			expectedClears:    []int{1},
+		},
+		{
+			name:              "Registered above the activation epoch clears nothing",
+			activationEpochs:  map[uint32]struct{}{5: {}},
+			registrationEpoch: 7,
+			confirmedEpochs:   []uint32{8},
+			expectedClears:    []int{0},
+		},
+		{
+			name:              "Same epoch confirmed again clears nothing more",
+			activationEpochs:  map[uint32]struct{}{5: {}},
+			registrationEpoch: 0,
+			confirmedEpochs:   []uint32{5, 5},
+			expectedClears:    []int{1, 1},
+		},
+		{
+			name:              "Activation at epoch zero is never crossed",
+			activationEpochs:  map[uint32]struct{}{0: {}},
+			registrationEpoch: 3,
+			confirmedEpochs:   []uint32{0, 3},
+			expectedClears:    []int{0, 0},
+		},
+		{
+			name:              "Nil activation epochs never clear",
+			activationEpochs:  nil,
+			registrationEpoch: 0,
+			confirmedEpochs:   []uint32{4, 5, 6, 3},
+			expectedClears:    []int{0, 0, 0, 0},
+		},
+		{
+			name:              "Empty activation epochs never clear",
+			activationEpochs:  map[uint32]struct{}{},
+			registrationEpoch: 0,
+			confirmedEpochs:   []uint32{4, 5, 6, 3},
+			expectedClears:    []int{0, 0, 0, 0},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			host, epochHandler, blockchainHook := makeHostRegisteredAtEpoch(t, tc.activationEpochs, tc.registrationEpoch)
+			defer host.Reset()
+
+			require.Equal(t, 0, blockchainHook.numClears)
+
+			for i, epoch := range tc.confirmedEpochs {
+				epochHandler.EpochConfirmed(epoch)
+				require.Equal(t, tc.expectedClears[i], blockchainHook.numClears, "after confirming epoch %d", epoch)
+			}
+		})
+	}
+}
+
+func TestVmHost_EpochConfirmedUsesActivationEpochsGivenAtConstruction(t *testing.T) {
+	activationEpochs := map[uint32]struct{}{5: {}}
+	host, epochHandler, blockchainHook := makeHostRegisteredAtEpoch(t, activationEpochs, 0)
+	defer host.Reset()
+
+	delete(activationEpochs, 5)
+	activationEpochs[9] = struct{}{}
+
+	epochHandler.EpochConfirmed(5)
+	require.Equal(t, 1, blockchainHook.numClears)
+
+	epochHandler.EpochConfirmed(9)
+	require.Equal(t, 1, blockchainHook.numClears)
+}
+
+func TestVmHost_EpochConfirmedClearsNothingOnClosedHost(t *testing.T) {
+	t.Run("open host clears", func(t *testing.T) {
+		host, epochHandler, blockchainHook := makeHostRegisteredAtEpoch(t, map[uint32]struct{}{5: {}}, 0)
+		defer host.Reset()
+
+		epochHandler.EpochConfirmed(5)
+		require.Equal(t, 1, blockchainHook.numClears)
+	})
+
+	t.Run("closed host does not clear", func(t *testing.T) {
+		host, epochHandler, blockchainHook := makeHostRegisteredAtEpoch(t, map[uint32]struct{}{5: {}}, 0)
+
+		closer, ok := host.(io.Closer)
+		require.True(t, ok)
+		require.Nil(t, closer.Close())
+
+		epochHandler.EpochConfirmed(5)
+		require.Equal(t, 0, blockchainHook.numClears)
+
+		epochHandler.EpochConfirmed(4)
+		require.Equal(t, 0, blockchainHook.numClears)
 	})
 }

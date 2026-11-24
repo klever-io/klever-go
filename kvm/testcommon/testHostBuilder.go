@@ -83,6 +83,11 @@ func (thb *TestHostBuilder) WithEnableEpochs(epochs blockchainConfig.EnableEpoch
 	return thb
 }
 
+func (thb *TestHostBuilder) WithActivationEpochs(activationEpochs map[uint32]struct{}) *TestHostBuilder {
+	thb.vmHostParameters.ActivationEpochs = activationEpochs
+	return thb
+}
+
 // Ensures gas costs are initialized.
 func (thb *TestHostBuilder) initializeGasCosts() {
 	if thb.vmHostParameters.GasSchedule == nil {

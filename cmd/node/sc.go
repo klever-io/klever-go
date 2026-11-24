@@ -223,6 +223,7 @@ func createScQueryElement(
 		KDATransferParser:  kdaTransferParser,
 		Hasher:             args.coreComponents.Hasher,
 		GasSchedule:        args.gasScheduleNotifier,
+		EnableEpochs:       args.generalConfig.EnableEpochs,
 	}
 
 	vmFactory, err = chain.NewVMContainerFactory(argsNewVMFactory)

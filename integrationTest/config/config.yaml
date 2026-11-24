@@ -597,9 +597,9 @@ virtualMachine:
     wasmerSIGSEGVPassthrough: false # must be false for release
     wasmVMVersions:
       - startEpoch: 0
-        version: "v1.0"
+        version: "v1.5"
       - startEpoch: 1
-        version: "v1.0"
+        version: "v1.5"
 
   querying:
     # Each query goes to the next VM round-robin before it waits, so with more than one VM a
@@ -613,9 +613,9 @@ virtualMachine:
     wasmerSIGSEGVPassthrough: false # must be false for release
     wasmVMVersions:
       - startEpoch: 0
-        version: "v1.0"
+        version: "v1.5"
       - startEpoch: 1
-        version: "v1.0"
+        version: "v1.5"
 
   gasConfig:
     # The following values define the maximum amount of gas to be allocated for VM Queries coming from API

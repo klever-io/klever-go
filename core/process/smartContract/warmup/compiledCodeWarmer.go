@@ -34,11 +34,13 @@
 //     the generation check.
 //   - The fork flags are guarded by the fingerprint recheck at save time only, not by a clear.
 //     CheckEpoch is called only by the block processor, so after a start the flags jump from
-//     their epoch-0 values to the current epoch in one step; the hook clears only on an exact
-//     activation epoch; and restoreEpochState (core/process/block) moves the epoch back without
-//     a clear. The recheck refuses a module whose flags changed before it was saved, but a
-//     module saved earlier stays cached across the change. That is harmless only because
-//     nothing flag-dependent is baked into a module, and the table cap is checked on restore.
+//     their epoch-0 values to the current epoch in one step. The hook clears only on an exact
+//     activation epoch; the VM host also clears when a confirmed epoch crosses one in either
+//     direction, including restoreEpochState (core/process/block) moving the epoch back, but
+//     not on its first confirmation, at registration. The recheck refuses a module whose flags
+//     changed before it was saved; a module cached before the host's first confirmation can
+//     outlive a flag change. That is harmless only because nothing flag-dependent is baked
+//     into a module, and the table cap is checked on restore.
 //
 // The guards order the warmer against the main hook only. The transaction simulator's hook
 // shares the same compiled-code pool with its own lock and generation (factory/process.go,

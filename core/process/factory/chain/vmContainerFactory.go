@@ -39,6 +39,7 @@ type vmContainerFactory struct {
 	wasmVMChangeLocker common.Locker
 	kdaTransferParser  vmcommon.KDATransferParser
 	hasher             hashing.Hasher
+	activationEpochs   map[uint32]struct{}
 }
 
 // ArgVMContainerFactory defines the arguments needed to the new VM factory
@@ -52,6 +53,7 @@ type ArgVMContainerFactory struct {
 	BuiltInFunctions   vmcommon.BuiltInFunctionContainer
 	BlockChainHook     process.BlockChainHookHandler
 	Hasher             hashing.Hasher
+	EnableEpochs       config.EnableEpochs
 }
 
 // NewVMContainerFactory is responsible for creating a new virtual machine factory object
@@ -94,6 +96,7 @@ func NewVMContainerFactory(args ArgVMContainerFactory) (*vmContainerFactory, err
 		wasmVMChangeLocker: args.WasmVMChangeLocker,
 		kdaTransferParser:  args.KDATransferParser,
 		hasher:             args.Hasher,
+		activationEpochs:   hooks.CreateMapActivationEpochs(&args.EnableEpochs),
 	}
 
 	vmf.wasmVMVersions = args.Config.WasmVMVersions
@@ -102,8 +105,34 @@ func NewVMContainerFactory(args ArgVMContainerFactory) (*vmContainerFactory, err
 	if err != nil {
 		return nil, err
 	}
+	vmf.warnOnUnknownWasmVMVersions()
 
 	return vmf, nil
+}
+
+func (vmf *vmContainerFactory) warnOnUnknownWasmVMVersions() {
+	for _, ver := range vmf.wasmVMVersions {
+		hostVersion, known := resolveWasmVMHostVersion(ver.Version)
+		if known {
+			continue
+		}
+
+		logVMContainerFactory.Warn("unknown Wasm VM version configured, the VM host version is used",
+			"configured version", ver.Version,
+			"start epoch", ver.StartEpoch,
+			"host version", hostVersion,
+		)
+	}
+}
+
+func resolveWasmVMHostVersion(version string) (string, bool) {
+	switch version {
+	case "v1.0", wasmvm10.VMVersion, "*":
+		return wasmvm10.VMVersion, true
+	// TODO: Handle additional versions in the future
+	default:
+		return wasmvm10.VMVersion, false
+	}
 }
 
 func (vmf *vmContainerFactory) sortWasmVMVersions() {
@@ -251,7 +280,8 @@ func (vmf *vmContainerFactory) shouldReplaceWasmVMInstance(
 	currentVM vmcommon.VMExecutionHandler,
 ) bool {
 	specificVersionRequired := newVersion.Version != "*"
-	differentVersion := newVersion.Version != currentVM.GetVersion()
+	hostVersion, _ := resolveWasmVMHostVersion(newVersion.Version)
+	differentVersion := hostVersion != currentVM.GetVersion()
 
 	return specificVersionRequired && differentVersion
 }
@@ -284,12 +314,12 @@ func (vmf *vmContainerFactory) getMatchingVersion(epoch uint32) config.WasmVMVer
 
 func (vmf *vmContainerFactory) createInProcessWasmVMByVersion(version config.WasmVMVersionByEpoch) (vmcommon.VMExecutionHandler, error) {
 	logVMContainerFactory.Debug("createInProcessWasmVMByVersion", "version", version)
-	switch version.Version {
-	case "v1.0":
+	hostVersion, _ := resolveWasmVMHostVersion(version.Version)
+	switch hostVersion {
+	case wasmvm10.VMVersion:
 		return vmf.createInProcessWasmVMV10()
-	// TODO: Handle additional versions in the future
 	default:
-		return vmf.createInProcessWasmVMV10()
+		return nil, fmt.Errorf("unknown Wasm VM host version %q", hostVersion)
 	}
 }
 
@@ -314,6 +344,7 @@ func (vmf *vmContainerFactory) createInProcessWasmVMV10() (vmcommon.VMExecutionH
 		EpochNotifier:                       vmf.epochNotifier,
 		ForkController:                      vmf.forkController,
 		Hasher:                              vmf.hasher,
+		ActivationEpochs:                    vmf.activationEpochs,
 	}
 	return wasmVMHost10.NewVMHost(vmf.blockChainHook, hostParameters)
 }

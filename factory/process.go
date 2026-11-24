@@ -1113,6 +1113,7 @@ func createMainVMComponents(
 		KDATransferParser:  kdaTransferParser,
 		Hasher:             processArgs.coreData.Hasher,
 		GasSchedule:        gasScheduleNotifier,
+		EnableEpochs:       processArgs.mainConfig.EnableEpochs,
 	}
 	virtualMachineFactory, err := chain.NewVMContainerFactory(argsNewVMFactory)
 	if err != nil {
@@ -1389,6 +1390,7 @@ func createMetaTxSimulatorProcessor(
 		KDATransferParser:  kdaTransferParser,
 		Hasher:             processArgs.coreData.Hasher,
 		GasSchedule:        gasScheduleNotifier,
+		EnableEpochs:       processArgs.mainConfig.EnableEpochs,
 	}
 	virtualMachineFactory, err := chain.NewVMContainerFactory(argsNewVMFactory)
 	if err != nil {

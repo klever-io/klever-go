@@ -166,6 +166,7 @@ type VMHostParameters struct {
 	TimeOutForSCExecutionInMilliseconds uint32
 	TimeOutTolerancePercentage          uint32
 	ExecutionMode                       vmcommon.ExecutionMode
+	ActivationEpochs                    map[uint32]struct{}
 }
 
 // KDATransfersArgs defines the structure for KDATransferArgs

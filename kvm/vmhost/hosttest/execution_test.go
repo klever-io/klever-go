@@ -7,7 +7,9 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"sync"
 	"testing"
+	"time"
 
 	blockchainConfig "github.com/klever-io/klever-go/config"
 
@@ -3236,6 +3238,157 @@ func TestExecution_WarmInstance_ExecutionStatus(t *testing.T) {
 		AndAssertResultsWithoutReset(func(host vmhost.VMHost, stubBlockchainHook *contextmock.BlockchainHookStub, verify *test.VMOutputVerifier) {
 			verify.Ok().ReturnData([]byte{100}).ReturnMessage("")
 		})
+}
+
+type warmInstanceCounter interface {
+	NumRunningInstances() (int, int)
+}
+
+func numWarmInstances(tb testing.TB, host vmhost.VMHost) int {
+	counter, ok := host.Runtime().GetInstanceTracker().(warmInstanceCounter)
+	require.True(tb, ok)
+
+	numWarm, _ := counter.NumRunningInstances()
+	return numWarm
+}
+
+func TestExecution_WarmInstance_ClearedWhenActivationEpochIsCrossed(t *testing.T) {
+	code := test.GetTestSCCode("counter", "../../")
+
+	input := test.DefaultTestContractCallInput()
+	input.GasProvided = 1000000
+	input.Function = get
+
+	host := test.NewTestHostBuilder(t).
+		WithBlockchainHook(test.BlockchainHookStubForCall(code, nil)).
+		WithActivationEpochs(map[uint32]struct{}{5: {}}).
+		Build()
+	defer func() {
+		host.Reset()
+	}()
+
+	epochHandler, ok := host.(core.EpochSubscriberHandler)
+	require.True(t, ok)
+
+	runNContractsForHostAndVerify(t, host, input, 1)
+	require.Equal(t, 1, numWarmInstances(t, host))
+
+	epochHandler.EpochConfirmed(4)
+	require.Equal(t, 1, numWarmInstances(t, host))
+
+	epochHandler.EpochConfirmed(5)
+	require.Equal(t, 0, numWarmInstances(t, host))
+
+	runNContractsForHostAndVerify(t, host, input, 1)
+	require.Equal(t, 1, numWarmInstances(t, host))
+
+	epochHandler.EpochConfirmed(6)
+	require.Equal(t, 1, numWarmInstances(t, host))
+
+	epochHandler.EpochConfirmed(4)
+	require.Equal(t, 0, numWarmInstances(t, host))
+
+	runNContractsForHostAndVerify(t, host, input, 1)
+	require.Equal(t, 1, numWarmInstances(t, host))
+}
+
+func TestExecution_Mocked_EpochConfirmedWaitsForRunningExecutionOnlyWhenActivationEpochIsCrossed(t *testing.T) {
+	const waitForCompletion = 30 * time.Second
+	const waitWhileBlocked = 100 * time.Millisecond
+
+	world := worldmock.NewMockWorld()
+	user, err := world.AccountsCacher.LoadUser(test.UserAddress)
+	require.Nil(t, err)
+	require.Nil(t, world.AccountsCacher.SaveUser(user))
+
+	executorFactory := contextmock.NewExecutorMockFactory(world)
+	host := test.NewTestHostBuilder(t).
+		WithExecutorFactory(executorFactory).
+		WithBlockchainHook(world).
+		WithActivationEpochs(map[uint32]struct{}{5: {}}).
+		Build()
+	host.SetExecutionMode(vmcommon.ExecutionModeReplay)
+
+	executionEntered := make(chan struct{})
+	releaseExecution := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() {
+			close(releaseExecution)
+		})
+	}
+	defer host.Reset()
+	defer release()
+
+	mockSC := test.CreateMockContract(test.ParentAddress).
+		WithBalance(1000).
+		WithMethods(func(parentInstance *contextmock.InstanceMock, config interface{}) {
+			parentInstance.AddMockMethod("waitForRelease", func() *contextmock.InstanceMock {
+				instance := contextmock.GetMockInstance(parentInstance.Host)
+				close(executionEntered)
+				<-releaseExecution
+				return instance
+			})
+		})
+	mockSC.Initialize(t, host, executorFactory.LastCreatedExecutor, true)
+	world.CreateStateBackup()
+
+	epochHandler, ok := host.(core.EpochSubscriberHandler)
+	require.True(t, ok)
+
+	executionDone := make(chan struct{})
+	go func() {
+		_, _ = host.RunSmartContractCall(test.CreateTestContractCallInputBuilder().
+			WithRecipientAddr(test.ParentAddress).
+			WithGasProvided(2000).
+			WithFunction("waitForRelease").
+			Build())
+		close(executionDone)
+	}()
+
+	select {
+	case <-executionEntered:
+	case <-time.After(waitForCompletion):
+		require.FailNow(t, "the execution did not reach the contract method")
+	}
+
+	nonActivatingEpochConfirmed := make(chan struct{})
+	go func() {
+		epochHandler.EpochConfirmed(4)
+		close(nonActivatingEpochConfirmed)
+	}()
+
+	select {
+	case <-nonActivatingEpochConfirmed:
+	case <-time.After(waitForCompletion):
+		require.FailNow(t, "confirming an epoch that activates nothing waited for the running execution")
+	}
+
+	activationEpochConfirmed := make(chan struct{})
+	go func() {
+		epochHandler.EpochConfirmed(5)
+		close(activationEpochConfirmed)
+	}()
+
+	select {
+	case <-activationEpochConfirmed:
+		require.FailNow(t, "confirming the activation epoch returned while an execution was running")
+	case <-time.After(waitWhileBlocked):
+	}
+
+	release()
+
+	select {
+	case <-activationEpochConfirmed:
+	case <-time.After(waitForCompletion):
+		require.FailNow(t, "confirming the activation epoch did not return after the execution ended")
+	}
+
+	select {
+	case <-executionDone:
+	case <-time.After(waitForCompletion):
+		require.FailNow(t, "the execution did not end after being released")
+	}
 }
 
 func TestExecution_Mocked_OnSameFollowedByOnDest(t *testing.T) {
