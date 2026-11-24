@@ -74,4 +74,18 @@ func BenchmarkKAppStorageRead(b *testing.B) {
 			}
 		}
 	})
+
+	committed, err := state.NewLastCommittedAccounts(adb)
+	require.NoError(b, err)
+	b.Run("last committed root (REST path)", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			acnt, errLoad := committed.LoadAccount(addr)
+			if errLoad != nil {
+				b.Fatal(errLoad)
+			}
+			if v := acnt.(state.KAppAccountHandler).GetStorage(key); len(v) == 0 {
+				b.Fatal("missing value")
+			}
+		}
+	})
 }

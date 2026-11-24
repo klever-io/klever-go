@@ -160,28 +160,37 @@ func (adb *AccountsDB) withHistoricalTrie(mainTrie data.Trie, rootHash []byte, f
 	adb.mutPrune.RLock()
 	defer adb.mutPrune.RUnlock()
 
-	// RecreateFromMainDb holds the receiver's own lock across its reads, so the root is
-	// read through an empty trie (no I/O) and the live trie lock that LoadAccount,
-	// SaveAccount and Commit need is never held across a read
-	empty, err := mainTrie.RecreateFromMainDb(nil)
+	tr, err := recreateFromMainDb(mainTrie, rootHash)
 	if err != nil {
 		return err
 	}
+	return fn(tr)
+}
+
+// recreateFromMainDb returns the trie at rootHash, read from the main DB only. RecreateFromMainDb
+// holds the receiver's own lock across its reads, so the root is read through an empty trie (no
+// I/O) and the live trie lock that LoadAccount, SaveAccount and Commit need is never held across
+// a read.
+func recreateFromMainDb(mainTrie data.Trie, rootHash []byte) (data.Trie, error) {
+	empty, err := mainTrie.RecreateFromMainDb(nil)
+	if err != nil {
+		return nil, err
+	}
 	if check.IfNil(empty) {
-		return common.ErrNilTrie
+		return nil, common.ErrNilTrie
 	}
 
 	tr, err := empty.RecreateFromMainDb(rootHash)
 	if err != nil {
 		if errors.Is(err, data.ErrHashNotFound) {
-			return fmt.Errorf("%w: %w", ErrStateRootUnavailable, err)
+			return nil, fmt.Errorf("%w: %w", ErrStateRootUnavailable, err)
 		}
-		return err
+		return nil, err
 	}
 	if check.IfNil(tr) {
-		return ErrStateRootUnavailable
+		return nil, ErrStateRootUnavailable
 	}
-	return fn(tr)
+	return tr, nil
 }
 
 func proveOnTrie(tr data.Trie, root []byte, key []byte) (*MerkleProof, error) {

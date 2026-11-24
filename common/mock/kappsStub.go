@@ -89,6 +89,16 @@ func (k KappsDBMock) RecreateAllTries(rootHash []byte, ctx context.Context) (map
 	return nil, nil
 }
 
+// OpenLastCommitted -
+func (k KappsDBMock) OpenLastCommitted() (state.CommittedState, error) {
+	return nil, errAccNotImplemented
+}
+
+// OpenCommittedAt -
+func (k KappsDBMock) OpenCommittedAt(_ []byte) (state.CommittedState, error) {
+	return nil, state.ErrStateRootUnavailable
+}
+
 func (k KappsDBMock) IsInterfaceNil() bool {
 	return false
 }

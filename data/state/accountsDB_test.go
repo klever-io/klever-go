@@ -20,6 +20,7 @@ import (
 	"github.com/klever-io/klever-go/tools/atomic"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func generateAccountDBFromTrie(trie data.Trie) *state.AccountsDB {
@@ -3070,4 +3071,189 @@ func TestAccountsDB_SaveCode_GetCodeEntryUnmarshalError(t *testing.T) {
 
 	err := adb.SaveAccount(newAcc)
 	assert.Error(t, err)
+}
+
+// loadCommitted loads address from a view of its own
+func loadCommitted(adb *state.AccountsDB, address []byte) (state.AccountHandler, error) {
+	view, err := adb.OpenLastCommitted()
+	if err != nil {
+		return nil, err
+	}
+	defer view.Release()
+
+	return view.GetExistingAccount(address)
+}
+
+func TestAccountsDB_OpenLastCommitted(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("expected error")
+	address := make([]byte, 32)
+
+	// committedDB serves committed as the trie recreated at the last committed root, both for the
+	// empty trie the root is read through and for the root itself
+	committedDB := func(committed *mock.TrieStub) *state.AccountsDB {
+		committed.RecreateFromMainDbCalled = func(_ []byte) (data.Trie, error) {
+			return committed, nil
+		}
+		ts := newSimpleTrieStub()
+		ts.RecreateFromMainDbCalled = func(_ []byte) (data.Trie, error) {
+			return committed, nil
+		}
+		return generateAccountDBFromTrie(ts)
+	}
+
+	t.Run("nil address returns error", func(t *testing.T) {
+		adb := committedDB(&mock.TrieStub{})
+		_, err := loadCommitted(adb, nil)
+		assert.True(t, errors.Is(err, common.ErrNilAddress))
+	})
+
+	t.Run("unavailable committed root propagates", func(t *testing.T) {
+		// the empty trie the root is read through recreates fine; the root itself does not
+		empty := &mock.TrieStub{RecreateFromMainDbCalled: func(_ []byte) (data.Trie, error) {
+			return nil, expectedErr
+		}}
+		ts := newSimpleTrieStub()
+		ts.RecreateFromMainDbCalled = func(_ []byte) (data.Trie, error) {
+			return empty, nil
+		}
+		_, err := loadCommitted(generateAccountDBFromTrie(ts), address)
+		assert.Equal(t, expectedErr, err)
+	})
+
+	t.Run("a failed open returns no view", func(t *testing.T) {
+		ts := newSimpleTrieStub()
+		ts.RecreateFromMainDbCalled = func(_ []byte) (data.Trie, error) {
+			return nil, expectedErr
+		}
+		view, err := generateAccountDBFromTrie(ts).OpenLastCommitted()
+		assert.Equal(t, expectedErr, err)
+		// a nil *CommittedView wrapped in the interface would not compare equal to nil
+		assert.True(t, view == nil)
+	})
+
+	t.Run("committed trie read error propagates", func(t *testing.T) {
+		adb := committedDB(&mock.TrieStub{
+			GetCalled: func(_ []byte) ([]byte, error) { return nil, expectedErr },
+		})
+		_, err := loadCommitted(adb, address)
+		assert.Equal(t, expectedErr, err)
+	})
+
+	t.Run("missing account returns ErrAccNotFound", func(t *testing.T) {
+		adb := committedDB(&mock.TrieStub{
+			GetCalled: func(_ []byte) ([]byte, error) { return nil, nil },
+		})
+
+		acc, err := loadCommitted(adb, address)
+		assert.Nil(t, acc)
+		assert.Equal(t, common.ErrAccNotFound, err)
+	})
+
+	// committedAccount stores an account with rootHash in the committed trie, whose data trie
+	// recreate returns dataTrie and dataTrieErr
+	committedAccount := func(t *testing.T, rootHash []byte, dataTrie data.Trie, dataTrieErr error) (state.AccountHandler, error) {
+		acc := generateAccount()
+		acc.SetRootHash(rootHash)
+		marshalized, err := (&mock.MarshalizerMock{}).Marshal(acc)
+		assert.Nil(t, err)
+
+		adb := committedDB(&mock.TrieStub{
+			GetCalled: func(_ []byte) ([]byte, error) { return marshalized, nil },
+			RecreateCalled: func(root []byte) (data.Trie, error) {
+				assert.Equal(t, rootHash, root)
+				return dataTrie, dataTrieErr
+			},
+		})
+		return loadCommitted(adb, acc.AddressBytes())
+	}
+
+	t.Run("account without storage gets no data trie", func(t *testing.T) {
+		acc, err := committedAccount(t, nil, nil, errors.New("data trie must not be recreated"))
+		assert.Nil(t, err)
+		assert.Nil(t, acc.(state.UserAccountHandler).DataTrie())
+	})
+
+	t.Run("missing committed data trie returns ErrMissingTrie", func(t *testing.T) {
+		_, err := committedAccount(t, []byte("data root"), nil, expectedErr)
+		var missing *state.ErrMissingTrie
+		assert.True(t, errors.As(err, &missing))
+	})
+
+	t.Run("existing account gets its committed data trie", func(t *testing.T) {
+		dataTrie := &mock.TrieStub{}
+		acc, err := committedAccount(t, []byte("data root"), dataTrie, nil)
+		assert.Nil(t, err)
+		assert.Equal(t, dataTrie, acc.(state.UserAccountHandler).DataTrie())
+	})
+}
+
+// Every committed read releases the pin it takes, failed opens and double releases included: a leaked
+// pin would hold back every later prune for good.
+func TestAccountsDB_CommittedReadsReleaseEveryPin(t *testing.T) {
+	t.Parallel()
+
+	pins := 0
+	var mutPins sync.Mutex
+	count := func(delta int) func([]byte) {
+		return func([]byte) {
+			mutPins.Lock()
+			pins += delta
+			mutPins.Unlock()
+		}
+	}
+	requireNoPins := func(t *testing.T, after string) {
+		mutPins.Lock()
+		defer mutPins.Unlock()
+		require.Zero(t, pins, "pins left after %s", after)
+	}
+
+	expectedErr := errors.New("expected error")
+	root := []byte("root")
+	committed := &mock.TrieStub{
+		GetCalled:  func(_ []byte) ([]byte, error) { return nil, nil },
+		RootCalled: func() ([]byte, error) { return root, nil },
+		GetAllLeavesOnChannelCalled: func(_ []byte) (*data.TrieIteratorChannels, error) {
+			return data.NewCompletedTrieIteratorChannels(), nil
+		},
+	}
+	committed.RecreateFromMainDbCalled = func(rootHash []byte) (data.Trie, error) {
+		if string(rootHash) == "unavailable" {
+			return nil, expectedErr
+		}
+		return committed, nil
+	}
+	ts := newSimpleTrieStub()
+	ts.RecreateFromMainDbCalled = func(_ []byte) (data.Trie, error) { return committed, nil }
+	ts.GetStorageManagerCalled = func() data.StorageManager {
+		return &mock.StorageManagerStub{
+			DatabaseCalled:  func() data.DBWriteCacher { return mock.NewMemDbMock() },
+			PinRootCalled:   count(1),
+			UnpinRootCalled: count(-1),
+		}
+	}
+	adb := generateAccountDBFromTrie(ts)
+	reader, err := state.NewLastCommittedAccounts(adb)
+	require.NoError(t, err)
+
+	view, err := adb.OpenLastCommitted()
+	require.NoError(t, err)
+	view.Release()
+	view.Release()
+	requireNoPins(t, "a double release")
+
+	_, err = adb.OpenCommittedAt([]byte("unavailable"))
+	require.Equal(t, expectedErr, err)
+	requireNoPins(t, "a failed open")
+
+	_, _ = reader.GetExistingAccount(make([]byte, 32))
+	_, _ = reader.LoadAccount(make([]byte, 32))
+	_ = reader.GetCode([]byte("code hash"))
+	_, _ = reader.RootHash()
+	_, err = reader.GetAllLeaves(root, context.Background())
+	require.NoError(t, err)
+	_, err = reader.GetAllLeaves([]byte("unavailable"), context.Background())
+	require.Equal(t, expectedErr, err)
+	requireNoPins(t, "the last committed reads")
 }

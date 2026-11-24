@@ -285,8 +285,15 @@ func (h *hookDb) Get(key []byte) ([]byte, error) {
 	return h.MemDbMock.Get(key)
 }
 
-// newPruningProofAccountsDB builds accounts over a trie storage manager that prunes, on db.
+// newPruningProofAccountsDB builds user accounts over a trie storage manager that prunes, on db.
 func newPruningProofAccountsDB(t *testing.T, db data.DBWriteCacher, marshalizer *mock.ProtobufMarshalizerMock) *state.AccountsDB {
+	t.Helper()
+
+	return newPruningAccountsDB(t, db, marshalizer, factory.NewAccountCreator())
+}
+
+// newPruningAccountsDB builds accounts of accountFactory over a trie storage manager that prunes, on db.
+func newPruningAccountsDB(t *testing.T, db data.DBWriteCacher, marshalizer *mock.ProtobufMarshalizerMock, accountFactory state.AccountFactory) *state.AccountsDB {
 	t.Helper()
 
 	hsh := &mock.HasherMock{}
@@ -309,9 +316,18 @@ func newPruningProofAccountsDB(t *testing.T, db data.DBWriteCacher, marshalizer 
 	require.NoError(t, err)
 	tr, err := trie.NewTrie(tsm, marshalizer, hsh, 5)
 	require.NoError(t, err)
-	adb, err := state.NewAccountsDB(tr, hsh, marshalizer, factory.NewAccountCreator(), core.Normal)
+	adb, err := state.NewAccountsDB(tr, hsh, marshalizer, accountFactory, core.Normal)
 	require.NoError(t, err)
 	return adb
+}
+
+func putStorage(t *testing.T, adb *state.AccountsDB, address []byte, key []byte, value []byte) {
+	t.Helper()
+
+	acc, err := adb.LoadAccount(address)
+	require.NoError(t, err)
+	require.NoError(t, acc.(state.UserAccountHandler).DataTrieTracker().SaveKeyValue(key, value))
+	require.NoError(t, adb.SaveAccount(acc))
 }
 
 func TestAccountsDB_MerkleProofHoldsPruneLockNotAccountsLock(t *testing.T) {

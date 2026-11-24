@@ -74,7 +74,15 @@ type AccountsDB struct {
 	// walks them, without that walk holding mutOp. Order: mutPrune before mutOp.
 	mutPrune sync.RWMutex
 	// numProofWalks counts the historical-root proofs in flight (maxHistoricalProofWalks).
-	numProofWalks        atomic.Int32
+	numProofWalks atomic.Int32
+	// rootGen counts the writes of lastRootHash, under mutOp. A committed trie cached for one
+	// rootGen is replaced by the first view of the last committed root after the next write.
+	rootGen uint64
+	// mutCommitted guards committedTrie, the main trie that views of the last committed root
+	// share, recreated at committedTrieGen. Block processing never takes it.
+	mutCommitted         sync.Mutex
+	committedTrie        data.Trie
+	committedTrieGen     uint64
 	processingMode       core.NodeProcessingMode
 	numCheckpoints       uint32
 	loadCodeMeasurements *loadingMeasurements
@@ -366,12 +374,11 @@ func (adb *AccountsDB) loadDataTrie(accountHandler baseAccountHandler) error {
 		return nil
 	}
 
-	dataTrie, err := adb.mainTrie.Recreate(accountHandler.GetRootHash())
+	dataTrie, err := recreateDataTrie(adb.mainTrie, accountHandler)
 	if err != nil {
-		return NewErrMissingTrie(accountHandler.GetRootHash())
+		return err
 	}
 
-	accountHandler.SetDataTrie(dataTrie)
 	adb.dataTries.Put(accountHandler.AddressBytes(), dataTrie)
 	return nil
 }
@@ -629,8 +636,51 @@ func (adb *AccountsDB) LoadAccount(address []byte) (AccountHandler, error) {
 	return acnt, nil
 }
 
+// loadCommittedAccount reads address from a committed trie, with its data trie recreated through
+// that trie, so nothing it returns is shared with block processing.
+func (adb *AccountsDB) loadCommittedAccount(committedTrie data.Trie, address []byte) (AccountHandler, error) {
+	if len(address) == 0 {
+		return nil, fmt.Errorf("%w in a committed view", common.ErrNilAddress)
+	}
+
+	acnt, err := adb.getAccountFromTrie(committedTrie, address)
+	if err != nil {
+		return nil, err
+	}
+	if check.IfNil(acnt) {
+		return nil, common.ErrAccNotFound
+	}
+
+	baseAcc, ok := acnt.(baseAccountHandler)
+	if !ok || len(baseAcc.GetRootHash()) == 0 {
+		return acnt, nil
+	}
+
+	_, err = recreateDataTrie(committedTrie, baseAcc)
+	if err != nil {
+		return nil, err
+	}
+
+	return acnt, nil
+}
+
+// recreateDataTrie gives accountHandler its data trie, recreated through tr at the account's root.
+func recreateDataTrie(tr data.Trie, accountHandler baseAccountHandler) (data.Trie, error) {
+	dataTrie, err := tr.Recreate(accountHandler.GetRootHash())
+	if err != nil {
+		return nil, NewErrMissingTrie(accountHandler.GetRootHash())
+	}
+	accountHandler.SetDataTrie(dataTrie)
+
+	return dataTrie, nil
+}
+
 func (adb *AccountsDB) getAccount(address []byte) (AccountHandler, error) {
-	val, err := adb.mainTrie.Get(address)
+	return adb.getAccountFromTrie(adb.mainTrie, address)
+}
+
+func (adb *AccountsDB) getAccountFromTrie(tr data.Trie, address []byte) (AccountHandler, error) {
+	val, err := tr.Get(address)
 	if err != nil {
 		return nil, err
 	}
@@ -855,6 +905,7 @@ func (adb *AccountsDB) Commit() ([]byte, error) {
 		return nil, err
 	}
 	adb.lastRootHash = root
+	adb.rootGen++
 	adb.obsoleteDataTrieHashes = make(map[string][][]byte)
 
 	log.Trace("accountsDB.Commit ended", "root hash", root)
@@ -886,6 +937,7 @@ func (adb *AccountsDB) RecreateTrie(rootHash []byte) error {
 		return err
 	}
 	adb.lastRootHash = rootHash
+	adb.rootGen++
 
 	return nil
 }
