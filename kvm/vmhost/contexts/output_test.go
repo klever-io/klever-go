@@ -306,6 +306,158 @@ func TestOutputContext_MergeVMOutputs(t *testing.T) {
 	require.Equal(t, expected, left)
 }
 
+func TestOutputContext_MergeVMOutputsSkipsAccountUnderAnotherKey(t *testing.T) {
+	t.Parallel()
+
+	logEntry := &vmcommon.LogEntry{Identifier: []byte("identifier")}
+
+	left := newVMOutput()
+	right := newVMOutput()
+	right.OutputAccounts["address"] = NewVMOutputAccount([]byte("address"))
+	right.OutputAccounts["another key"] = NewVMOutputAccount([]byte("another address"))
+	right.Logs = []*vmcommon.LogEntry{logEntry}
+	right.ReturnData = [][]byte{[]byte("rockets")}
+
+	err := mergeVMOutputs(left, right)
+	require.ErrorIs(t, err, vmhost.ErrOutputAccountAddressMismatch)
+
+	require.Len(t, left.OutputAccounts, 1)
+	require.Equal(t, NewVMOutputAccount([]byte("address")), left.OutputAccounts["address"])
+	require.NotContains(t, left.OutputAccounts, "another key")
+	require.NotContains(t, left.OutputAccounts, "another address")
+
+	require.Equal(t, []*vmcommon.LogEntry{logEntry}, left.Logs)
+	require.Equal(t, [][]byte{[]byte("rockets")}, left.ReturnData)
+}
+
+func TestOutputContext_MergeVMOutputsSkipsNilAccount(t *testing.T) {
+	t.Parallel()
+
+	left := newVMOutput()
+	right := newVMOutput()
+	right.OutputAccounts["address"] = NewVMOutputAccount([]byte("address"))
+	right.OutputAccounts["nil account"] = nil
+
+	var err error
+	require.NotPanics(t, func() {
+		err = mergeVMOutputs(left, right)
+	})
+	require.ErrorIs(t, err, vmhost.ErrOutputAccountAddressMismatch)
+
+	require.Len(t, left.OutputAccounts, 1)
+	require.Equal(t, NewVMOutputAccount([]byte("address")), left.OutputAccounts["address"])
+}
+
+func TestOutputContext_MergeVMOutputsAcceptsEmptyAddressUnderEmptyKey(t *testing.T) {
+	t.Parallel()
+
+	left := newVMOutput()
+	right := newVMOutput()
+	right.OutputAccounts[""] = &vmcommon.OutputAccount{}
+
+	err := mergeVMOutputs(left, right)
+	require.NoError(t, err)
+
+	require.Len(t, left.OutputAccounts, 1)
+	require.Contains(t, left.OutputAccounts, "")
+}
+
+func TestOutputContext_AddToActiveStateReportsAccountUnderAnotherKey(t *testing.T) {
+	t.Parallel()
+
+	outputContext := newOutputContextWithGasState()
+
+	right := newVMOutput()
+	right.OutputAccounts["address"] = NewVMOutputAccount([]byte("address"))
+
+	err := outputContext.AddToActiveState(right)
+	require.NoError(t, err)
+	require.Len(t, outputContext.GetOutputAccounts(), 1)
+	require.Contains(t, outputContext.GetOutputAccounts(), "address")
+
+	right = newVMOutput()
+	right.OutputAccounts["another key"] = NewVMOutputAccount([]byte("another address"))
+
+	err = outputContext.AddToActiveState(right)
+	require.ErrorIs(t, err, vmhost.ErrOutputAccountAddressMismatch)
+	require.Len(t, outputContext.GetOutputAccounts(), 1)
+	require.Contains(t, outputContext.GetOutputAccounts(), "address")
+
+	vmOutput := outputContext.GetVMOutput()
+	require.Equal(t, vmcommon.VMExecutionFailed, vmOutput.ReturnCode)
+	require.Equal(t, vmhost.ErrOutputAccountAddressMismatch.Error(), vmOutput.ReturnMessage)
+}
+
+func newOutputContextWithGasState() *outputContext {
+	host := &contextmock.VMHostMock{
+		MeteringContext: &contextmock.MeteringContextMock{},
+		RuntimeContext: &contextmock.RuntimeContextMock{
+			VMInput: &vmcommon.ContractCallInput{},
+		},
+	}
+
+	outputContext, _ := NewOutputContext(host)
+
+	return outputContext
+}
+
+func TestOutputContext_GetVMOutputFailsWithAccountUnderAnotherKey(t *testing.T) {
+	t.Parallel()
+
+	outputContext := newOutputContextWithGasState()
+	outputContext.outputState.OutputAccounts["another key"] = NewVMOutputAccount([]byte("address"))
+
+	vmOutput := outputContext.GetVMOutput()
+	require.Equal(t, vmcommon.VMExecutionFailed, vmOutput.ReturnCode)
+	require.Equal(t, vmhost.ErrOutputAccountAddressMismatch.Error(), vmOutput.ReturnMessage)
+}
+
+func TestOutputContext_GetVMOutputFailsAfterPushStateWithAccountUnderAnotherKey(t *testing.T) {
+	t.Parallel()
+
+	outputContext := newOutputContextWithGasState()
+	outputContext.outputState.OutputAccounts["another key"] = NewVMOutputAccount([]byte("address"))
+
+	outputContext.PushState()
+	outputContext.PopSetActiveState()
+
+	vmOutput := outputContext.GetVMOutput()
+	require.Equal(t, vmcommon.VMExecutionFailed, vmOutput.ReturnCode)
+	require.Equal(t, vmhost.ErrOutputAccountAddressMismatch.Error(), vmOutput.ReturnMessage)
+}
+
+func TestOutputContext_GetVMOutputFailsAfterPopMergeWithAccountUnderAnotherKey(t *testing.T) {
+	t.Parallel()
+
+	outputContext := newOutputContextWithGasState()
+
+	outputContext.PushState()
+	outputContext.outputState.OutputAccounts["another key"] = NewVMOutputAccount([]byte("address"))
+	outputContext.PopMergeActiveState()
+
+	vmOutput := outputContext.GetVMOutput()
+	require.Equal(t, vmcommon.VMExecutionFailed, vmOutput.ReturnCode)
+	require.Equal(t, vmhost.ErrOutputAccountAddressMismatch.Error(), vmOutput.ReturnMessage)
+}
+
+func TestOutputContext_InitStateClearsOutputAccountsError(t *testing.T) {
+	t.Parallel()
+
+	outputContext := newOutputContextWithGasState()
+	outputContext.outputState.OutputAccounts["another key"] = NewVMOutputAccount([]byte("address"))
+
+	outputContext.PushState()
+	outputContext.PopSetActiveState()
+
+	vmOutput := outputContext.GetVMOutput()
+	require.Equal(t, vmcommon.VMExecutionFailed, vmOutput.ReturnCode)
+
+	outputContext.InitState()
+
+	vmOutput = outputContext.GetVMOutput()
+	require.Equal(t, vmcommon.Ok, vmOutput.ReturnCode)
+}
+
 func TestOutputContext_VMOutputError(t *testing.T) {
 	t.Parallel()
 

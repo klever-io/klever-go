@@ -36,6 +36,8 @@ const (
 	noRollbackAcceptMethod   = "accept"
 	noRollbackPayOutMethod   = "payOut"
 	noRollbackPayUnfunded    = "payUnfunded"
+	noRollbackBuiltinPay     = "builtinPay"
+	noRollbackBuiltinNoFunds = "builtinPayUnfunded"
 	noRollbackCallerFunction = "callChild"
 )
 
@@ -44,6 +46,7 @@ const (
 // host's test gas map, where every cost is 1, not from the metering schedule changed below.
 func setupNoRollbackHost(t *testing.T, host vmhost.VMHost, world *worldmock.MockWorld) {
 	require.NoError(t, world.InitBuiltinFunctions(host.GetGasScheduleMap(), host.ForkController()))
+	host.SetBuiltInFunctionsContainer(world.BuiltinFuncs.Container)
 
 	zeroCodeCosts(host)
 	gasSchedule := host.Metering().GasSchedule()
@@ -103,6 +106,14 @@ func childMethods(t *testing.T) func(*mock.InstanceMock, interface{}) {
 			vmhooks.TransferKDANFTExecuteWithTypedArgs(instance.Host, test.ParentAddress, []*vmcommon.KDATransfer{transfer}, 0, nil, nil)
 			return instance
 		})
+		instance.AddMockMethod(noRollbackBuiltinPay, func() *mock.InstanceMock {
+			builtinTransferThenCall(instance.Host, test.UserAddress2, kdautils.KLVIdentifier, noRollbackKLVAmount, "")
+			return instance
+		})
+		instance.AddMockMethod(noRollbackBuiltinNoFunds, func() *mock.InstanceMock {
+			builtinTransferThenCall(instance.Host, test.UserAddress2, []byte("UNFUNDED-0000"), 1, "")
+			return instance
+		})
 		instance.AddMockMethod(noRollbackPayingMethod, func() *mock.InstanceMock {
 			host := instance.Host
 			err := host.Output().TransferValueOnly(
@@ -128,6 +139,16 @@ func runSubCall(
 	token []byte,
 	callerBody func(host vmhost.VMHost) int32,
 	expectOk bool,
+) (before, inFlight, after balances, returnCode int32) {
+	return runSubCallWithSetup(t, token, callerBody, expectOk, nil)
+}
+
+func runSubCallWithSetup(
+	t *testing.T,
+	token []byte,
+	callerBody func(host vmhost.VMHost) int32,
+	expectOk bool,
+	extraSetup func(world *worldmock.MockWorld),
 ) (before, inFlight, after balances, returnCode int32) {
 	testConfig := &test.TestConfig{
 		GasProvided:   2000,
@@ -164,6 +185,9 @@ func runSubCall(
 			world = mockWorld
 			setupNoRollbackHost(t, host, mockWorld)
 			recordTransferReceipts(t, mockWorld)
+			if extraSetup != nil {
+				extraSetup(mockWorld)
+			}
 
 			caller, err := mockWorld.AccountsCacher.LoadUser(test.ParentAddress)
 			require.NoError(t, err)

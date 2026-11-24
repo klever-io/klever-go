@@ -28,6 +28,7 @@ type outputContext struct {
 	codeUpdatesStack []map[string]struct{}
 	crtTransferIndex uint32
 	callArgsParser   vmcommon.CallArgsParser
+	outputAccountErr error
 }
 
 // NewOutputContext creates a new outputContext
@@ -54,6 +55,7 @@ func (context *outputContext) InitState() {
 	context.outputState = newVMOutput()
 	context.codeUpdates = make(map[string]struct{})
 	context.crtTransferIndex = 1
+	context.outputAccountErr = nil
 }
 
 func newVMOutput() *vmcommon.VMOutput {
@@ -81,7 +83,7 @@ func NewVMOutputAccount(address []byte) *vmcommon.OutputAccount {
 // PushState appends the current vmOutput to the state stack
 func (context *outputContext) PushState() {
 	newState := newVMOutput()
-	mergeVMOutputs(newState, context.outputState)
+	context.recordOutputAccountsError(mergeVMOutputs(newState, context.outputState))
 	context.stateStack = append(context.stateStack, newState)
 	context.pushCodeUpdatesState()
 }
@@ -117,9 +119,9 @@ func (context *outputContext) PopMergeActiveState() {
 	context.stateStack = context.stateStack[:stateStackLen-1]
 	context.popCodeUpdatesState()
 
-	mergeVMOutputs(prevState, context.outputState)
+	context.recordOutputAccountsError(mergeVMOutputs(prevState, context.outputState))
 	context.outputState = newVMOutput()
-	mergeVMOutputs(context.outputState, prevState)
+	context.recordOutputAccountsError(mergeVMOutputs(context.outputState, prevState))
 }
 
 // PopDiscard removes the latest entry from the state stack, but maintaining
@@ -457,6 +459,11 @@ func (context *outputContext) TransferKDA(
 		return 0, err
 	}
 
+	err = validateOutputAccounts(vmOutput.OutputAccounts)
+	if err != nil {
+		return 0, err
+	}
+
 	gasRemaining := uint64(0)
 
 	if callInput != nil && isSmartContract {
@@ -509,6 +516,11 @@ func (context *outputContext) RemoveNonUpdatedStorage() {
 
 // GetVMOutput updates the current VMOutput and returns it
 func (context *outputContext) GetVMOutput() *vmcommon.VMOutput {
+	context.recordOutputAccountsError(validateOutputAccounts(context.outputState.OutputAccounts))
+	if context.outputAccountErr != nil {
+		return context.CreateVMOutputInCaseOfError(context.outputAccountErr)
+	}
+
 	context.removeNonUpdatedCode()
 
 	metering := context.host.Metering()
@@ -622,8 +634,19 @@ func (context *outputContext) resolveReturnCodeFromError(err error) vmcommon.Ret
 }
 
 // AddToActiveState merges the given vmOutput with the outputState.
-func (context *outputContext) AddToActiveState(rightOutput *vmcommon.VMOutput) {
-	mergeVMOutputsConditionally(context.outputState, rightOutput, true)
+func (context *outputContext) AddToActiveState(rightOutput *vmcommon.VMOutput) error {
+	err := mergeVMOutputsConditionally(context.outputState, rightOutput, true)
+	context.recordOutputAccountsError(err)
+
+	return err
+}
+
+func (context *outputContext) recordOutputAccountsError(err error) {
+	if err == nil || context.outputAccountErr != nil {
+		return
+	}
+
+	context.outputAccountErr = err
 }
 
 // NextOutputTransferIndex returns next available output transfer index
@@ -643,16 +666,36 @@ func (context *outputContext) SetCrtTransferIndex(index uint32) {
 	context.crtTransferIndex = index
 }
 
-func mergeVMOutputs(leftOutput *vmcommon.VMOutput, rightOutput *vmcommon.VMOutput) {
-	mergeVMOutputsConditionally(leftOutput, rightOutput, false)
+func mergeVMOutputs(leftOutput *vmcommon.VMOutput, rightOutput *vmcommon.VMOutput) error {
+	return mergeVMOutputsConditionally(leftOutput, rightOutput, false)
 }
 
-func mergeVMOutputsConditionally(leftOutput *vmcommon.VMOutput, rightOutput *vmcommon.VMOutput, mergeAllTransfers bool) {
+func isOutputAccountStoredUnderAddress(key string, account *vmcommon.OutputAccount) bool {
+	return account != nil && key == string(account.Address)
+}
+
+func validateOutputAccounts(outputAccounts map[string]*vmcommon.OutputAccount) error {
+	for key, account := range outputAccounts {
+		if !isOutputAccountStoredUnderAddress(key, account) {
+			return vmhost.ErrOutputAccountAddressMismatch
+		}
+	}
+
+	return nil
+}
+
+func mergeVMOutputsConditionally(leftOutput *vmcommon.VMOutput, rightOutput *vmcommon.VMOutput, mergeAllTransfers bool) error {
 	if leftOutput.OutputAccounts == nil {
 		leftOutput.OutputAccounts = make(map[string]*vmcommon.OutputAccount)
 	}
 
-	for _, rightAccount := range rightOutput.OutputAccounts {
+	var err error
+	for key, rightAccount := range rightOutput.OutputAccounts {
+		if !isOutputAccountStoredUnderAddress(key, rightAccount) {
+			err = vmhost.ErrOutputAccountAddressMismatch
+			continue
+		}
+
 		leftAccount, ok := leftOutput.OutputAccounts[string(rightAccount.Address)]
 		if !ok {
 			leftAccount = &vmcommon.OutputAccount{}
@@ -668,6 +711,8 @@ func mergeVMOutputsConditionally(leftOutput *vmcommon.VMOutput, rightOutput *vmc
 	leftOutput.ReturnMessage = rightOutput.ReturnMessage
 
 	leftOutput.DeletedAccounts = append(leftOutput.DeletedAccounts, rightOutput.DeletedAccounts...)
+
+	return err
 }
 
 func mergeOutputAccounts(

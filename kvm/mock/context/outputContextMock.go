@@ -30,7 +30,8 @@ type OutputContextMock struct {
 }
 
 // AddToActiveState mocked method
-func (o *OutputContextMock) AddToActiveState(_ *vmcommon.VMOutput) {
+func (o *OutputContextMock) AddToActiveState(_ *vmcommon.VMOutput) error {
+	return nil
 }
 
 // InitState mocked method
