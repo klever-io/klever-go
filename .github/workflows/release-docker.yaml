@@ -38,7 +38,7 @@ jobs:
 
   build-multi-arch:
     needs: [setup-and-lint]
-    runs-on: klever-pipe
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:

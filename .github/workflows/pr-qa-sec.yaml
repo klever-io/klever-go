@@ -15,10 +15,17 @@ jobs:
       go-version: ${{ vars.GO_VERSION }}
       golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'v2.15.0' }}
 
-  test:
+  # KLC-2968: the tests run in parallel shards on GitHub-hosted runners. Each shard is a fixed set
+  # of top-level directories; "rest" takes every package the others do not, so a new directory is
+  # always tested.
+  test-shard:
+    name: test (${{ matrix.shard }})
     needs: setup-and-lint
-    # KLC-2968: fork pull requests run on GitHub-hosted runners, see go-setup-lint.yaml
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || 'klever-pipe' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [kvm, integration, storage-data, rest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -27,29 +34,82 @@ jobs:
         uses: ./.github/actions/go-setup-action
         with:
           go-version: ${{ vars.GO_VERSION }}
+          build-cache-key: test-${{ matrix.shard }}
 
       - name: Run tests
-        id: run-tests
-        continue-on-error: true
+        env:
+          SHARD: ${{ matrix.shard }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          set +e  # Disable immediate exit on error
-          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-            echo "Running full tests..."
-            go test -covermode=atomic -coverprofile=coverage.out -json ./... > test-output.json
-          else
-            echo "Running short tests..."
-            go test -short -covermode=atomic -coverprofile=coverage.out -json ./... > test-output.json
+          set +e  # the exit code is recorded and checked by the test job
+          module=$(go list -m)
+          case "$SHARD" in
+            kvm) packages=$(go list ./kvm/...) ;;
+            integration) packages=$(go list ./integrationTest/...) ;;
+            storage-data) packages=$(go list ./storage/... ./data/...) ;;
+            rest) packages=$(go list ./... | grep -Ev "^${module}/(kvm|integrationTest|storage|data)(/|$)") ;;
+            *) echo "::error::unknown test shard $SHARD"; exit 1 ;;
+          esac
+          if [ -z "$packages" ]; then
+            echo "::error::test shard $SHARD has no packages"
+            exit 1
           fi
-          echo "test_exit_code=$?" >> $GITHUB_OUTPUT
+
+          short_flag=-short
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            short_flag=
+          fi
+          echo "Running $(wc -w <<<"$packages") packages in shard $SHARD (${short_flag:-full tests})"
+          # shellcheck disable=SC2086 # $packages is a list of import paths
+          go test $short_flag -covermode=atomic -coverprofile="coverage-$SHARD.out" -json $packages > "test-output-$SHARD.json"
+          echo $? > "test-exit-$SHARD.txt"
+
+      - name: Upload shard results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-shard-${{ matrix.shard }}
+          path: |
+            coverage-${{ matrix.shard }}.out
+            test-output-${{ matrix.shard }}.json
+            test-exit-${{ matrix.shard }}.txt
+          retention-days: 1
+          overwrite: true
+
+  test:
+    needs: test-shard
+    if: always() && needs.test-shard.result != 'skipped'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download shard results
+        uses: actions/download-artifact@v8
+        with:
+          pattern: test-shard-*
+          merge-multiple: true
 
       - name: Process test results
-        if: always()
         id: coverage
+        env:
+          NUM_SHARDS: 4
         run: |
-          # Generate coverage summary
-          if [ -f coverage.out ]; then
-            go tool cover -func=coverage.out > coverage-summary.txt
-            COVERAGE=$(grep "total:" coverage-summary.txt | awk '{print $3}')
+          # One exit file per shard, each 0: a shard that crashed or never ran leaves none
+          test_exit_code=0
+          num_exit_files=$(ls test-exit-*.txt 2>/dev/null | wc -l)
+          if [ "$num_exit_files" -ne "$NUM_SHARDS" ]; then
+            echo "::error::expected $NUM_SHARDS test shard results, found $num_exit_files"
+            test_exit_code=1
+          fi
+          for f in test-exit-*.txt; do
+            [ -f "$f" ] && [ "$(cat "$f")" != "0" ] && test_exit_code=1
+          done
+          echo "test_exit_code=$test_exit_code" >> $GITHUB_OUTPUT
+
+          # Each package is tested in exactly one shard, so the profiles concatenate
+          cat test-output-*.json > test-output.json 2>/dev/null || true
+          if ls coverage-*.out >/dev/null 2>&1; then
+            { echo "mode: atomic"; for f in coverage-*.out; do tail -n +2 "$f"; done; } > coverage.out
+            COVERAGE=$(awk 'NR > 1 { total += $2; if ($3 > 0) covered += $2 } END { if (total > 0) printf "%.1f%%", 100 * covered / total; else print "0.0%" }' coverage.out)
+            echo "total: $COVERAGE" > coverage-summary.txt
             echo "total=$COVERAGE" >> $GITHUB_OUTPUT
           else
             echo "No coverage data generated" > coverage-summary.txt
@@ -58,26 +118,26 @@ jobs:
 
           # Create test summary and check for failures
           echo "### Test Results 🧪" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ steps.run-tests.outputs.test_exit_code }}" == "0" ]; then
+          if [ "$test_exit_code" == "0" ]; then
             echo "✅ All tests passed successfully" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ Some tests failed" >> $GITHUB_STEP_SUMMARY
             echo "::error::🔴 Test failures detected!"
-            
-            if [ -f test-output.json ]; then
+
+            if [ -s test-output.json ]; then
               echo "#### Failed Tests" >> $GITHUB_STEP_SUMMARY
               echo '```' >> $GITHUB_STEP_SUMMARY
               jq -r 'select(.Action=="fail") | "- \(.Package) - \(.Test)"' test-output.json | tee -a $GITHUB_STEP_SUMMARY
               echo '```' >> $GITHUB_STEP_SUMMARY
-              
+
               # Output failures as GitHub annotations
               jq -r 'select(.Action=="fail") | "::error file=\(.Package)::❌ \(.Test): \(.Action)"' test-output.json
             fi
-            
+
             exit 1
           fi
-          
-          echo "Coverage: ${{ steps.coverage.outputs.total }}" >> $GITHUB_STEP_SUMMARY
+
+          echo "Coverage: ${COVERAGE:-0.0%}" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload test results
         if: always()
@@ -93,13 +153,12 @@ jobs:
 
     outputs:
       coverage: ${{ steps.coverage.outputs.total }}
-      test_exit_code: ${{ steps.run-tests.outputs.test_exit_code }}
+      test_exit_code: ${{ steps.coverage.outputs.test_exit_code }}
 
   sonarqube:
     needs: [setup-and-lint, test]
-    runs-on: klever-pipe
-    # KLC-2968: skipped for fork pull requests, which get no secrets and must not run on the
-    # self-hosted runners
+    runs-on: ubuntu-latest
+    # KLC-2968: skipped for fork pull requests, which get no secrets
     if: |
       always() &&
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
@@ -172,9 +231,8 @@ jobs:
 
   notify:
     needs: [setup-and-lint, test, sonarqube]
-    runs-on: klever-pipe
-    # KLC-2968: skipped for fork pull requests, which get no secrets and must not run on the
-    # self-hosted runners
+    runs-on: ubuntu-latest
+    # KLC-2968: skipped for fork pull requests, which get no secrets
     if: |
       always() &&
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
@@ -358,7 +416,7 @@ jobs:
   result-check:
     needs: [setup-and-lint, sonarqube, test]
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || 'klever-pipe' }}
+    runs-on: ubuntu-latest
     steps:
       - name: Check for failed jobs
         env:

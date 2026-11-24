@@ -1,14 +1,20 @@
 name: 'Go Setup Action'
-description: 'Sets up the Go environment, with dependency caching on GitHub-hosted runners'
+description: 'Sets up the Go environment, with module and build caching on GitHub-hosted runners'
 inputs:
   go-version:
     description: 'The Go version to use. Empty uses the version in go.mod.'
     required: false
     default: ''
   cache-enabled:
-    description: 'Enable caching of Go modules'
+    description: 'Enable caching of Go modules and of the Go build cache'
     required: false
     default: 'true'
+  build-cache-key:
+    description: >-
+      Names the Go build cache of the calling job, so jobs that compile differently (lint, each
+      test shard) keep separate caches. Empty disables the build cache.
+    required: false
+    default: ''
 
 runs:
   using: "composite"
@@ -33,6 +39,36 @@ runs:
         key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
           ${{ runner.os }}-${{ env.cache-name }}-
+
+    # KLC-2968: GitHub-hosted runners start without compiled packages, so the Go build cache is
+    # restored too. Only pushes save it, one entry per commit: a pull request restores the newest
+    # entry of its base branch and never writes one, so the cache count stays bounded and a pull
+    # request cannot change what develop builds from.
+    - name: Locate the Go build cache
+      id: go_build_cache
+      if: inputs.cache-enabled == 'true' && inputs.build-cache-key != '' && runner.environment == 'github-hosted'
+      shell: bash
+      run: echo "path=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the Go build cache
+      if: steps.go_build_cache.outputs.path != '' && github.event_name == 'pull_request'
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.go_build_cache.outputs.path }}
+        key: ${{ runner.os }}-go-build-${{ inputs.build-cache-key }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-go-build-${{ inputs.build-cache-key }}-${{ hashFiles('**/go.sum') }}-
+          ${{ runner.os }}-go-build-${{ inputs.build-cache-key }}-
+
+    - name: Restore and save the Go build cache
+      if: steps.go_build_cache.outputs.path != '' && github.event_name != 'pull_request'
+      uses: actions/cache@v6
+      with:
+        path: ${{ steps.go_build_cache.outputs.path }}
+        key: ${{ runner.os }}-go-build-${{ inputs.build-cache-key }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-go-build-${{ inputs.build-cache-key }}-${{ hashFiles('**/go.sum') }}-
+          ${{ runner.os }}-go-build-${{ inputs.build-cache-key }}-
 
     - name: Resolve package to module & Download dependencies
       if: ${{ steps.cache_vendor.outputs.cache-hit != 'true' }}

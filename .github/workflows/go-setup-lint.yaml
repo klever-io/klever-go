@@ -19,9 +19,9 @@ on:
 
 jobs:
   setup-and-lint:
-    # KLC-2968: a pull request from a fork runs its own code (Makefile, go test) and must never
-    # reach the persistent self-hosted runners, so it runs on a GitHub-hosted one.
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || 'klever-pipe' }}
+    # KLC-2968: GitHub-hosted, a fresh VM per job; klever-go is public and must not use the
+    # shared self-hosted runners
+    runs-on: ubuntu-latest
     outputs:
       lint-results: ${{ steps.lint.outputs.results }}
     steps:
@@ -34,11 +34,12 @@ jobs:
         uses: ./.github/actions/go-setup-action
         with:
           go-version: ${{ inputs.go-version }}
+          build-cache-key: lint
 
       - name: GoImports Formatter
         run: |
           # Pinned, not @latest: x/tools v0.50.0 raised its go directive to 1.26.0, and this
-          # runner sets GOTOOLCHAIN=local against go.mod's Go 1.25, so @latest fails to install and
+          # job sets GOTOOLCHAIN=local against go.mod's Go 1.25, so @latest fails to install and
           # breaks the lint job on every branch. v0.49.0 is the newest release that still
           # supports 1.25 and is what @latest resolved to until v0.50.0 shipped.
           go install golang.org/x/tools/cmd/goimports@v0.49.0
