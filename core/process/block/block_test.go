@@ -717,6 +717,18 @@ func TestMetaProcessor_ProcessBlockEpochStartErrorShouldRevertState(t *testing.T
 		prepare     func(hdr *block.Block, arguments *blproc.ArgMetaProcessor)
 	}{
 		{
+			// a well-formed body, so only the epoch start rule can reject the transaction
+			name:        "epoch start carrying a transaction",
+			expectedErr: process.ErrInvalidTXCount,
+			prepare: func(hdr *block.Block, arguments *blproc.ArgMetaProcessor) {
+				arguments.Hasher = &sha256.Sha256{}
+				hdr.TxHashes = [][]byte{bytes.Repeat([]byte{1}, arguments.Hasher.Size())}
+				hdr.TxResults = []uint32{0}
+				hdr.Header.TxCount = 1
+				hdr.Header.TxRootHash, _ = hdr.ComputeRootHash(arguments.Hasher)
+			},
+		},
+		{
 			name:        "invalid tx fees",
 			expectedErr: process.ErrInvalidTXFees,
 			prepare: func(hdr *block.Block, _ *blproc.ArgMetaProcessor) {
