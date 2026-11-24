@@ -2,10 +2,12 @@ package block
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
+	consensusMock "github.com/klever-io/klever-go/core/consensus/mock"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/crypto/hashing/blake2b"
@@ -327,4 +329,109 @@ func Test_updateStateStorage_NormalMode_CallsCheckpoint(t *testing.T) {
 	bp.updateStateStorage(header, []byte("rootHash"), []byte("prevRootHash"), accountsStub)
 
 	assert.True(t, checkpointCalled, "SetStateCheckpoint should be called in normal mode")
+}
+
+type slotTimestampStub struct {
+	consensusMock.SlotManagerMock
+	valid bool
+}
+
+func (s *slotTimestampStub) ValidateSlotTimestamp(_ int64, _ int64) bool {
+	return s.valid
+}
+
+func Test_checkBlockValidity_FirstBlockAgainstGenesis(t *testing.T) {
+	t.Parallel()
+
+	hasher := &blake2b.Blake2b{HashSize: 32}
+	genesisHash := []byte("genesis-hash")
+	genesisSeed := []byte("genesis-rand-seed")
+	newGenesis := func() *block.Block {
+		return &block.Block{Header: &block.BlockHeader{Timestamp: 1000, RandSeed: genesisSeed}}
+	}
+	validFirstBlock := func() *block.Block {
+		return &block.Block{Header: &block.BlockHeader{
+			Nonce:        1,
+			Slot:         2,
+			Timestamp:    1008,
+			ParentHash:   genesisHash,
+			PrevRandSeed: genesisSeed,
+			TxFees:       100,
+			TxBurnedFees: 100,
+		}}
+	}
+	newProcessor := func(genesis data.HeaderHandler, v7Epoch uint32, validSlotTimestamp bool) *baseProcessor {
+		forkController := mock.NewForkControllerStub()
+		forkController.FixAuditChangesV7Epoch = &v7Epoch
+
+		return &baseProcessor{
+			hasher:                       hasher,
+			forkController:               forkController,
+			validatorStatisticsProcessor: &mock.ValidatorStatisticsProcessorStub{},
+			slotManager: &slotTimestampStub{
+				SlotManagerMock: consensusMock.SlotManagerMock{IndexCalled: func() int64 { return 10 }},
+				valid:           validSlotTimestamp,
+			},
+			blockChain: &mock.BlockChainMock{
+				GetCurrentBlockHeaderCalled: func() data.HeaderHandler { return nil },
+				GetGenesisHeaderCalled:      func() data.HeaderHandler { return genesis },
+				GetGenesisHeaderHashCalled:  func() []byte { return genesisHash },
+			},
+		}
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(b *block.Block)
+		err    error
+	}{
+		{name: "valid first block", mutate: func(_ *block.Block) {}},
+		{name: "slot not after genesis", mutate: func(b *block.Block) { b.Header.Slot = 0 }, err: process.ErrLowerSlotInBlock},
+		{name: "timestamp before genesis", mutate: func(b *block.Block) { b.Header.Timestamp = 999 }, err: process.ErrInvalidBlockTimestamp},
+		{name: "wrong prev rand seed", mutate: func(b *block.Block) { b.Header.PrevRandSeed = []byte("forged") }, err: process.ErrRandSeedDoesNotMatch},
+		{name: "epoch differs from genesis", mutate: func(b *block.Block) { b.Header.Epoch = 1 }, err: process.ErrEpochDoesNotMatch},
+		{name: "forged burned fees", mutate: func(b *block.Block) { b.Header.TxBurnedFees = 1 }, err: process.ErrInvalidTXFees},
+		{name: "root hash on an empty block", mutate: func(b *block.Block) { b.Header.TxRootHash = []byte("forged") }, err: process.ErrTxRootHashInvalidForEmptyBlock},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			blk := validFirstBlock()
+			tt.mutate(blk)
+
+			err := newProcessor(newGenesis(), 0, true).checkBlockValidity(blk)
+			if tt.err == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tt.err)
+		})
+	}
+
+	t.Run("timestamp outside its slot", func(t *testing.T) {
+		t.Parallel()
+
+		err := newProcessor(newGenesis(), 0, false).checkBlockValidity(validFirstBlock())
+		require.ErrorIs(t, err, process.ErrInvalidBlockTimestamp)
+	})
+
+	t.Run("nil genesis header", func(t *testing.T) {
+		t.Parallel()
+
+		err := newProcessor(nil, 0, true).checkBlockValidity(validFirstBlock())
+		require.ErrorIs(t, err, process.ErrNilBlockHeader)
+	})
+
+	t.Run("checks do not depend on FixAuditChangesV7", func(t *testing.T) {
+		t.Parallel()
+
+		bp := newProcessor(newGenesis(), math.MaxUint32, true)
+		require.NoError(t, bp.checkBlockValidity(validFirstBlock()))
+
+		blk := validFirstBlock()
+		blk.Header.PrevRandSeed = []byte("forged")
+		require.ErrorIs(t, bp.checkBlockValidity(blk), process.ErrRandSeedDoesNotMatch)
+	})
 }
