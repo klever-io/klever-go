@@ -134,8 +134,9 @@ func WithBlockChain(blkc data.ChainHandler) Option {
 	}
 }
 
-// WithAccountsAdapter sets up the accounts adapter option for the Node
-func WithAccountsAdapter(accounts state.AccountsAdapter) Option {
+// WithAccountsAdapter sets up the accounts the REST reads use. cmd/node passes a reader of the last
+// committed state (createAPIState), never block processing's adapter.
+func WithAccountsAdapter(accounts state.AccountsReader) Option {
 	return func(n *Node) error {
 		if check.IfNil(accounts) {
 			return common.ErrNilAccountsAdapter
@@ -145,13 +146,38 @@ func WithAccountsAdapter(accounts state.AccountsAdapter) Option {
 	}
 }
 
-// WithKAppsAdapter sets up the assets adapter option for the Node
-func WithKAppsAdapter(kapps state.AccountsAdapter) Option {
+// WithKAppsAdapter sets up the KApp accounts the REST reads use. cmd/node passes a reader of the
+// last committed state (createAPIState), never block processing's adapter.
+func WithKAppsAdapter(kapps state.AccountsReader) Option {
 	return func(n *Node) error {
 		if check.IfNil(kapps) {
 			return common.ErrNilKAppAccountsAdapter
 		}
 		n.kapps = kapps
+		return nil
+	}
+}
+
+// WithProcessingAccounts sets up block processing's accounts adapter, for the bootstrapper,
+// transaction admission, pending nonces and Merkle proofs
+func WithProcessingAccounts(accounts state.AccountsAdapter) Option {
+	return func(n *Node) error {
+		if check.IfNil(accounts) {
+			return common.ErrNilAccountsAdapter
+		}
+		n.processingAccounts = accounts
+		return nil
+	}
+}
+
+// WithProcessingKApps sets up block processing's KApp accounts adapter, for the proposal
+// controller at startup
+func WithProcessingKApps(kapps state.AccountsAdapter) Option {
+	return func(n *Node) error {
+		if check.IfNil(kapps) {
+			return common.ErrNilKAppAccountsAdapter
+		}
+		n.processingKApps = kapps
 		return nil
 	}
 }
@@ -297,13 +323,26 @@ func WithTransactionProcessor(txProcessor process.TransactionProcessor) Option {
 	}
 }
 
-// WithKAppController sets up the KApp Controller option for the Node
+// WithKAppController sets up the KApp controller the REST reads use. cmd/node passes a read-only
+// one over the last committed state (createAPIState), never block processing's controller.
 func WithKAppController(kAppController kapp.KAppController) Option {
 	return func(n *Node) error {
 		if check.IfNil(kAppController) {
 			return common.ErrNilKAppController
 		}
 		n.kappController = kAppController
+		return nil
+	}
+}
+
+// WithProcessingKAppController sets up block processing's KApp controller, for transaction
+// admission and the proposal controller at startup
+func WithProcessingKAppController(kAppController kapp.KAppController) Option {
+	return func(n *Node) error {
+		if check.IfNil(kAppController) {
+			return common.ErrNilKAppController
+		}
+		n.processingKAppController = kAppController
 		return nil
 	}
 }

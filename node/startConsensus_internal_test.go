@@ -124,7 +124,7 @@ func TestNode_CurrentEpoch(t *testing.T) {
 func TestNode_StartProposalController(t *testing.T) {
 	t.Parallel()
 
-	// newNode wires the accounts adapter and the four consumers
+	// newNode wires the processing KApps adapter and the five consumers
 	// publishProposalController fans out to
 	newNode := func(t *testing.T, acnt state.AccountHandler, loadErr, saveErr error) *Node {
 		forkController, err := fork.NewForkController(config.EnableEpochs{}, &commonMock.EpochNotifierStub{})
@@ -132,14 +132,15 @@ func TestNode_StartProposalController(t *testing.T) {
 
 		return &Node{
 			forkController: forkController,
-			kapps: &commonMock.AccountsStub{
+			processingKApps: &commonMock.AccountsStub{
 				LoadAccountCalled: func([]byte) (state.AccountHandler, error) { return acnt, loadErr },
 				SaveAccountCalled: func(state.AccountHandler) error { return saveErr },
 			},
-			feeHandler:              &commonMock.FeeHandlerStub{},
-			blockProcessor:          &consensusMock.BlockProcessorMock{},
-			kappController:          &stub.KAppControllerStub{},
-			kappControllerSimulator: &stub.KAppControllerStub{},
+			feeHandler:               &commonMock.FeeHandlerStub{},
+			blockProcessor:           &consensusMock.BlockProcessorMock{},
+			processingKAppController: &stub.KAppControllerStub{},
+			kappController:           &stub.KAppControllerStub{},
+			kappControllerSimulator:  &stub.KAppControllerStub{},
 		}
 	}
 

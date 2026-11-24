@@ -175,6 +175,7 @@ func createNodeWithAccountsAdapter(t *testing.T, accAdapter *mock.AccountsStub) 
 		node.WithAddressPubkeyConverter(createMockPubkeyConverter()),
 		node.WithValidatorPubkeyConverter(createMockPubkeyConverter()),
 		node.WithAccountsAdapter(accAdapter),
+		node.WithProcessingAccounts(accAdapter),
 		node.WithWhiteListHandler(&mock.WhiteListHandlerStub{}),
 		node.WithWhiteListHandlerVerified(&mock.WhiteListHandlerStub{}),
 		node.WithUint64ByteSliceConverter(uint64Converter),
@@ -188,6 +189,7 @@ func createNodeWithAccountsAdapter(t *testing.T, accAdapter *mock.AccountsStub) 
 		node.WithChainID(chainID),
 		node.WithProposalController(proposalController),
 		node.WithKAppController(kappController),
+		node.WithProcessingKAppController(kappController),
 		node.WithForkController(forkController),
 	)
 	require.Nil(t, err)
@@ -239,6 +241,7 @@ func createNodeWithFeeHandler(t *testing.T, feeHandler *mock.FeeHandlerStub) (*n
 		node.WithAddressPubkeyConverter(createMockPubkeyConverter()),
 		node.WithValidatorPubkeyConverter(createMockPubkeyConverter()),
 		node.WithAccountsAdapter(accAdapter),
+		node.WithProcessingAccounts(accAdapter),
 		node.WithWhiteListHandler(&mock.WhiteListHandlerStub{}),
 		node.WithWhiteListHandlerVerified(&mock.WhiteListHandlerStub{}),
 		node.WithUint64ByteSliceConverter(uint64Converter),
@@ -252,6 +255,7 @@ func createNodeWithFeeHandler(t *testing.T, feeHandler *mock.FeeHandlerStub) (*n
 		node.WithChainID(chainID),
 		node.WithProposalController(proposalController),
 		node.WithKAppController(kappController),
+		node.WithProcessingKAppController(kappController),
 		node.WithForkController(forkController),
 	)
 	require.Nil(t, err)
@@ -327,13 +331,13 @@ func createNodeWithOptions(t *testing.T, opts nodeTestOptions) (*node.Node, erro
 
 	// Add optional options only if provided
 	if opts.accAdapter != nil {
-		options = append(options, node.WithAccountsAdapter(opts.accAdapter))
+		options = append(options, node.WithAccountsAdapter(opts.accAdapter), node.WithProcessingAccounts(opts.accAdapter))
 	}
 	if opts.kappsAdapter != nil {
 		options = append(options, node.WithKAppsAdapter(opts.kappsAdapter))
 	}
 	if opts.kappController != nil {
-		options = append(options, node.WithKAppController(opts.kappController))
+		options = append(options, node.WithKAppController(opts.kappController), node.WithProcessingKAppController(opts.kappController))
 	}
 	if opts.blockchain != nil {
 		options = append(options, node.WithBlockChain(opts.blockchain))
@@ -445,6 +449,7 @@ func TestWithConsensusMonitoring(t *testing.T) {
 			node.WithAddressPubkeyConverter(createMockPubkeyConverter()),
 			node.WithValidatorPubkeyConverter(createMockPubkeyConverter()),
 			node.WithAccountsAdapter(accAdapter),
+			node.WithProcessingAccounts(accAdapter),
 			node.WithWhiteListHandler(&mock.WhiteListHandlerStub{}),
 			node.WithWhiteListHandlerVerified(&mock.WhiteListHandlerStub{}),
 			node.WithHasher(getHasher()),
@@ -1114,7 +1119,7 @@ func TestNode_PublishProposalController(t *testing.T) {
 		return controller
 	}
 
-	// createNodeWithConsumers wires a node with the four consumers
+	// createNodeWithConsumers wires a node with the five consumers
 	// publishProposalController fans out to, each recording what it received
 	createNodeWithConsumers := func(t *testing.T, kappErr error) (*node.Node, map[string]kapps.ActiveProposalController) {
 		got := make(map[string]kapps.ActiveProposalController)
@@ -1128,6 +1133,7 @@ func TestNode_PublishProposalController(t *testing.T) {
 		n, err := node.NewNode(
 			node.WithTxFeeHandler(&mock.FeeHandlerStub{SetProposalControllerCalled: record("feeHandler")}),
 			node.WithBlockProcessor(&consensusMock.BlockProcessorMock{SetProposalControllerCalled: record("blockProcessor")}),
+			node.WithProcessingKAppController(&stub.KAppControllerStub{SetProposalControllerCalled: record("processingKAppController")}),
 			node.WithKAppController(&stub.KAppControllerStub{SetProposalControllerCalled: func(controller kapps.ActiveProposalController) error {
 				if kappErr != nil {
 					return kappErr
@@ -1150,7 +1156,7 @@ func TestNode_PublishProposalController(t *testing.T) {
 
 		require.Nil(t, n.PublishProposalController(controller))
 
-		require.Len(t, got, 4)
+		require.Len(t, got, 5)
 		for name, received := range got {
 			assert.Same(t, controller, received, "consumer %s got a different controller", name)
 		}

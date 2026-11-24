@@ -64,10 +64,11 @@ func (n *Node) decodeProofAddress(address string) ([]byte, error) {
 }
 
 func (n *Node) merkleProver() (state.MerkleProver, error) {
-	if check.IfNil(n.accounts) {
+	// proofs read committed or historical roots through the adapter itself, never the live trie
+	if check.IfNil(n.processingAccounts) {
 		return nil, common.ErrNilAccountsAdapter
 	}
-	prover, ok := n.accounts.(state.MerkleProver)
+	prover, ok := n.processingAccounts.(state.MerkleProver)
 	if !ok {
 		return nil, errors.New("accounts adapter does not support merkle proofs")
 	}

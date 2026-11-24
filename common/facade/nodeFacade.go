@@ -67,9 +67,6 @@ type ArgNodeFacade struct {
 	WsAntifloodConfig      config.WebServerAntifloodConfig
 	FacadeConfig           config.FacadeConfig
 	APIRoutesConfig        config.APIRoutesConfig
-	AccountsState          state.AccountsAdapter
-	KAppsState             state.AccountsAdapter
-	PeerState              state.AccountsAdapter
 	// AppStatusHandler is optional; a nil value here yields a no-op handler (see
 	// NewNodeFacade) rather than requiring every caller to supply one.
 	AppStatusHandler core.AppStatusHandler
@@ -86,9 +83,6 @@ type nodeFacade struct {
 	endpointsThrottlers    map[string]core.Throttler
 	wsAntifloodConfig      config.WebServerAntifloodConfig
 	restAPIServerDebugMode bool
-	accountsState          state.AccountsAdapter
-	kappsState             state.AccountsAdapter
-	peerState              state.AccountsAdapter
 	appStatusHandler       core.AppStatusHandler
 	ctx                    context.Context
 	cancelFunc             func()
@@ -114,15 +108,6 @@ func NewNodeFacade(arg ArgNodeFacade) (*nodeFacade, error) {
 	if arg.WsAntifloodConfig.SameSourceResetIntervalInSec == 0 {
 		return nil, fmt.Errorf("%w, SameSourceResetIntervalInSec should not be 0", common.ErrInvalidValue)
 	}
-	if check.IfNil(arg.AccountsState) {
-		return nil, common.ErrNilAccountState
-	}
-	if check.IfNil(arg.KAppsState) {
-		return nil, common.ErrNilKappState
-	}
-	if check.IfNil(arg.PeerState) {
-		return nil, common.ErrNilPeerState
-	}
 
 	throttlersMap := computeEndpointsNumGoRoutinesThrottlers(arg.WsAntifloodConfig)
 
@@ -139,9 +124,6 @@ func NewNodeFacade(arg ArgNodeFacade) (*nodeFacade, error) {
 		config:                 arg.FacadeConfig,
 		apiRoutesConfig:        arg.APIRoutesConfig,
 		endpointsThrottlers:    throttlersMap,
-		accountsState:          arg.AccountsState,
-		kappsState:             arg.KAppsState,
-		peerState:              arg.PeerState,
 		appStatusHandler:       appStatusHandler,
 	}
 	nf.ctx, nf.cancelFunc = context.WithCancel(context.Background())

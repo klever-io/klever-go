@@ -86,15 +86,6 @@ var ErrNilAPIResolver = errors.New("nil api resolver")
 // ErrNoAPIRoutesConfig signals that no configuration was found for API routes
 var ErrNoAPIRoutesConfig = errors.New("no configuration found for API routes")
 
-// ErrNilPeerState signals that a nil peer state has been provided
-var ErrNilPeerState = errors.New("nil peer state")
-
-// ErrNilAccountState signals that a nil account state has been provided
-var ErrNilAccountState = errors.New("nil account state")
-
-// ErrNilKappState signals that a nil asset state has been provided
-var ErrNilKappState = errors.New("nil kapp state")
-
 // ErrInvalidHeaderType signals an invalid header pointer was provided
 var ErrInvalidHeaderType = errors.New("invalid header type")
 

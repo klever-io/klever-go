@@ -11,6 +11,9 @@ import (
 	"github.com/klever-io/klever-go/core/alarm"
 	"github.com/klever-io/klever-go/core/bootstrap"
 	"github.com/klever-io/klever-go/core/consensus"
+	"github.com/klever-io/klever-go/core/kapp"
+	"github.com/klever-io/klever-go/core/kapp/disabled"
+	kappcontroller "github.com/klever-io/klever-go/core/kapp/kappController"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/rating/peerHonesty"
 	"github.com/klever-io/klever-go/core/process/throttle/antiflood/blackList"
@@ -19,6 +22,7 @@ import (
 	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/data/endProcess"
 	"github.com/klever-io/klever-go/data/retriever"
+	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/eventNotifier"
 	"github.com/klever-io/klever-go/factory"
 	"github.com/klever-io/klever-go/node"
@@ -113,8 +117,13 @@ func createNode(
 		return nil, err
 	}
 
+	apiState, err := createAPIState(stateComponents)
+	if err != nil {
+		return nil, err
+	}
+
 	var nd *node.Node
-	nd, err = node.NewNode(
+	nd, err = node.NewNode(append(stateOptions(stateComponents, apiState),
 		node.WithMessenger(network.NetMessenger),
 		node.WithHasher(coreData.Hasher),
 		node.WithInternalMarshalizer(coreData.InternalMarshalizer),
@@ -122,9 +131,6 @@ func createNode(
 		node.WithInitialNodesPubKeys(crypto.InitialPubKeys),
 		node.WithAddressPubkeyConverter(stateComponents.AddressPubkeyConverter),
 		node.WithValidatorPubkeyConverter(stateComponents.ValidatorPubkeyConverter),
-		node.WithAccountsAdapter(stateComponents.AccountsAdapter),
-		node.WithKAppsAdapter(stateComponents.KAppsAdapter),
-		node.WithKAppController(stateComponents.KAppController),
 		node.WithSimulatorKAppController(stateComponents.KAppControllerSimulator),
 		node.WithBlockChain(data.Blkc),
 		node.WithDataStore(data.Store),
@@ -185,7 +191,7 @@ func createNode(
 		node.WithConsensusMonitoring(config.ConsensusMonitoring),
 		node.WithSyncUntil(syncUntil),
 		node.WithStartInSync(startWithInSync),
-	)
+	)...)
 	if err != nil {
 		return nil, errors.New("error creating node: " + err.Error())
 	}
@@ -265,6 +271,68 @@ func startStatisticsMonitor(
 	}()
 
 	return nil
+}
+
+// apiState is what the node's REST reads use: readers of the last committed state and a read-only
+// KApp controller over them, none of which shares a trie, cache or controller with block
+// processing. The node's live paths (see node.Node) use block processing's own objects instead.
+type apiState struct {
+	accounts       state.AccountsAdapter
+	kapps          state.AccountsAdapter
+	kappController kapp.KAppController
+}
+
+// createAPIState builds the REST state the way createScQueryService builds the VM query
+// controller (cmd/node/sc.go), but over the last committed state instead of the live tries.
+func createAPIState(stateComponents *factory.StateComponents) (*apiState, error) {
+	accounts, err := state.NewLastCommittedAccounts(stateComponents.AccountsAdapter)
+	if err != nil {
+		return nil, err
+	}
+	kappAccounts, err := state.NewLastCommittedAccounts(stateComponents.KAppsAdapter)
+	if err != nil {
+		return nil, err
+	}
+	peers, err := state.NewLastCommittedAccounts(stateComponents.PeersAdapter)
+	if err != nil {
+		return nil, err
+	}
+
+	accCacher, err := state.NewReadOnlyAccountsCacher(state.ArgsAcccountCacher{
+		Accounts: accounts,
+		Kapps:    kappAccounts,
+		Peers:    peers,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	kappArgs := stateComponents.KAppArgs
+	kappArgs.ReadOnly = true
+	kappArgs.AccountsCacher = accCacher
+	kappController, err := kappcontroller.NewKappController(kappArgs)
+	if err != nil {
+		return nil, err
+	}
+	err = kappController.InitKApps(accCacher)
+	if err != nil {
+		return nil, err
+	}
+	kappController.SetCurrentKAppContext(disabled.NewDisabledKappContext())
+
+	return &apiState{accounts: accounts, kapps: kappAccounts, kappController: kappController}, nil
+}
+
+// stateOptions gives the node its REST readers and block processing's own objects
+func stateOptions(stateComponents *factory.StateComponents, api *apiState) []node.Option {
+	return []node.Option{
+		node.WithAccountsAdapter(api.accounts),
+		node.WithKAppsAdapter(api.kapps),
+		node.WithKAppController(api.kappController),
+		node.WithProcessingAccounts(stateComponents.AccountsAdapter),
+		node.WithProcessingKApps(stateComponents.KAppsAdapter),
+		node.WithProcessingKAppController(stateComponents.KAppController),
+	}
 }
 
 func createNodesCoordinator(

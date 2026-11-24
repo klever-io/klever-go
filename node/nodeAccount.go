@@ -63,7 +63,8 @@ func (n *Node) GetNextNonce(address string) (uint64, uint64, uint64, error) {
 	if check.IfNil(n.addressPubkeyConverter) {
 		return 0, 0, 0, common.ErrNilPubkeyConverter
 	}
-	if check.IfNil(n.accounts) {
+	// pending nonces build on the live nonce, on purpose: the committed one lags the block in progress
+	if check.IfNil(n.processingAccounts) {
 		return 0, 0, 0, common.ErrNilAccountsAdapter
 	}
 
@@ -72,7 +73,7 @@ func (n *Node) GetNextNonce(address string) (uint64, uint64, uint64, error) {
 		return 0, 0, 0, err
 	}
 
-	accWrp, err := n.accounts.GetExistingAccount(addr)
+	accWrp, err := n.processingAccounts.GetExistingAccount(addr)
 	if err != nil {
 		if errors.Is(err, common.ErrAccNotFound) {
 			return 0, 0, 0, nil

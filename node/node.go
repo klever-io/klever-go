@@ -93,8 +93,8 @@ type Node struct {
 	genesisTime                   time.Time
 	epochStartTrigger             process.EpochStartTriggerHandler
 	epochStartRegistrationHandler eventNotifier.RegistrationHandler
-	accounts                      state.AccountsAdapter
-	kapps                         state.AccountsAdapter
+	accounts                      state.AccountsReader
+	kapps                         state.AccountsReader
 	addressPubkeyConverter        core.PubkeyConverter
 	validatorPubkeyConverter      core.PubkeyConverter
 	uint64ByteSliceConverter      typeConverters.Uint64ByteSliceConverter
@@ -184,6 +184,16 @@ type Node struct {
 
 	// For Backtest Purpose
 	syncUntil uint32
+
+	// accounts, kapps and kappController serve the REST reads: readers of the last committed state
+	// and a read-only KApp controller over it, none of which shares a trie with block processing.
+	// The processing objects below serve only the paths that need block processing's own objects:
+	// the bootstrapper, transaction admission and pending nonces, which read live state; Merkle
+	// proofs, which read committed roots through the AccountsDB; and the proposal controller at
+	// startup.
+	processingAccounts       state.AccountsAdapter
+	processingKApps          state.AccountsAdapter
+	processingKAppController kapp.KAppController
 }
 
 // ApplyOptions can set up different configurable options of a Node instance
@@ -467,7 +477,7 @@ func (n *Node) currentEpoch() uint32 {
 func (n *Node) startProposalController(epoch uint32) error {
 	log.Trace("creating proposal kapp")
 
-	acnt, err := n.kapps.LoadAccount(kapps.ProposalKAppAddress)
+	acnt, err := n.processingKApps.LoadAccount(kapps.ProposalKAppAddress)
 	if err != nil {
 		return err
 	}
@@ -494,7 +504,7 @@ func (n *Node) startProposalController(epoch uint32) error {
 		return err
 	}
 
-	return n.kapps.SaveAccount(proposalKApp)
+	return n.processingKApps.SaveAccount(proposalKApp)
 }
 
 // publishProposalController hands the same controller to every consumer that
@@ -506,6 +516,7 @@ func (n *Node) publishProposalController(controller kapps.ActiveProposalControll
 	setters := []func(kapps.ActiveProposalController) error{
 		n.feeHandler.SetProposalController,
 		n.blockProcessor.SetProposalController,
+		n.processingKAppController.SetProposalController,
 		n.kappController.SetProposalController,
 		n.kappControllerSimulator.SetProposalController,
 	}
@@ -841,14 +852,14 @@ func (n *Node) commonTransactionValidation(
 	}
 
 	txValidator, err := dataValidators.NewTxValidator(
-		n.accounts,
+		n.processingAccounts,
 		n.store.GetStorer(retriever.TransactionUnit),
 		n.dataPool,
 		whiteListRequest,
 		n.addressPubkeyConverter,
 		txSingleSigner,
 		n.keyGenForAccounts,
-		n.kappController,
+		n.processingKAppController,
 		core.MaxTxNonceDeltaAllowed,
 	)
 

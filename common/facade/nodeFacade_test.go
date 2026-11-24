@@ -37,9 +37,6 @@ func createMockArgNodeFacade() facade.ArgNodeFacade {
 				},
 			},
 		},
-		AccountsState: &mock.AccountsStub{},
-		KAppsState:    &mock.AccountsStub{},
-		PeerState:     &mock.AccountsStub{},
 	}
 }
 
@@ -126,33 +123,6 @@ func TestNewNodeFacade(t *testing.T) {
 		nf, err := facade.NewNodeFacade(args)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "SameSourceResetIntervalInSec should not be 0")
-		require.Nil(t, nf)
-	})
-
-	t.Run("NilAccountsState", func(t *testing.T) {
-		args := createMockArgNodeFacade()
-		args.AccountsState = nil
-
-		nf, err := facade.NewNodeFacade(args)
-		require.Equal(t, common.ErrNilAccountState, err)
-		require.Nil(t, nf)
-	})
-
-	t.Run("NilKAppsState", func(t *testing.T) {
-		args := createMockArgNodeFacade()
-		args.KAppsState = nil
-
-		nf, err := facade.NewNodeFacade(args)
-		require.Equal(t, common.ErrNilKappState, err)
-		require.Nil(t, nf)
-	})
-
-	t.Run("NilPeerState", func(t *testing.T) {
-		args := createMockArgNodeFacade()
-		args.PeerState = nil
-
-		nf, err := facade.NewNodeFacade(args)
-		require.Equal(t, common.ErrNilPeerState, err)
 		require.Nil(t, nf)
 	})
 

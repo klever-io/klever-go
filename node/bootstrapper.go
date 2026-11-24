@@ -43,7 +43,7 @@ func (n *Node) createMetaChainBootstrapper(slotManager consensus.SlotManager) (p
 		Marshalizer:         n.internalMarshalizer,
 		ForkDetector:        n.forkDetector,
 		RequestHandler:      n.requestHandler,
-		Accounts:            n.accounts,
+		Accounts:            n.processingAccounts,
 		BlackListHandler:    n.blocksBlackListHandler,
 		NetworkWatcher:      n.messenger,
 		BootStorer:          n.bootStorer,

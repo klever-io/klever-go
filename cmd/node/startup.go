@@ -1052,9 +1052,6 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 			WSConnectionURL:    ctx.GlobalString(WSConnectionUrl.Name),
 		},
 		APIRoutesConfig:  apiRoutesConfig,
-		AccountsState:    stateComponents.AccountsAdapter,
-		KAppsState:       stateComponents.KAppsAdapter,
-		PeerState:        stateComponents.PeersAdapter,
 		AppStatusHandler: coreComponents.StatusHandler,
 	}
 

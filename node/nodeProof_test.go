@@ -29,7 +29,7 @@ func TestNode_GetProofDecodesAddressAndVerifies(t *testing.T) {
 	conv, err := pubkeyConverter.NewBech32PubkeyConverter(len(address))
 	require.NoError(t, err)
 	n := &Node{
-		accounts:               adb,
+		processingAccounts:     adb,
 		addressPubkeyConverter: conv,
 	}
 
@@ -59,7 +59,7 @@ func TestNode_GetProofRequiresProverAndConverter(t *testing.T) {
 	_, err = n.GetProof(encoded)
 	require.ErrorIs(t, err, common.ErrNilAccountsAdapter)
 
-	n.accounts = &mock.AccountsStub{}
+	n.processingAccounts = &mock.AccountsStub{}
 	_, err = n.GetProof(encoded)
 	require.EqualError(t, err, "accounts adapter does not support merkle proofs")
 
