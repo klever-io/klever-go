@@ -76,6 +76,18 @@ jobs:
           retention-days: 1
           overwrite: true
 
+      # After the upload, so the test job still merges this shard's results; failing the shard
+      # itself lets "Re-run failed jobs" re-run only the shards that failed
+      - name: Fail on test failures
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          code=$(cat "test-exit-$SHARD.txt" 2>/dev/null || echo missing)
+          if [ "$code" != "0" ]; then
+            echo "::error::go test in shard $SHARD exited with $code"
+            exit 1
+          fi
+
   test:
     needs: test-shard
     if: always() && needs.test-shard.result != 'skipped'
