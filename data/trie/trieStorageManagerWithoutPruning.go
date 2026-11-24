@@ -41,10 +41,12 @@ func (tsm *trieStorageManagerWithoutPruning) CancelPrune(_ []byte, _ data.TriePr
 
 // PinRoot does nothing if pruning is disabled: no root is ever pruned
 func (tsm *trieStorageManagerWithoutPruning) PinRoot(_ []byte) {
+	// no-op: without pruning no root is ever removed, so there is nothing to pin
 }
 
 // UnpinRoot does nothing if pruning is disabled
 func (tsm *trieStorageManagerWithoutPruning) UnpinRoot(_ []byte) {
+	// no-op: without pruning no root is ever removed, so there is nothing to pin
 }
 
 // MarkForEviction does nothing if pruning is disabled

@@ -10,8 +10,8 @@ import (
 
 // AccountsStub -
 type AccountsStub struct {
-	OpenLastCommittedCalled  func() (state.CommittedState, error)
-	OpenCommittedAtCalled    func(rootHash []byte) (state.CommittedState, error)
+	OpenLastCommittedCalled  func() (*state.CommittedView, error)
+	OpenCommittedAtCalled    func(rootHash []byte) (*state.CommittedView, error)
 	AddJournalEntryCalled    func(je state.JournalAccountEntry)
 	GetExistingAccountCalled func(addressContainer []byte) (state.AccountHandler, error)
 	LoadAccountCalled        func(container []byte) (state.AccountHandler, error)
@@ -88,7 +88,7 @@ func (as *AccountsStub) GetAllLeaves(rootHash []byte, _ context.Context) (*data.
 var errAccNotImplemented = errors.New("not implemented")
 
 // OpenLastCommitted -
-func (as *AccountsStub) OpenLastCommitted() (state.CommittedState, error) {
+func (as *AccountsStub) OpenLastCommitted() (*state.CommittedView, error) {
 	if as.OpenLastCommittedCalled != nil {
 		return as.OpenLastCommittedCalled()
 	}
@@ -96,7 +96,7 @@ func (as *AccountsStub) OpenLastCommitted() (state.CommittedState, error) {
 }
 
 // OpenCommittedAt -
-func (as *AccountsStub) OpenCommittedAt(rootHash []byte) (state.CommittedState, error) {
+func (as *AccountsStub) OpenCommittedAt(rootHash []byte) (*state.CommittedView, error) {
 	if as.OpenCommittedAtCalled != nil {
 		return as.OpenCommittedAtCalled(rootHash)
 	}

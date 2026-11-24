@@ -155,9 +155,9 @@ type AccountsAdapter interface {
 	GetAllLeaves(rootHash []byte, ctx context.Context) (*data.TrieIteratorChannels, error)
 	RecreateAllTries(rootHash []byte, ctx context.Context) (map[string]data.Trie, error)
 	// OpenLastCommitted pins the last committed root and returns a read-only view of it.
-	OpenLastCommitted() (CommittedState, error)
+	OpenLastCommitted() (*CommittedView, error)
 	// OpenCommittedAt pins rootHash and returns a read-only view of it; see CommittedView.
-	OpenCommittedAt(rootHash []byte) (CommittedState, error)
+	OpenCommittedAt(rootHash []byte) (*CommittedView, error)
 
 	IsInterfaceNil() bool
 }
@@ -169,24 +169,6 @@ type AccountsReader interface {
 	RootHash() ([]byte, error)
 	GetAllLeaves(rootHash []byte, ctx context.Context) (*data.TrieIteratorChannels, error)
 	IsInterfaceNil() bool
-}
-
-// CommittedState reads the state at one committed root, pinned until Release. Block processing never
-// writes it, so any goroutine may read it. Nothing read through it may be used after Release: the
-// root's nodes, data tries included, can be pruned from then on.
-type CommittedState interface {
-	// GetExistingAccount returns the account at address, or common.ErrAccNotFound
-	GetExistingAccount(address []byte) (AccountHandler, error)
-	// LoadAccount returns the account at address, or a new empty one when it is missing
-	LoadAccount(address []byte) (AccountHandler, error)
-	// LoadKApp returns the KApp at address, or a new empty one when it is missing
-	LoadKApp(address []byte) (KAppAccountHandler, error)
-	// GetCode returns the code stored under codeHash, or nil
-	GetCode(codeHash []byte) []byte
-	RootHash() ([]byte, error)
-	// GetAllLeaves walks the view's own root
-	GetAllLeaves(rootHash []byte, ctx context.Context) (*data.TrieIteratorChannels, error)
-	Release()
 }
 
 // TriesHolder is used to store multiple tries

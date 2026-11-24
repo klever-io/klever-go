@@ -90,12 +90,12 @@ func (k KappsDBMock) RecreateAllTries(rootHash []byte, ctx context.Context) (map
 }
 
 // OpenLastCommitted -
-func (k KappsDBMock) OpenLastCommitted() (state.CommittedState, error) {
+func (k KappsDBMock) OpenLastCommitted() (*state.CommittedView, error) {
 	return nil, errAccNotImplemented
 }
 
 // OpenCommittedAt -
-func (k KappsDBMock) OpenCommittedAt(_ []byte) (state.CommittedState, error) {
+func (k KappsDBMock) OpenCommittedAt(_ []byte) (*state.CommittedView, error) {
 	return nil, state.ErrStateRootUnavailable
 }
 

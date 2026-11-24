@@ -285,15 +285,8 @@ func (h *hookDb) Get(key []byte) ([]byte, error) {
 	return h.MemDbMock.Get(key)
 }
 
-// newPruningProofAccountsDB builds user accounts over a trie storage manager that prunes, on db.
+// newPruningProofAccountsDB builds accounts over a trie storage manager that prunes, on db.
 func newPruningProofAccountsDB(t *testing.T, db data.DBWriteCacher, marshalizer *mock.ProtobufMarshalizerMock) *state.AccountsDB {
-	t.Helper()
-
-	return newPruningAccountsDB(t, db, marshalizer, factory.NewAccountCreator())
-}
-
-// newPruningAccountsDB builds accounts of accountFactory over a trie storage manager that prunes, on db.
-func newPruningAccountsDB(t *testing.T, db data.DBWriteCacher, marshalizer *mock.ProtobufMarshalizerMock, accountFactory state.AccountFactory) *state.AccountsDB {
 	t.Helper()
 
 	hsh := &mock.HasherMock{}
@@ -316,7 +309,7 @@ func newPruningAccountsDB(t *testing.T, db data.DBWriteCacher, marshalizer *mock
 	require.NoError(t, err)
 	tr, err := trie.NewTrie(tsm, marshalizer, hsh, 5)
 	require.NoError(t, err)
-	adb, err := state.NewAccountsDB(tr, hsh, marshalizer, accountFactory, core.Normal)
+	adb, err := state.NewAccountsDB(tr, hsh, marshalizer, factory.NewAccountCreator(), core.Normal)
 	require.NoError(t, err)
 	return adb
 }
@@ -508,6 +501,73 @@ func TestAccountsDB_MerkleProofInterleavesWithCommitAndPruneWithoutDeadlock(t *t
 	}
 	close(done)
 	wg.Wait()
+}
+
+// A prune a view held back runs from the next CancelPrune, which must wait for a historical
+// proof walk of that root as PruneTrie does.
+func TestAccountsDB_CancelPruneRunningAHeldPruneWaitsForTheProofWalk(t *testing.T) {
+	t.Parallel()
+
+	db := &hookDb{MemDbMock: mock.NewMemDbMock()}
+	adb := newPruningProofAccountsDB(t, db, &mock.ProtobufMarshalizerMock{})
+	address := viewAddress(1)
+	putBalance(t, adb, address, 1)
+	putBalance(t, adb, viewAddress(2), 1)
+	root, err := adb.Commit()
+	require.NoError(t, err)
+	putBalance(t, adb, address, 2)
+	next, err := adb.Commit()
+	require.NoError(t, err)
+
+	view, err := adb.OpenCommittedAt(root)
+	require.NoError(t, err)
+	finalize(adb, root) // held by the view
+	view.Release()
+
+	walkStarted := make(chan struct{})
+	releaseWalk := make(chan struct{})
+	var blockOnce sync.Once
+	db.onGet = func(key []byte) {
+		if bytes.Equal(key, root) {
+			return
+		}
+		blockOnce.Do(func() {
+			close(walkStarted)
+			<-releaseWalk
+		})
+	}
+	proofDone := make(chan error, 1)
+	go func() {
+		_, errProof := adb.GetMerkleProofAtRoot(root, address)
+		proofDone <- errProof
+	}()
+	select {
+	case <-walkStarted:
+	case errProof := <-proofDone:
+		t.Fatalf("proof ended without reading a child node: %v", errProof)
+	}
+
+	cancelDone := make(chan struct{})
+	go func() {
+		adb.CancelPrune(next, data.NewRoot)
+		close(cancelDone)
+	}()
+	require.Never(t, func() bool {
+		select {
+		case <-cancelDone:
+			return true
+		default:
+			return false
+		}
+	}, 100*time.Millisecond, 5*time.Millisecond, "held prune ran during the historical proof walk")
+
+	close(releaseWalk)
+	require.NoError(t, <-proofDone)
+	<-cancelDone
+	db.onGet = nil
+
+	_, err = db.Get(root)
+	require.Error(t, err, "the held prune did not run after the walk")
 }
 
 // While a historical proof reads its root node, block processing must still save and

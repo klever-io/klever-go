@@ -8,7 +8,6 @@ import (
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/state"
-	"github.com/klever-io/klever-go/data/state/factory"
 	"github.com/stretchr/testify/require"
 )
 
@@ -92,9 +91,7 @@ func TestCommittedView_ReleaseLetsTheHeldBackDeleteRun(t *testing.T) {
 func TestCommittedView_MissingAccounts(t *testing.T) {
 	t.Parallel()
 
-	marshalizer := &mock.ProtobufMarshalizerMock{}
-	accounts := newPruningProofAccountsDB(t, mock.NewMemDbMock(), marshalizer)
-	kapps := newPruningAccountsDB(t, mock.NewMemDbMock(), marshalizer, factory.NewKAppAccountCreator())
+	accounts := newPruningProofAccountsDB(t, mock.NewMemDbMock(), &mock.ProtobufMarshalizerMock{})
 	missing := viewAddress(9)
 
 	accountsView, err := accounts.OpenCommittedAt(nil)
@@ -106,16 +103,6 @@ func TestCommittedView_MissingAccounts(t *testing.T) {
 	acc, err := accountsView.LoadAccount(missing)
 	require.NoError(t, err)
 	require.Equal(t, missing, acc.AddressBytes())
-	_, err = accountsView.LoadKApp(missing)
-	require.ErrorIs(t, err, common.ErrWrongTypeAssertion)
-
-	kappsView, err := kapps.OpenCommittedAt(nil)
-	require.NoError(t, err)
-	defer kappsView.Release()
-
-	kapp, err := kappsView.LoadKApp(missing)
-	require.NoError(t, err)
-	require.Equal(t, missing, kapp.AddressBytes())
 }
 
 func TestCommittedView_GetCodeReadsTheViewsRoot(t *testing.T) {
@@ -438,4 +425,22 @@ func TestCommittedView_LastCommittedFollowsARollback(t *testing.T) {
 	acc, err := view.GetExistingAccount(viewAddress(1))
 	require.NoError(t, err)
 	require.Equal(t, int64(1), acc.(state.UserAccountHandler).GetBalance(nil, false))
+}
+
+// A view that captured an older commit and recreates its trie late must not evict the newer one.
+func TestCommittedView_StaleViewKeepsTheNewerCachedTrie(t *testing.T) {
+	t.Parallel()
+
+	adb := newPruningProofAccountsDB(t, mock.NewMemDbMock(), &mock.ProtobufMarshalizerMock{})
+	putBalance(t, adb, viewAddress(1), 1)
+	_, err := adb.Commit()
+	require.NoError(t, err)
+
+	newer, err := adb.LastCommittedTrieAt(2)
+	require.NoError(t, err)
+	_, err = adb.LastCommittedTrieAt(1)
+	require.NoError(t, err)
+	cached, err := adb.LastCommittedTrieAt(2)
+	require.NoError(t, err)
+	require.Same(t, newer, cached)
 }

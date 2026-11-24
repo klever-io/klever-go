@@ -1,5 +1,7 @@
 package state
 
+import "github.com/klever-io/klever-go/data"
+
 func NewEmptyBaseAccount(address []byte, tracker DataTrieTracker) *baseAccount {
 	return &baseAccount{
 		address:         address,
@@ -77,4 +79,9 @@ func (adb *AccountsDB) NumCodeLoadsMeasured() uint64 {
 	defer adb.loadCodeMeasurements.Unlock()
 
 	return adb.loadCodeMeasurements.numCalls
+}
+
+// LastCommittedTrieAt returns the last committed root's trie as a view that captured gen would.
+func (adb *AccountsDB) LastCommittedTrieAt(gen uint64) (data.Trie, error) {
+	return adb.committedTrieAt(adb.mainTrie, adb.lastRootHash, true, gen)
 }

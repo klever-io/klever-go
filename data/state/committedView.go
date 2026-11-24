@@ -27,20 +27,12 @@ type CommittedView struct {
 	release sync.Once
 }
 
-var _ CommittedState = (*CommittedView)(nil)
-
 // OpenLastCommitted returns a view of the last committed root, pinned until Release. Unlike
 // GetExistingAccount it never sees what a block still being processed has saved, nor shares a trie
 // with block processing, so any goroutine may read it. The accounts it returns, data tries
 // included, may be read until Release and never after.
-func (adb *AccountsDB) OpenLastCommitted() (CommittedState, error) {
-	view, err := adb.openView(nil, true)
-	if err != nil {
-		// a nil *CommittedView in the interface would not compare equal to nil
-		return nil, err
-	}
-
-	return view, nil
+func (adb *AccountsDB) OpenLastCommitted() (*CommittedView, error) {
+	return adb.openView(nil, true)
 }
 
 // OpenCommittedAt pins rootHash and returns a read-only view of the state at it. It fails with
@@ -48,14 +40,8 @@ func (adb *AccountsDB) OpenLastCommitted() (CommittedState, error) {
 // already issued can still open and then fail on reads: the pin cannot recall a prune the pruning
 // buffer already holds. Open the last committed root, or one RootHash just returned. The caller
 // must Release it.
-func (adb *AccountsDB) OpenCommittedAt(rootHash []byte) (CommittedState, error) {
-	view, err := adb.openView(rootHash, false)
-	if err != nil {
-		// a nil *CommittedView in the interface would not compare equal to nil
-		return nil, err
-	}
-
-	return view, nil
+func (adb *AccountsDB) OpenCommittedAt(rootHash []byte) (*CommittedView, error) {
+	return adb.openView(rootHash, false)
 }
 
 // openView pins root, or the last committed root when atLast, copied under mutOp so that a pin never
@@ -115,7 +101,10 @@ func (adb *AccountsDB) committedTrieAt(mainTrie data.Trie, root []byte, isLast b
 	if err != nil {
 		return nil, err
 	}
-	adb.committedTrie, adb.committedTrieGen = committedTrie, gen
+	// a view that captured gen before a later commit must not replace the newer root's trie
+	if gen >= adb.committedTrieGen {
+		adb.committedTrie, adb.committedTrieGen = committedTrie, gen
+	}
 
 	return committedTrie, nil
 }
@@ -147,25 +136,6 @@ func (v *CommittedView) LoadAccount(address []byte) (AccountHandler, error) {
 	}
 
 	return acc, err
-}
-
-// LoadKApp returns the KApp at address, or a new empty one when it is missing
-func (v *CommittedView) LoadKApp(address []byte) (KAppAccountHandler, error) {
-	acc, err := v.LoadAccount(address)
-	if err != nil {
-		return nil, err
-	}
-
-	return asKApp(acc)
-}
-
-func asKApp(acnt AccountHandler) (KAppAccountHandler, error) {
-	kappAcc, ok := acnt.(KAppAccountHandler)
-	if !ok {
-		return nil, common.ErrWrongTypeAssertion
-	}
-
-	return kappAcc, nil
 }
 
 // GetCode returns the code stored under codeHash, or nil
@@ -258,28 +228,33 @@ func (refusesWrites) RecreateAllTries(_ []byte, _ context.Context) (map[string]d
 
 // PruneTrie does nothing
 func (refusesWrites) PruneTrie(_ []byte, _ data.TriePruningIdentifier) {
+	// no-op: a read-only view never prunes or snapshots; the processing adapter owns that
 }
 
 // CancelPrune does nothing
 func (refusesWrites) CancelPrune(_ []byte, _ data.TriePruningIdentifier) {
+	// no-op: a read-only view never prunes or snapshots; the processing adapter owns that
 }
 
 // SnapshotState does nothing
 func (refusesWrites) SnapshotState(_ []byte, _ context.Context) {
+	// no-op: a read-only view never prunes or snapshots; the processing adapter owns that
 }
 
 // SetStateCheckpoint does nothing
 func (refusesWrites) SetStateCheckpoint(_ []byte, _ context.Context) {
+	// no-op: a read-only view never prunes or snapshots; the processing adapter owns that
 }
 
 // lastCommittedAccounts is a read-only AccountsAdapter over the last committed root of accounts.
 // Every read opens a view of the root committed at that moment and releases it before returning, so
 // it never sees what a block in progress has saved, never hands out a trie block processing writes,
 // and holds no pin between calls.
-// ponytail: a pin covers the load, not the lazy data-trie reads the caller makes afterwards. Those
-// fail (never return other data) only if the root is pruned in between, one block after the next
-// commit. Leaf walks enter pruning buffering mode themselves. A caller that needs a whole response
-// from one root opens a CommittedView instead.
+// ponytail: a pin covers the load, not the lazy data-trie reads the caller makes afterwards. If the
+// root is pruned in between, one block after the next commit, those reads hit a missing node and
+// never return other data; callers that swallow the error (kappAccount.GetStorage, Node.GetAsset)
+// answer nil or not found. Leaf walks enter pruning buffering mode themselves. A caller that needs
+// a whole response from one root opens a CommittedView instead.
 // ponytail: every read recreates the account's data trie (BenchmarkKAppStorageRead: ~60 µs against
 // ~5 µs for a live uncached read); cache data tries per committed root if REST load needs it.
 type lastCommittedAccounts struct {
@@ -299,7 +274,7 @@ func NewLastCommittedAccounts(accounts AccountsAdapter) (*lastCommittedAccounts,
 	return &lastCommittedAccounts{accounts: accounts}, nil
 }
 
-func (l *lastCommittedAccounts) read(fn func(view CommittedState) error) error {
+func (l *lastCommittedAccounts) read(fn func(view *CommittedView) error) error {
 	view, err := l.accounts.OpenLastCommitted()
 	if err != nil {
 		return err
@@ -312,7 +287,7 @@ func (l *lastCommittedAccounts) read(fn func(view CommittedState) error) error {
 // GetExistingAccount returns the account at address in the last committed root, or common.ErrAccNotFound
 func (l *lastCommittedAccounts) GetExistingAccount(address []byte) (AccountHandler, error) {
 	var acc AccountHandler
-	err := l.read(func(view CommittedState) error {
+	err := l.read(func(view *CommittedView) error {
 		var errGet error
 		acc, errGet = view.GetExistingAccount(address)
 		return errGet
@@ -324,7 +299,7 @@ func (l *lastCommittedAccounts) GetExistingAccount(address []byte) (AccountHandl
 // LoadAccount returns the account at address in the last committed root, or a new empty one
 func (l *lastCommittedAccounts) LoadAccount(address []byte) (AccountHandler, error) {
 	var acc AccountHandler
-	err := l.read(func(view CommittedState) error {
+	err := l.read(func(view *CommittedView) error {
 		var errLoad error
 		acc, errLoad = view.LoadAccount(address)
 		return errLoad
@@ -336,7 +311,7 @@ func (l *lastCommittedAccounts) LoadAccount(address []byte) (AccountHandler, err
 // GetCode returns the code stored under codeHash in the last committed root, or nil
 func (l *lastCommittedAccounts) GetCode(codeHash []byte) []byte {
 	var code []byte
-	_ = l.read(func(view CommittedState) error {
+	_ = l.read(func(view *CommittedView) error {
 		code = view.GetCode(codeHash)
 		return nil
 	})
@@ -347,7 +322,7 @@ func (l *lastCommittedAccounts) GetCode(codeHash []byte) []byte {
 // RootHash returns the last committed root
 func (l *lastCommittedAccounts) RootHash() ([]byte, error) {
 	var root []byte
-	err := l.read(func(view CommittedState) error {
+	err := l.read(func(view *CommittedView) error {
 		var errRoot error
 		root, errRoot = view.RootHash()
 		return errRoot
@@ -374,12 +349,12 @@ func (l *lastCommittedAccounts) GetNumCheckpoints() uint32 {
 }
 
 // OpenLastCommitted opens a view of the last committed root
-func (l *lastCommittedAccounts) OpenLastCommitted() (CommittedState, error) {
+func (l *lastCommittedAccounts) OpenLastCommitted() (*CommittedView, error) {
 	return l.accounts.OpenLastCommitted()
 }
 
 // OpenCommittedAt opens a view of rootHash
-func (l *lastCommittedAccounts) OpenCommittedAt(rootHash []byte) (CommittedState, error) {
+func (l *lastCommittedAccounts) OpenCommittedAt(rootHash []byte) (*CommittedView, error) {
 	return l.accounts.OpenCommittedAt(rootHash)
 }
 

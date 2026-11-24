@@ -112,12 +112,12 @@ func (a *accountsAdapter) RecreateAllTries(_ []byte, _ context.Context) (map[str
 }
 
 // OpenLastCommitted returns an error: a disabled adapter holds no state to view
-func (a *accountsAdapter) OpenLastCommitted() (state.CommittedState, error) {
+func (a *accountsAdapter) OpenLastCommitted() (*state.CommittedView, error) {
 	return nil, state.ErrStateRootUnavailable
 }
 
 // OpenCommittedAt returns an error: a disabled adapter holds no state to view
-func (a *accountsAdapter) OpenCommittedAt(_ []byte) (state.CommittedState, error) {
+func (a *accountsAdapter) OpenCommittedAt(_ []byte) (*state.CommittedView, error) {
 	return nil, state.ErrStateRootUnavailable
 }
 

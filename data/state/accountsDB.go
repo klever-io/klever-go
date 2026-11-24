@@ -70,7 +70,7 @@ type AccountsDB struct {
 	dataTries    TriesHolder
 	entries      []JournalAccountEntry
 	mutOp        sync.RWMutex
-	// mutPrune keeps PruneTrie from removing trie nodes while a historical-root proof
+	// mutPrune keeps PruneTrie and CancelPrune from removing trie nodes while a historical-root proof
 	// walks them, without that walk holding mutOp. Order: mutPrune before mutOp.
 	mutPrune sync.RWMutex
 	// numProofWalks counts the historical-root proofs in flight (maxHistoricalProofWalks).
@@ -1029,8 +1029,11 @@ func (adb *AccountsDB) PruneTrie(rootHash []byte, identifier data.TriePruningIde
 	adb.mainTrie.GetStorageManager().Prune(rootHash, identifier)
 }
 
-// CancelPrune clears the trie's evictionWaitingList
+// CancelPrune clears the trie's evictionWaitingList. It can run prunes a pinned root held back,
+// so it waits for historical-root proof walks (mutPrune) as PruneTrie does.
 func (adb *AccountsDB) CancelPrune(rootHash []byte, identifier data.TriePruningIdentifier) {
+	adb.mutPrune.Lock()
+	defer adb.mutPrune.Unlock()
 	adb.mutOp.Lock()
 	defer adb.mutOp.Unlock()
 
