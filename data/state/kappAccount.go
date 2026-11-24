@@ -2,6 +2,8 @@
 package state
 
 import (
+	"errors"
+
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
@@ -76,14 +78,19 @@ func (a *kappAccount) SetStorage(key []byte, value []byte) error {
 	return a.dataTrieTracker.SaveKeyValue(key, value)
 }
 
-// StartProposalsKApp initializes or loads the proposal controller for the KApp account
+// StartProposalsKApp initializes or loads the proposal controller for the KApp account. Only an
+// absent controller (no data trie yet, or no value under the key) is initialized; a failed read is
+// returned, so a storage fault cannot replace the stored controller with defaults.
 func (a *kappAccount) StartProposalsKApp(forks core.ForkController) (kapps.ActiveProposalController, error) {
 	marshalizer := marshal.NewProtoMarshalizer()
 
 	initialProposal := kapps.NewInitialProposalController(forks)
 
 	controllerBytes, err := a.dataTrieTracker.RetrieveValue(kdautils.ProposalControllerKey)
-	if err != nil || len(controllerBytes) == 0 {
+	if err != nil && !errors.Is(err, common.ErrNilTrie) {
+		return nil, err
+	}
+	if len(controllerBytes) == 0 {
 		proposalData, errMarshal := marshalizer.Marshal(initialProposal)
 		if errMarshal != nil {
 			return nil, errMarshal
