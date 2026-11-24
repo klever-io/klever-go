@@ -1108,6 +1108,10 @@ func newOutputContextForIsolationTests(t *testing.T) *outputContext {
 	})
 	account, _ := outputContext.GetOutputAccount([]byte("contract"))
 	account.StorageUpdates["key"] = &vmcommon.StorageUpdate{Offset: []byte("key"), Data: []byte("value"), Written: true}
+	account.StorageUpdates["read"] = &vmcommon.StorageUpdate{Offset: []byte("read"), Data: []byte("cached")}
+	cachedCodeAccount, _ := outputContext.GetOutputAccount([]byte("called"))
+	cachedCodeAccount.Code = []byte("cached code")
+	cachedCodeAccount.CodeMetadata = []byte("cached metadata")
 	outputContext.outputState.DeletedAccounts = append(outputContext.outputState.DeletedAccounts, []byte("deleted"))
 
 	return outputContext
@@ -1147,8 +1151,14 @@ var nestedOutputMutations = []struct {
 	}},
 	{name: "CensorVMOutput", mutate: func(_ *testing.T, oc *outputContext) { oc.CensorVMOutput() }},
 	{name: "DeleteOutputAccount", mutate: func(_ *testing.T, oc *outputContext) { oc.DeleteOutputAccount([]byte("contract")) }},
-	{name: "GetVMOutput", mutate: func(_ *testing.T, oc *outputContext) { _ = oc.GetVMOutput() }},
-	{name: "RemoveNonUpdatedStorage", mutate: func(_ *testing.T, oc *outputContext) { oc.RemoveNonUpdatedStorage() }},
+	{name: "GetVMOutput", mutate: func(t *testing.T, oc *outputContext) {
+		_ = oc.GetVMOutput()
+		require.Nil(t, oc.outputState.OutputAccounts["called"].Code, "cached code must be cleared")
+	}},
+	{name: "RemoveNonUpdatedStorage", mutate: func(t *testing.T, oc *outputContext) {
+		oc.RemoveNonUpdatedStorage()
+		require.NotContains(t, oc.outputState.OutputAccounts["contract"].StorageUpdates, "read")
+	}},
 }
 
 func TestOutputContext_NestedCallChangesDoNotReachTheStateStack(t *testing.T) {
