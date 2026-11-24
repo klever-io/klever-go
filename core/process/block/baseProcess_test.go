@@ -2,7 +2,6 @@ package block
 
 import (
 	"errors"
-	"math"
 	"testing"
 
 	"github.com/klever-io/klever-go/common/mock"
@@ -424,13 +423,30 @@ func Test_checkBlockValidity_FirstBlockAgainstGenesis(t *testing.T) {
 		require.ErrorIs(t, err, process.ErrNilBlockHeader)
 	})
 
-	t.Run("checks do not depend on FixAuditChangesV7", func(t *testing.T) {
+	t.Run("live network block 1 passes with every fork off", func(t *testing.T) {
 		t.Parallel()
 
-		bp := newProcessor(newGenesis(), math.MaxUint32, true)
-		require.NoError(t, bp.checkBlockValidity(validFirstBlock()))
+		// the shape of block 1 on mainnet, testnet and devnet: slot 1, genesis+4s, no txs
+		historicalFirstBlock := func(txRootHash []byte) *block.Block {
+			return &block.Block{Header: &block.BlockHeader{
+				Nonce:        1,
+				Slot:         1,
+				Timestamp:    1004,
+				ParentHash:   genesisHash,
+				PrevRandSeed: genesisSeed,
+				TxRootHash:   txRootHash,
+			}}
+		}
 
-		blk := validFirstBlock()
+		bp := newProcessor(newGenesis(), 0, true)
+		forksOff := mock.NewForkControllerStub()
+		forksOff.SetAll(false)
+		bp.forkController = forksOff
+
+		require.NoError(t, bp.checkBlockValidity(historicalFirstBlock(nil)))
+		require.NoError(t, bp.checkBlockValidity(historicalFirstBlock(hasher.EmptyHash())))
+
+		blk := historicalFirstBlock(nil)
 		blk.Header.PrevRandSeed = []byte("forged")
 		require.ErrorIs(t, bp.checkBlockValidity(blk), process.ErrRandSeedDoesNotMatch)
 	})

@@ -3581,7 +3581,7 @@ func TestMetaProcessor_CreateEpochStartBodyWithInvalidTxCountShouldErr(t *testin
 	mp, err := blproc.NewMetaProcessor(arguments)
 	require.NoError(t, err)
 	err = mp.CreateEpochStartHeader(hdr)
-	require.Error(t, err, "invalid block tx count")
+	require.ErrorIs(t, err, process.ErrInvalidTXCount)
 }
 
 func TestMetaProcessor_CreateAndProcessWithInvalidProcess(t *testing.T) {
