@@ -3,6 +3,7 @@ package topicResolverSender
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"sync"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -139,10 +140,10 @@ func (trs *topicResolverSender) SendOnRequestTopicTo(rd *retriever.RequestData, 
 	numSentDirect := trs.sendOnTopic([]core.PeerID{peer}, topicToSendRequest, buff, 1, "direct peer")
 
 	consensusPeers := trs.peerListCreator.ConsensusPeerList()
-	// remove origin peer
+	// remove origin peer from a copy: the list is the messenger's cached slice for the topic
 	for index := range consensusPeers {
 		if bytes.Equal(consensusPeers[index].Bytes(), peer.Bytes()) {
-			consensusPeers = append(consensusPeers[:index], consensusPeers[index+1:]...)
+			consensusPeers = slices.Delete(slices.Clone(consensusPeers), index, index+1)
 			break
 		}
 	}

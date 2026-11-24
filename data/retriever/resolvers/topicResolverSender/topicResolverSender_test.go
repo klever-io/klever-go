@@ -239,6 +239,35 @@ func TestTopicResolverSender_SendOnRequestTopicToShouldNotSendTwice(t *testing.T
 	assert.Equal(t, sentToPid2, 1)
 }
 
+// The consensus peer list is the messenger's cached slice for the topic, shared by every
+// resolver and kept until the next refresh. Dropping the direct peer must not rewrite it.
+func TestTopicResolverSender_SendOnRequestTopicToShouldNotModifyConsensusPeerList(t *testing.T) {
+	t.Parallel()
+
+	pID1 := core.PeerID("peer1")
+	pID2 := core.PeerID("peer2")
+	pID3 := core.PeerID("peer3")
+	consensusPeers := []core.PeerID{pID1, pID2, pID3}
+
+	arg := createMockArgTopicResolverSender()
+	arg.Messenger = &mock.MessageHandlerStub{
+		SendToConnectedPeerCalled: func(topic string, buff []byte, peerID core.PeerID) error {
+			return nil
+		},
+	}
+	arg.PeerListCreator = &mock.PeerListCreatorStub{
+		ConsensusPeerListCalled: func() []core.PeerID {
+			return consensusPeers
+		},
+	}
+	trs, _ := topicResolverSender.NewTopicResolverSender(arg)
+
+	err := trs.SendOnRequestTopicTo(&retriever.RequestData{}, defaultHashes, pID1)
+
+	assert.Nil(t, err)
+	assert.Equal(t, []core.PeerID{pID1, pID2, pID3}, consensusPeers)
+}
+
 func TestTopicResolverSender_SendOnRequestTopicToShouldHandleError(t *testing.T) {
 	t.Parallel()
 
