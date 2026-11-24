@@ -41,6 +41,19 @@ type trieStorageManager struct {
 
 	dbEvictionWaitingList data.DBRemoveCacher
 	storageOperationMutex sync.RWMutex
+
+	// pins counts the readers holding each root. heldOps queues, in arrival order, a prune of a
+	// pinned root and every prune and cancel after it. Both are guarded by storageOperationMutex,
+	// like every prune.
+	pins    map[string]int
+	heldOps []heldPruneOp
+}
+
+// heldPruneOp is a prune or a cancel waiting behind a prune of a pinned root
+type heldPruneOp struct {
+	root       string
+	identifier data.TriePruningIdentifier
+	cancel     bool
 }
 
 type snapshotsQueueEntry struct {
@@ -85,6 +98,7 @@ func NewTrieStorageManager(
 		snapshotReq:           make(chan *snapshotsQueueEntry, generalConfig.SnapshotsBufferLen),
 		pruningBlockingOps:    0,
 		maxSnapshots:          generalConfig.MaxSnapshots,
+		pins:                  make(map[string]int),
 	}
 
 	go tsm.storageProcessLoop(marshalizer, hasher)
@@ -206,11 +220,93 @@ func (tsm *trieStorageManager) ExitPruningBufferingMode() {
 	log.Trace("exit pruning buffering state", "operations in progress that block pruning", tsm.pruningBlockingOps)
 }
 
-// Prune removes the given hash from db
+// Prune removes from db the nodes the commit of rootHash made obsolete for identifier. It waits,
+// in arrival order, behind a prune of a pinned root; see PinRoot.
 func (tsm *trieStorageManager) Prune(rootHash []byte, identifier data.TriePruningIdentifier) {
 	tsm.storageOperationMutex.Lock()
 	defer tsm.storageOperationMutex.Unlock()
 
+	tsm.runHeldOps()
+	tsm.runOrHold(heldPruneOp{root: string(rootHash), identifier: identifier})
+}
+
+// PinRoot keeps the nodes of rootHash in the database until the matching UnpinRoot. A prune of
+// rootHash waits, and so does every prune and cancel after it, in arrival order: a cancel can drop
+// the eviction entry that keeps a node an earlier prune would otherwise delete (ShouldKeepHash). A
+// rollback prune (NewRoot) of a pinned root becomes a cancel, so those nodes leak instead, as in
+// pruning buffering mode. The next Prune or CancelPrune after the last UnpinRoot runs what waits.
+// ponytail: one pin holds back every later prune, so nothing is reclaimed while it is held. Hold
+// pins for one read, not longer.
+func (tsm *trieStorageManager) PinRoot(rootHash []byte) {
+	tsm.storageOperationMutex.Lock()
+	defer tsm.storageOperationMutex.Unlock()
+
+	tsm.pins[string(rootHash)]++
+}
+
+// UnpinRoot releases one PinRoot of rootHash. It runs nothing itself: readers call it outside the
+// accounts adapter's lock, where a delete could race a commit writing the same nodes again.
+func (tsm *trieStorageManager) UnpinRoot(rootHash []byte) {
+	tsm.storageOperationMutex.Lock()
+	defer tsm.storageOperationMutex.Unlock()
+
+	key := string(rootHash)
+	if tsm.pins[key] < 1 {
+		log.Error("trie storage manager: UnpinRoot without a matching PinRoot", "root", rootHash)
+		return
+	}
+
+	tsm.pins[key]--
+	if tsm.pins[key] == 0 {
+		delete(tsm.pins, key)
+	}
+}
+
+// runOrHold runs op, or queues it when it must wait. A rollback prune that cannot run now becomes a
+// cancel: run later, it could delete the nodes of a commit that wrote the same root again. It must
+// be called under storageOperationMutex.
+func (tsm *trieStorageManager) runOrHold(op heldPruneOp) {
+	if !op.cancel && op.identifier == data.NewRoot && (len(tsm.heldOps) > 0 || tsm.pins[op.root] > 0) {
+		op.cancel = true
+	}
+	if len(tsm.heldOps) > 0 || tsm.mustWait(op) {
+		log.Trace("trie storage manager: prune held back by a pinned root", "root", []byte(op.root), "identifier", op.identifier, "cancel", op.cancel)
+		tsm.heldOps = append(tsm.heldOps, op)
+		return
+	}
+
+	tsm.run(op)
+}
+
+func (tsm *trieStorageManager) mustWait(op heldPruneOp) bool {
+	return !op.cancel && tsm.pins[op.root] > 0
+}
+
+// runHeldOps runs the queued operations in order, up to the first prune whose root is still pinned.
+// Only Prune and CancelPrune call it, which the accounts adapter calls under its own lock, so a
+// delete never interleaves with a commit writing the same nodes again. It must be called under
+// storageOperationMutex.
+func (tsm *trieStorageManager) runHeldOps() {
+	for len(tsm.heldOps) > 0 && !tsm.mustWait(tsm.heldOps[0]) {
+		op := tsm.heldOps[0]
+		tsm.heldOps = tsm.heldOps[1:]
+		tsm.run(op)
+	}
+	if len(tsm.heldOps) == 0 {
+		tsm.heldOps = nil
+	}
+}
+
+func (tsm *trieStorageManager) run(op heldPruneOp) {
+	if op.cancel {
+		tsm.cancelPruneNow([]byte(op.root), op.identifier)
+		return
+	}
+
+	tsm.pruneNow([]byte(op.root), op.identifier)
+}
+
+func (tsm *trieStorageManager) pruneNow(rootHash []byte, identifier data.TriePruningIdentifier) {
 	rootHash = append(rootHash, byte(identifier))
 
 	if tsm.pruningBlockingOps > 0 {
@@ -260,11 +356,17 @@ func (tsm *trieStorageManager) prune(rootHash []byte) {
 	}
 }
 
-// CancelPrune removes the given hash from the eviction waiting list
+// CancelPrune removes the given hash from the eviction waiting list. It waits, in arrival order,
+// behind a prune of a pinned root; see PinRoot.
 func (tsm *trieStorageManager) CancelPrune(rootHash []byte, identifier data.TriePruningIdentifier) {
 	tsm.storageOperationMutex.Lock()
 	defer tsm.storageOperationMutex.Unlock()
 
+	tsm.runHeldOps()
+	tsm.runOrHold(heldPruneOp{root: string(rootHash), identifier: identifier, cancel: true})
+}
+
+func (tsm *trieStorageManager) cancelPruneNow(rootHash []byte, identifier data.TriePruningIdentifier) {
 	rootHash = append(rootHash, byte(identifier))
 
 	if tsm.pruningBlockingOps > 0 || tsm.pruningBuffer.len() != 0 {

@@ -180,6 +180,11 @@ type StorageManager interface {
 	SetCheckpoint([]byte)
 	Prune([]byte, TriePruningIdentifier)
 	CancelPrune([]byte, TriePruningIdentifier)
+	// PinRoot keeps a root's nodes in the database until the matching UnpinRoot: a prune of the
+	// root waits, with every prune and cancel after it, until the next Prune or CancelPrune after
+	// the last UnpinRoot, and a rollback prune of a pinned root becomes a cancel.
+	PinRoot([]byte)
+	UnpinRoot([]byte)
 	MarkForEviction([]byte, ModifiedHashes) error
 	GetSnapshotThatContainsHash(rootHash []byte) SnapshotDbHandler
 	IsPruningEnabled() bool

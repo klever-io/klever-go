@@ -11,6 +11,8 @@ type StorageManagerStub struct {
 	SetCheckpointCalled               func([]byte)
 	PruneCalled                       func(rootHash []byte, identifier data.TriePruningIdentifier)
 	CancelPruneCalled                 func(rootHash []byte, identifier data.TriePruningIdentifier)
+	PinRootCalled                     func(rootHash []byte)
+	UnpinRootCalled                   func(rootHash []byte)
 	MarkForEvictionCalled             func([]byte, data.ModifiedHashes) error
 	GetDbThatContainsHashCalled       func([]byte) data.DBWriteCacher
 	GetSnapshotThatContainsHashCalled func(rootHash []byte) data.SnapshotDbHandler
@@ -57,6 +59,20 @@ func (sms *StorageManagerStub) Prune(rootHash []byte, identifier data.TriePrunin
 func (sms *StorageManagerStub) CancelPrune(rootHash []byte, identifier data.TriePruningIdentifier) {
 	if sms.CancelPruneCalled != nil {
 		sms.CancelPruneCalled(rootHash, identifier)
+	}
+}
+
+// PinRoot --
+func (sms *StorageManagerStub) PinRoot(rootHash []byte) {
+	if sms.PinRootCalled != nil {
+		sms.PinRootCalled(rootHash)
+	}
+}
+
+// UnpinRoot --
+func (sms *StorageManagerStub) UnpinRoot(rootHash []byte) {
+	if sms.UnpinRootCalled != nil {
+		sms.UnpinRootCalled(rootHash)
 	}
 }
 

@@ -48,6 +48,14 @@ func (sms *StorageManagerStub) CancelPrune([]byte, data.TriePruningIdentifier) {
 
 }
 
+// PinRoot --
+func (sms *StorageManagerStub) PinRoot([]byte) {
+}
+
+// UnpinRoot --
+func (sms *StorageManagerStub) UnpinRoot([]byte) {
+}
+
 // MarkForEviction --
 func (sms *StorageManagerStub) MarkForEviction(d []byte, m data.ModifiedHashes) error {
 	if sms.MarkForEvictionCalled != nil {

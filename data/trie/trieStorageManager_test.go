@@ -734,3 +734,127 @@ func TestShouldNotRemoveSnapshotDbIfItIsStillInUse(t *testing.T) {
 	assert.Nil(t, val)
 	assert.NotNil(t, err)
 }
+
+// commitTwice commits a trie twice and returns the storage manager with the first and second
+// roots. Both commits record their created nodes, so either root can be pruned on rollback too.
+func commitTwice(t *testing.T) (*trieStorageManager, []byte, []byte) {
+	tr, trieStorage, _ := newEmptyTrie()
+
+	commit := func(key string, value string) []byte {
+		require.NoError(t, tr.Update([]byte(key), []byte(value)))
+		newHashes, err := tr.GetDirtyHashes()
+		require.NoError(t, err)
+		tr.SetNewHashes(newHashes)
+		require.NoError(t, tr.Commit())
+		root, err := tr.RootHash()
+		require.NoError(t, err)
+
+		return root
+	}
+
+	_ = commit("doe", "reindeer")
+	oldRoot := commit("dog", "puppy")
+	newRoot := commit("dog", "doee")
+
+	return trieStorage, oldRoot, newRoot
+}
+
+func isStored(trieStorage *trieStorageManager, hash []byte) bool {
+	_, err := trieStorage.Database().Get(hash)
+	return err == nil
+}
+
+func TestTrieStorageManager_PinnedRootPruneWaitsForLastUnpinAndNextPrune(t *testing.T) {
+	t.Parallel()
+
+	trieStorage, oldRoot, _ := commitTwice(t)
+
+	trieStorage.PinRoot(oldRoot)
+	trieStorage.PinRoot(oldRoot)
+	trieStorage.CancelPrune(oldRoot, data.NewRoot)
+	trieStorage.Prune(oldRoot, data.OldRoot)
+	require.True(t, isStored(trieStorage, oldRoot), "a pinned root is not pruned")
+
+	trieStorage.UnpinRoot(oldRoot)
+	trieStorage.CancelPrune([]byte("another root"), data.NewRoot)
+	require.True(t, isStored(trieStorage, oldRoot), "one pin is still held")
+
+	trieStorage.UnpinRoot(oldRoot)
+	require.True(t, isStored(trieStorage, oldRoot), "an unpin deletes nothing itself")
+
+	trieStorage.CancelPrune([]byte("another root"), data.NewRoot)
+	require.False(t, isStored(trieStorage, oldRoot), "the next prune call runs the held prune")
+	require.Empty(t, trieStorage.pins)
+	require.Empty(t, trieStorage.heldOps)
+}
+
+func TestTrieStorageManager_RollbackPruneOfPinnedRootLeaksItsNodes(t *testing.T) {
+	t.Parallel()
+
+	trieStorage, oldRoot, newRoot := commitTwice(t)
+
+	trieStorage.PinRoot(newRoot)
+	trieStorage.CancelPrune(oldRoot, data.OldRoot)
+	trieStorage.Prune(newRoot, data.NewRoot)
+	require.Empty(t, trieStorage.heldOps, "a rollback prune of a pinned root becomes a cancel at once")
+
+	trieStorage.UnpinRoot(newRoot)
+	trieStorage.Prune([]byte("another root"), data.OldRoot)
+	require.True(t, isStored(trieStorage, newRoot), "its nodes leak instead of being deleted later")
+	require.True(t, isStored(trieStorage, oldRoot), "the root rolled back to stays")
+}
+
+func TestTrieStorageManager_LaterOperationsWaitBehindAHeldPruneInOrder(t *testing.T) {
+	t.Parallel()
+
+	trieStorage, oldRoot, newRoot := commitTwice(t)
+	other := []byte("another root")
+
+	trieStorage.PinRoot(oldRoot)
+	trieStorage.CancelPrune(oldRoot, data.NewRoot)
+	trieStorage.Prune(oldRoot, data.OldRoot)
+	trieStorage.CancelPrune(newRoot, data.NewRoot)
+	trieStorage.Prune(other, data.NewRoot)
+	trieStorage.Prune(newRoot, data.OldRoot)
+
+	require.Equal(t, []heldPruneOp{
+		{root: string(oldRoot), identifier: data.OldRoot},
+		{root: string(newRoot), identifier: data.NewRoot, cancel: true},
+		{root: string(other), identifier: data.NewRoot, cancel: true},
+		{root: string(newRoot), identifier: data.OldRoot},
+	}, trieStorage.heldOps, "nothing overtakes the held prune, and a queued rollback prune becomes a cancel")
+	require.True(t, isStored(trieStorage, oldRoot))
+	require.True(t, isStored(trieStorage, newRoot))
+
+	trieStorage.UnpinRoot(oldRoot)
+	trieStorage.CancelPrune(other, data.OldRoot)
+	require.Empty(t, trieStorage.heldOps)
+	require.False(t, isStored(trieStorage, oldRoot), "the held prune ran first")
+	require.True(t, isStored(trieStorage, newRoot), "nothing was committed after newRoot to prune")
+}
+
+func TestTrieStorageManager_PinHoldsNothingWhileNoPruneOfItsRootWaits(t *testing.T) {
+	t.Parallel()
+
+	trieStorage, oldRoot, newRoot := commitTwice(t)
+
+	trieStorage.PinRoot(newRoot)
+	trieStorage.CancelPrune(oldRoot, data.NewRoot)
+	trieStorage.Prune(oldRoot, data.OldRoot)
+
+	require.False(t, isStored(trieStorage, oldRoot), "an unpinned root prunes at once")
+	require.True(t, isStored(trieStorage, newRoot))
+	trieStorage.UnpinRoot(newRoot)
+}
+
+func TestTrieStorageManager_UnpinWithoutPinIsIgnored(t *testing.T) {
+	t.Parallel()
+
+	trieStorage, oldRoot, _ := commitTwice(t)
+
+	require.NotPanics(t, func() { trieStorage.UnpinRoot(oldRoot) })
+	trieStorage.PinRoot(oldRoot)
+	trieStorage.Prune(oldRoot, data.OldRoot)
+	require.True(t, isStored(trieStorage, oldRoot), "a stray unpin does not release a later pin")
+	trieStorage.UnpinRoot(oldRoot)
+}

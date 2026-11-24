@@ -39,6 +39,14 @@ func (tsm *trieStorageManagerWithoutPruning) CancelPrune(_ []byte, _ data.TriePr
 	log.Trace("trieStorageManagerWithoutPruning - CancelPrune:trie storage pruning is disabled")
 }
 
+// PinRoot does nothing if pruning is disabled: no root is ever pruned
+func (tsm *trieStorageManagerWithoutPruning) PinRoot(_ []byte) {
+}
+
+// UnpinRoot does nothing if pruning is disabled
+func (tsm *trieStorageManagerWithoutPruning) UnpinRoot(_ []byte) {
+}
+
 // MarkForEviction does nothing if pruning is disabled
 func (tsm *trieStorageManagerWithoutPruning) MarkForEviction(_ []byte, _ data.ModifiedHashes) error {
 	log.Trace("trieStorageManagerWithoutPruning - MarkForEviction:trie storage pruning is disabled")
