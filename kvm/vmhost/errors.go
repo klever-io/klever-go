@@ -186,6 +186,9 @@ var ErrSyncExecutionNotInSameShard = errors.New("sync execution request is not i
 // is not equal to the input gas
 var ErrInputAndOutputGasDoesNotMatch = errors.New("input and output gas does not match")
 
+// ErrOutputAccountAddressMismatch signals that an output account is not stored under its address
+var ErrOutputAccountAddressMismatch = errors.New("output account is not stored under its address")
+
 // ErrTransferValueOnKDACall signals that balance transfer was given in kda call
 var ErrTransferValueOnKDACall = errors.New("transfer value on kda call")
 

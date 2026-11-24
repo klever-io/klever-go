@@ -222,3 +222,262 @@ func Test_TransferExecute_NestedFailedTransferKeepsParentOutput(t *testing.T) {
 	require.NotEmpty(t, parentReturnData, "the parent lost its output state to the child's frame")
 	require.Equal(t, parentMarker, parentReturnData[0])
 }
+
+const misplacedOutputAccountKey = "misplaced-output-account-key"
+
+func storeTransferRecipientUnderAnotherKey(t *testing.T, world *worldmock.MockWorld) {
+	container := world.BuiltinFuncs.Container
+	transferFunction, err := container.Get(core.BuiltInFunctionTransfer)
+	require.NoError(t, err)
+
+	err = container.Replace(core.BuiltInFunctionTransfer, &test.MockBuiltin{
+		ProcessBuiltinFunctionCall: func(input *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+			vmOutput, err := transferFunction.ProcessBuiltinFunction(input)
+			if err != nil {
+				return vmOutput, err
+			}
+
+			recipientKey := string(input.RecipientAddr)
+			recipient, ok := vmOutput.OutputAccounts[recipientKey]
+			require.True(t, ok, "the built-in reported no output account for the recipient")
+
+			delete(vmOutput.OutputAccounts, recipientKey)
+			vmOutput.OutputAccounts[misplacedOutputAccountKey] = recipient
+
+			return vmOutput, nil
+		},
+	})
+	require.NoError(t, err)
+}
+
+func runFailingSubCallWithMisplacedBuiltinOutput(
+	t *testing.T,
+	callerBody func(host vmhost.VMHost) int32,
+) int32 {
+	before, _, after, returnCode := runSubCallWithSetup(t, test.KDATestTokenName, callerBody, false, func(world *worldmock.MockWorld) {
+		storeTransferRecipientUnderAnotherKey(t, world)
+	})
+	require.Equal(t, before, after, "the transaction reset must restore the starting balances")
+
+	return returnCode
+}
+
+func Test_TransferExecute_BuiltinOutputUnderAnotherKeyFailsCall(t *testing.T) {
+	var returnMessage string
+	returnCode := runFailingSubCallWithMisplacedBuiltinOutput(t, func(host vmhost.VMHost) int32 {
+		transfer := &vmcommon.KDATransfer{
+			KDAValue:     big.NewInt(noRollbackKDAAmount),
+			KDATokenName: test.KDATestTokenName,
+		}
+
+		returnCode := transferToChildAndCall(host, []*vmcommon.KDATransfer{transfer}, noRollbackAcceptMethod)
+		returnMessage = host.Output().ReturnMessage()
+		return returnCode
+	})
+
+	require.Equal(t, int32(1), returnCode)
+	require.Equal(t, vmhost.ErrOutputAccountAddressMismatch.Error(), returnMessage)
+}
+
+type builtinCallOutput struct {
+	logs              []*vmcommon.LogEntry
+	hasChildAccount   bool
+	returnData        [][]byte
+	returnCode        vmcommon.ReturnCode
+	returnMessage     string
+	backTransferValue *big.Int
+}
+
+func outputLogs(host vmhost.VMHost) []*vmcommon.LogEntry {
+	return append([]*vmcommon.LogEntry(nil), host.Output().GetVMOutput().Logs...)
+}
+
+func captureBuiltinCallOutput(host vmhost.VMHost) builtinCallOutput {
+	_, hasChildAccount := host.Output().GetOutputAccounts()[string(test.ChildAddress)]
+	_, backTransferValue := host.ManagedTypes().GetBackTransfers()
+
+	state := builtinCallOutput{
+		hasChildAccount:   hasChildAccount,
+		returnData:        append([][]byte(nil), host.Output().ReturnData()...),
+		returnCode:        host.Output().ReturnCode(),
+		returnMessage:     host.Output().ReturnMessage(),
+		backTransferValue: backTransferValue,
+	}
+	state.logs = outputLogs(host)
+
+	return state
+}
+
+func hasLogWithIdentifier(logs []*vmcommon.LogEntry, identifier string) bool {
+	for _, entry := range logs {
+		if string(entry.Identifier) == identifier {
+			return true
+		}
+	}
+
+	return false
+}
+
+func builtinTransferThenCall(host vmhost.VMHost, destination []byte, token []byte, amount int64, followUp string) int32 {
+	arguments := [][]byte{{1}, token, {0}, big.NewInt(amount).Bytes()}
+	if len(followUp) > 0 {
+		arguments = append(arguments, []byte(followUp))
+	}
+
+	return vmhooks.ExecuteOnDestContextWithTypedArgs(
+		host,
+		noRollbackFollowUpGas,
+		big.NewInt(0),
+		[]byte(core.BuiltInFunctionTransfer),
+		destination,
+		arguments,
+	)
+}
+
+func Test_BuiltinThenCall_FailedCallLeavesNoBuiltinOutput(t *testing.T) {
+	parentMarker := []byte("parent-before-call")
+
+	var logsBefore []*vmcommon.LogEntry
+	var state builtinCallOutput
+	before, inFlight, returnCode := runFailingSubCall(t, test.KDATestTokenName, func(host vmhost.VMHost) int32 {
+		host.Output().Finish(parentMarker)
+		host.Output().WriteLog(test.ParentAddress, [][]byte{[]byte("parent-topic")}, nil)
+		logsBefore = outputLogs(host)
+
+		returnCode := builtinTransferThenCall(host, test.ChildAddress, test.KDATestTokenName, noRollbackKDAAmount, noRollbackFailingMethod)
+		state = captureBuiltinCallOutput(host)
+		return returnCode
+	})
+
+	require.Equal(t, int32(1), returnCode)
+
+	require.Len(t, logsBefore, 1)
+	require.Equal(t, logsBefore, state.logs, "the failed call left a log entry behind")
+	require.False(t, hasLogWithIdentifier(state.logs, core.BuiltInFunctionTransfer))
+	require.False(t, state.hasChildAccount, "the failed call left an output account behind")
+	require.Equal(t, [][]byte{parentMarker}, state.returnData)
+
+	require.Equal(t, vmcommon.VMExecutionFailed, state.returnCode)
+	require.Equal(t, vmhost.ErrSignalError.Error(), state.returnMessage)
+
+	require.Equal(t, before.parent-noRollbackKDAAmount, inFlight.parent, "transfer still settled after the follow-up failed")
+	require.Equal(t, before.child+noRollbackKDAAmount, inFlight.child)
+}
+
+func Test_BuiltinThenCall_BuiltinOutputUnderAnotherKeyFailsCall(t *testing.T) {
+	var returnMessage string
+	var hasChildAccount, hasMisplacedAccount bool
+	returnCode := runFailingSubCallWithMisplacedBuiltinOutput(t, func(host vmhost.VMHost) int32 {
+		returnCode := builtinTransferThenCall(host, test.ChildAddress, test.KDATestTokenName, noRollbackKDAAmount, noRollbackAcceptMethod)
+		returnMessage = host.Output().ReturnMessage()
+
+		outputAccounts := host.Output().GetOutputAccounts()
+		_, hasChildAccount = outputAccounts[string(test.ChildAddress)]
+		_, hasMisplacedAccount = outputAccounts[misplacedOutputAccountKey]
+		return returnCode
+	})
+
+	require.Equal(t, int32(1), returnCode)
+	require.Equal(t, vmhost.ErrOutputAccountAddressMismatch.Error(), returnMessage)
+	require.False(t, hasChildAccount, "the misplaced account reached the output state under its address")
+	require.False(t, hasMisplacedAccount, "the misplaced account reached the output state under the foreign key")
+}
+
+func Test_OtherVMCall_OutputUnderAnotherKeyFailsCall(t *testing.T) {
+	otherVMType := []byte{0x9, 0x9}
+	otherVMAddress := test.MakeTestSCAddressWithVMType("otherVM", otherVMType)
+
+	var returnMessage string
+	var hasMisplacedAccount bool
+	_, _, _, returnCode := runSubCallWithSetup(t, kdautils.KLVIdentifier, func(host vmhost.VMHost) int32 {
+		returnCode := vmhooks.ExecuteOnDestContextWithTypedArgs(
+			host,
+			noRollbackFollowUpGas,
+			big.NewInt(0),
+			[]byte(noRollbackAcceptMethod),
+			otherVMAddress,
+			nil,
+		)
+		returnMessage = host.Output().ReturnMessage()
+		_, hasMisplacedAccount = host.Output().GetOutputAccounts()[misplacedOutputAccountKey]
+		return returnCode
+	}, false, func(world *worldmock.MockWorld) {
+		world.OtherVMOutputMap[string(otherVMType)] = &vmcommon.VMOutput{
+			OutputAccounts: map[string]*vmcommon.OutputAccount{
+				misplacedOutputAccountKey: {Address: otherVMAddress},
+			},
+		}
+	})
+
+	require.Equal(t, int32(1), returnCode)
+	require.Equal(t, vmhost.ErrOutputAccountAddressMismatch.Error(), returnMessage)
+	require.False(t, hasMisplacedAccount, "the misplaced account reached the output state under the foreign key")
+}
+
+func Test_BuiltinThenCall_SuccessKeepsBuiltinOutputAndBackTransfer(t *testing.T) {
+	parentMarker := []byte("parent-before-call")
+
+	var state builtinCallOutput
+	_, _, _, returnCode := runSubCall(t, test.KDATestTokenName, func(host vmhost.VMHost) int32 {
+		host.Output().Finish(parentMarker)
+
+		returnCode := builtinTransferThenCall(host, test.ChildAddress, test.KDATestTokenName, noRollbackKDAAmount, noRollbackPayOutMethod)
+		state = captureBuiltinCallOutput(host)
+		return returnCode
+	}, true)
+
+	require.Equal(t, int32(0), returnCode)
+	require.True(t, hasLogWithIdentifier(state.logs, core.BuiltInFunctionTransfer), "the built-in's log entry must survive")
+	require.True(t, state.hasChildAccount, "the built-in's output account must survive")
+	require.NotEmpty(t, state.returnData)
+	require.Equal(t, parentMarker, state.returnData[0])
+	require.Equal(t, big.NewInt(noRollbackKLVAmount), state.backTransferValue, "the parent must see the child's payback")
+}
+
+func Test_BuiltinThenCall_NestedSuccessKeepsParentOutput(t *testing.T) {
+	parentMarker := []byte("parent-before-call")
+
+	var parentReturnData [][]byte
+	_, _, _, returnCode := runSubCall(t, kdautils.KLVIdentifier, func(host vmhost.VMHost) int32 {
+		host.Output().Finish(parentMarker)
+
+		returnCode := vmhooks.ExecuteOnDestContextWithTypedArgs(
+			host,
+			noRollbackFollowUpGas,
+			big.NewInt(0),
+			[]byte(noRollbackBuiltinPay),
+			test.ChildAddress,
+			nil,
+		)
+		parentReturnData = append([][]byte(nil), host.Output().ReturnData()...)
+		return returnCode
+	}, true)
+
+	require.Equal(t, int32(0), returnCode)
+	require.NotEmpty(t, parentReturnData, "the parent lost its output state to the child's frame")
+	require.Equal(t, parentMarker, parentReturnData[0])
+}
+
+func Test_BuiltinThenCall_NestedFailedBuiltinKeepsParentOutput(t *testing.T) {
+	parentMarker := []byte("parent-before-call")
+
+	var parentReturnData [][]byte
+	_, _, returnCode := runFailingSubCall(t, kdautils.KLVIdentifier, func(host vmhost.VMHost) int32 {
+		host.Output().Finish(parentMarker)
+
+		returnCode := vmhooks.ExecuteOnDestContextWithTypedArgs(
+			host,
+			noRollbackFollowUpGas,
+			big.NewInt(0),
+			[]byte(noRollbackBuiltinNoFunds),
+			test.ChildAddress,
+			nil,
+		)
+		parentReturnData = append([][]byte(nil), host.Output().ReturnData()...)
+		return returnCode
+	})
+
+	require.Equal(t, int32(1), returnCode)
+	require.NotEmpty(t, parentReturnData, "the parent lost its output state to the child's frame")
+	require.Equal(t, parentMarker, parentReturnData[0])
+}

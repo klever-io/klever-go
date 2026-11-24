@@ -249,7 +249,7 @@ type OutputContext interface {
 	StateStack
 	PopMergeActiveState()
 	CensorVMOutput()
-	AddToActiveState(rightOutput *vmcommon.VMOutput)
+	AddToActiveState(rightOutput *vmcommon.VMOutput) error
 
 	GetOutputAccount(address []byte) (*vmcommon.OutputAccount, bool)
 	SetOutputAccount(address []byte, data *vmcommon.OutputAccount)

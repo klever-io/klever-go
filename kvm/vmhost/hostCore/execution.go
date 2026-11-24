@@ -496,10 +496,14 @@ func (host *vmHost) ExecuteOnDestContext(input *vmcommon.ContractCallInput) (vmO
 
 	// if ExecuteOnDestContext is called with an embedded builtin function call
 	// then parser the builtin function call and execute it i.e. (with_kda_transfer , with_klv_transfer)
-	if host.IsBuiltinFunctionName(input.Function) {
+	isBuiltinCall := host.IsBuiltinFunctionName(input.Function)
+	if isBuiltinCall {
+		host.Output().PushState()
+
 		// scExecutionInput will have the function call embedded as the new input function call
 		scExecutionInput, vmOutput, err = host.handleBuiltinFunctionCall(input)
 		if err != nil {
+			host.Output().PopSetActiveState()
 			host.Runtime().AddError(err, input.Function)
 			vmOutput = host.Output().CreateVMOutputInCaseOfError(err)
 			return
@@ -512,6 +516,14 @@ func (host *vmHost) ExecuteOnDestContext(input *vmcommon.ContractCallInput) (vmO
 	if scExecutionInput != nil {
 		vmOutput, err = host.executeOnDestContextNoBuiltinFunction(scExecutionInput)
 		host.addNewBackTransfersFromVMOutput(vmOutput, scExecutionInput.CallerAddr, scExecutionInput.RecipientAddr)
+	}
+
+	if isBuiltinCall {
+		if err != nil {
+			host.Output().PopSetActiveState()
+		} else {
+			host.Output().PopDiscard()
+		}
 	}
 
 	return
@@ -562,7 +574,10 @@ func (host *vmHost) handleFunctionCallOnOtherVM(input *vmcommon.ContractCallInpu
 		return nil, err
 	}
 
-	output.AddToActiveState(vmOutput)
+	err = output.AddToActiveState(vmOutput)
+	if err != nil {
+		return nil, err
+	}
 
 	return vmOutput, nil
 }
@@ -576,7 +591,10 @@ func (host *vmHost) handleBuiltinFunctionCall(input *vmcommon.ContractCallInput)
 		return nil, nil, err
 	}
 
-	output.AddToActiveState(builtinOutput)
+	err = output.AddToActiveState(builtinOutput)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	return postBuiltinInput, builtinOutput, nil
 }
