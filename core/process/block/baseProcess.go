@@ -35,6 +35,7 @@ const (
 	// Log parameter names
 	LogHeaderTxRootHash   = "header tx root hash"
 	LogComputedTxRootHash = "computed tx root hash"
+	LogReceivedBlockSlot  = "received block slot"
 )
 
 type baseProcessor struct {
@@ -151,7 +152,7 @@ func (bp *baseProcessor) checkSlotIsNotInTheFuture(headerHandler data.HeaderHand
 	maxAcceptedSlot := tools.SafeI64ToU64(bp.slotManager.Index()) + 1
 	if headerHandler.GetSlot() > maxAcceptedSlot {
 		log.Debug("slot is in the future",
-			"received block slot", headerHandler.GetSlot(),
+			LogReceivedBlockSlot, headerHandler.GetSlot(),
 			"max accepted slot", maxAcceptedSlot)
 		return process.ErrSlotAheadOfChronology
 	}
@@ -193,7 +194,7 @@ func (bp *baseProcessor) validateFirstBlockAgainstGenesis(headerHandler data.Hea
 	if headerHandler.GetSlot() <= genesisHeader.GetSlot() {
 		log.Debug("slot does not match",
 			"genesis block slot", genesisHeader.GetSlot(),
-			"received block slot", headerHandler.GetSlot())
+			LogReceivedBlockSlot, headerHandler.GetSlot())
 		return process.ErrLowerSlotInBlock
 	}
 
@@ -229,7 +230,7 @@ func (bp *baseProcessor) validateBlockAgainstCurrentHeader(headerHandler data.He
 	if headerHandler.GetSlot() <= currentBlockHeader.GetSlot() {
 		log.Debug("slot does not match",
 			"local block slot", currentBlockHeader.GetSlot(),
-			"received block slot", headerHandler.GetSlot())
+			LogReceivedBlockSlot, headerHandler.GetSlot())
 		return process.ErrLowerSlotInBlock
 	}
 
