@@ -3,10 +3,12 @@ package block
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	consensusMock "github.com/klever-io/klever-go/core/consensus/mock"
+	"github.com/klever-io/klever-go/core/consensus/slot"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/crypto/hashing/blake2b"
@@ -443,11 +445,21 @@ func Test_checkBlockValidity_FirstBlockAgainstGenesis(t *testing.T) {
 		forksOff.SetAll(false)
 		bp.forkController = forksOff
 
+		// the real slot manager with 4s slots from genesis, as the nodes run it
+		genesisTime := time.Unix(newGenesis().GetTimestamp(), 0)
+		slotManager, err := slot.NewSlotManager(genesisTime, genesisTime.Add(40*time.Second), 4*time.Second, &consensusMock.SyncTimerMock{}, 0)
+		require.NoError(t, err)
+		bp.slotManager = slotManager
+
 		require.NoError(t, bp.checkBlockValidity(historicalFirstBlock(nil)))
 		require.NoError(t, bp.checkBlockValidity(historicalFirstBlock(hasher.EmptyHash())))
 
 		blk := historicalFirstBlock(nil)
 		blk.Header.PrevRandSeed = []byte("forged")
 		require.ErrorIs(t, bp.checkBlockValidity(blk), process.ErrRandSeedDoesNotMatch)
+
+		blk = historicalFirstBlock(nil)
+		blk.Header.Timestamp = 1008
+		require.ErrorIs(t, bp.checkBlockValidity(blk), process.ErrInvalidBlockTimestamp, "slot 1 ends at genesis+8s")
 	})
 }
