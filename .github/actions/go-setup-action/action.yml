@@ -1,24 +1,14 @@
 name: 'Go Setup Action'
-description: 'Sets up Go environment with private modules support and caching'
+description: 'Sets up the Go environment, with dependency caching on GitHub-hosted runners'
 inputs:
   go-version:
     description: 'The Go version to use. Empty uses the version in go.mod.'
     required: false
     default: ''
-  go-private:
-    description: 'Private go modules'
-    required: false
-    default: 'github.com/klever-io/*'
   cache-enabled:
     description: 'Enable caching of Go modules'
     required: false
     default: 'true'
-  git-user:
-    description: 'Git username for private modules'
-    required: false
-  git-pass:
-    description: 'Git password or token for private modules'
-    required: false
 
 runs:
   using: "composite"
@@ -29,12 +19,6 @@ runs:
         go-version: ${{ inputs.go-version }}
         go-version-file: ${{ inputs.go-version == '' && 'go.mod' || '' }}
         cache: false
-
-    - name: Configure git for private modules
-      if: inputs.git-user != '' && inputs.git-pass != ''
-      shell: bash
-      run: |
-        git config --global url."https://${{ inputs.git-user }}:${{ inputs.git-pass }}@github.com".insteadOf "https://github.com"
 
     - name: Cache Go dependencies
       id: cache_vendor

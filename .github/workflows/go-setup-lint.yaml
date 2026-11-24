@@ -8,19 +8,10 @@ on:
         required: false
         type: string
         default: ''
-      go-private:
-        required: false
-        type: string
-        default: 'github.com/klever-io/*'
       golangci-lint-version:
         required: false
         type: string
         default: 'v2.15.0'
-    secrets:
-      git-user:
-        required: false
-      git-pass:
-        required: false
     outputs:
       lint-results:
         description: "Lint results from golangci-lint"
@@ -28,7 +19,9 @@ on:
 
 jobs:
   setup-and-lint:
-    runs-on: klever-pipe
+    # KLC-2968: a pull request from a fork runs its own code (Makefile, go test) and must never
+    # reach the persistent self-hosted runners, so it runs on a GitHub-hosted one.
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || 'klever-pipe' }}
     outputs:
       lint-results: ${{ steps.lint.outputs.results }}
     steps:
@@ -41,9 +34,6 @@ jobs:
         uses: ./.github/actions/go-setup-action
         with:
           go-version: ${{ inputs.go-version }}
-          go-private: ${{ inputs.go-private }}
-          git-user: ${{ secrets.git-user }}
-          git-pass: ${{ secrets.git-pass }}
 
       - name: GoImports Formatter
         run: |
