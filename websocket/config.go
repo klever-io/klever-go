@@ -126,25 +126,19 @@ func (l Limits) resolve() resolvedLimits {
 	}
 	// A per-connection cap below the per-call cap is incoherent (one max subscribe could
 	// never fit); clamp it up so a fresh client's first subscribe always fits.
-	if perClient < perSubscribe {
-		perClient = perSubscribe
-	}
+	perClient = raiseToTier("maxAddressesPerClient", perClient, perSubscribe, l.MaxAddressesPerClient > 0)
 	perClient = clampToTotal("maxAddressesPerClient", perClient, total)
 	perIP := l.MaxAddressesPerIP
 	if perIP <= 0 {
 		perIP = defaultMaxAddressesPerIP
 	}
-	if perIP < perClient {
-		perIP = perClient
-	}
+	perIP = raiseToTier("maxAddressesPerIP", perIP, perClient, l.MaxAddressesPerIP > 0)
 	perIP = clampToTotal("maxAddressesPerIP", perIP, total)
 	perPrefix48 := l.MaxAddressesPerIPv6Prefix48
 	if perPrefix48 <= 0 {
 		perPrefix48 = min(defaultMaxAddressesPerIPv6Prefix48, total)
 	}
-	if perPrefix48 < perIP {
-		perPrefix48 = perIP
-	}
+	perPrefix48 = raiseToTier("maxAddressesPerIPv6Prefix48", perPrefix48, perIP, l.MaxAddressesPerIPv6Prefix48 > 0)
 	perPrefix48 = clampToTotal("maxAddressesPerIPv6Prefix48", perPrefix48, total)
 
 	readLimit := int64(minMaxMessageSize)
@@ -202,6 +196,18 @@ func (l Limits) resolve() resolvedLimits {
 		subscribeRatePerSec:         subscribeRate,
 		subscribeBurst:              subscribeBurst,
 	}
+}
+
+// raiseToTier lifts an address budget to the tier below it, warning when the value was configured.
+func raiseToTier(name string, value, floor int, configured bool) int {
+	if value >= floor {
+		return value
+	}
+	if configured {
+		log.Warn("websocket address budget raised to the tier below it",
+			"limit", name, "configured", value, "effective", floor)
+	}
+	return floor
 }
 
 // clampToTotal lowers an inner address budget to the node-wide total, warning with both values.

@@ -46,6 +46,8 @@ const (
 	opDynamicSubscribe    = "ws.dynamicSubscribe"
 
 	postQueueDropLogIntervalSeconds = 10
+	// subscribedAddressesGaugePeriod is how often StartServer exports MetricWSSubscribedAddresses.
+	subscribedAddressesGaugePeriod = time.Second
 
 	// peerFailLogOp labels the shutdown summaries for the peer-driven failure budgets.
 	peerFailLogOp = "ws.peerFailures"
@@ -190,7 +192,11 @@ type SocketHub struct {
 	ipAddresses       map[string]int
 	prefix48Addresses map[string]int
 	totalAddresses    int
-	limits            resolvedLimits
+	// totalAddressesGauge mirrors totalAddresses for StartServer's ticker: the status facade
+	// writes from a new goroutine per call, so publishing per event could land out of order.
+	totalAddressesGauge atomic.Int64
+	gaugePeriod         time.Duration
+	limits              resolvedLimits
 	// clients is every client the hub has accepted, so deleteAll can close all of them.
 	// The subscription maps alone are not enough: an address-scoped subscribe with an
 	// empty address list (or an unsubscribe that empties the last one) leaves a live
@@ -296,6 +302,7 @@ func NewHub(postConnectionURL, postConnectionAPIKey string, facade WSFacade, lim
 		requestPanicWarn:        dropWarner{windowSecs: postQueueDropLogIntervalSeconds},
 		otherPanicWarn:          dropWarner{windowSecs: postQueueDropLogIntervalSeconds},
 		appStatusHandler:        statusHandler.NewNilStatusHandler(),
+		gaugePeriod:             subscribedAddressesGaugePeriod,
 	}
 }
 
@@ -425,11 +432,17 @@ func (h *SocketHub) StartServer(ctx context.Context) {
 	h.mu.Unlock()
 
 	h.startPostWorkers(ctx)
+	gaugeTicker := time.NewTicker(h.gaugePeriod)
+	defer gaugeTicker.Stop()
+	h.emitTotalAddresses()
 	for {
 		select {
+		case <-gaugeTicker.C:
+			h.emitTotalAddresses()
 		case <-ctx.Done():
 			log.Info("delete all client and close gracefully")
 			h.deleteAll()
+			h.emitTotalAddresses()
 			h.postWorkersWG.Wait()
 			// A burst that never reaches another occurrence to trigger fire()'s next
 			// window would otherwise sit unreported in the counter — possibly forever, if
@@ -1029,13 +1042,18 @@ func (h *SocketHub) addAddressSubscriptions(addresses []string, c *client, accep
 	if len(held) > h.clientAddrPeak[c] {
 		h.clientAddrPeak[c] = len(held)
 	}
-	h.publishTotalAddresses()
+	h.storeTotalAddresses()
 }
 
-// publishTotalAddresses exports the node-wide pair count so a full budget can be alerted on.
-// The caller must hold h.mu.
-func (h *SocketHub) publishTotalAddresses() {
-	h.appStatusHandler.SetUInt64Value(core.MetricWSSubscribedAddresses, uint64(h.totalAddresses))
+// storeTotalAddresses updates the gauge mirror. The caller must hold h.mu.
+func (h *SocketHub) storeTotalAddresses() {
+	h.totalAddressesGauge.Store(int64(h.totalAddresses))
+}
+
+// emitTotalAddresses exports the node-wide pair count so a full budget can be alerted on.
+// Only StartServer's goroutine calls it, so each emit carries the latest value.
+func (h *SocketHub) emitTotalAddresses() {
+	h.appStatusHandler.SetUInt64Value(core.MetricWSSubscribedAddresses, uint64(h.totalAddressesGauge.Load()))
 }
 
 func (h *SocketHub) deleteAll() {
@@ -1056,7 +1074,7 @@ func (h *SocketHub) deleteAll() {
 	clear(h.ipAddresses)
 	clear(h.prefix48Addresses)
 	h.totalAddresses = 0
-	h.publishTotalAddresses()
+	h.storeTotalAddresses()
 	clear(h.blockSubscription)
 	clear(h.transactionSubscription)
 }
@@ -1081,7 +1099,7 @@ func (h *SocketHub) handleClientDelete(c *client) {
 	delete(h.clientAddrs, c)
 	delete(h.clientAddrPeak, c)
 	h.releaseAddresses(c, len(held))
-	h.publishTotalAddresses()
+	h.storeTotalAddresses()
 }
 
 func (h *SocketHub) HandleClientRequest(c *client, req WSRequest) {
@@ -1241,7 +1259,7 @@ func (h *SocketHub) HandleClientRemoval(eventTypes []indexer.EventType, addresse
 	for _, addr := range addresses {
 		h.removeClientFromAddress(addr, c, removeAccounts, removeTransactions)
 	}
-	h.publishTotalAddresses()
+	h.storeTotalAddresses()
 }
 
 func (h *SocketHub) removeClientFromAddress(addr string, c *client, removeAccounts, removeTransactions bool) {

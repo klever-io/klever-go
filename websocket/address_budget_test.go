@@ -1,16 +1,21 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
 	"net"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	indexer "github.com/klever-io/klever-go/indexer"
+	"github.com/klever-io/klever-go/statusHandler"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -418,6 +423,24 @@ func TestLimits_Resolve_AddressBudgetDefaultsAndClamps(t *testing.T) {
 	assert.Equal(t, defaultMaxTotalAddresses, r.maxTotalAddresses)
 }
 
+func TestLimits_Resolve_LogsConfiguredRaises(t *testing.T) {
+	var observed lockedBuffer
+	require.NoError(t, logger.AddLogObserver(&observed, &logger.PlainFormatter{}))
+	t.Cleanup(func() { assert.NoError(t, logger.RemoveLogObserver(&observed)) })
+
+	// An unset tier that follows the one below it is not a misconfiguration.
+	Limits{MaxAddressesPerClient: 600000}.resolve()
+	assert.NotContains(t, observed.String(), "raised to the tier below")
+
+	r := Limits{MaxAddressesPerIP: 20000, MaxAddressesPerIPv6Prefix48: 145}.resolve()
+	assert.Equal(t, defaultMaxAddressesPerClient, r.maxAddressesPerIP)
+	assert.Equal(t, defaultMaxAddressesPerClient, r.maxAddressesPerIPv6Prefix48)
+	out := observed.String()
+	assert.Contains(t, out, "raised to the tier below")
+	assert.Regexp(t, `maxAddressesPerIP\b.*20000`, out)
+	assert.Regexp(t, `maxAddressesPerIPv6Prefix48.*145`, out)
+}
+
 func TestAddressBudget_HeldPairsDoNotCountAgain(t *testing.T) {
 	hub := NewHub("", "", nil, Limits{MaxAddressesPerSubscribe: 3, MaxAddressesPerClient: 3, MaxAddressesPerIP: 3, MaxTotalAddresses: 3})
 	c := ipClient(hub, "1.2.3.4")
@@ -517,27 +540,73 @@ func TestHandleDynamicSubscribe_LogsBudgetRefusal(t *testing.T) {
 	assert.Contains(t, out, "node-wide")
 }
 
-func TestAddressBudget_PublishesTotalAddressesGauge(t *testing.T) {
+func TestAddressBudget_TracksTotalAddressesGauge(t *testing.T) {
 	hub := NewHub("", "", nil, Limits{MaxAddressesPerSubscribe: 3, MaxAddressesPerClient: 3, MaxAddressesPerIP: 6, MaxTotalAddresses: 100})
-	var last uint64
-	hub.SetAppStatusHandler(&mock.AppStatusHandlerStub{
-		SetUInt64ValueHandler: func(key string, value uint64) {
-			if key == core.MetricWSSubscribedAddresses {
-				last = value
-			}
-		},
-	})
+	gauge := func() int64 { return hub.totalAddressesGauge.Load() }
 	c1, c2 := liveIPClient(t, hub, "1.2.3.4"), liveIPClient(t, hub, "1.2.3.4")
 
 	require.NoError(t, hub.HandleClientInsertion(accounts, []string{"a", "b", "a"}, c1))
-	assert.Equal(t, uint64(2), last, "duplicates within a call count once")
+	assert.Equal(t, int64(2), gauge(), "duplicates within a call count once")
 	require.NoError(t, hub.HandleClientInsertion(accounts, []string{"a", "c"}, c2))
-	assert.Equal(t, uint64(4), last)
+	assert.Equal(t, int64(4), gauge())
 
 	hub.HandleClientRemoval(accounts, []string{"a"}, c2)
-	assert.Equal(t, uint64(3), last)
+	assert.Equal(t, int64(3), gauge())
 	hub.handleClientDelete(c1)
-	assert.Equal(t, uint64(1), last)
+	assert.Equal(t, int64(1), gauge())
 	hub.deleteAll()
-	assert.Equal(t, uint64(0), last)
+	assert.Equal(t, int64(0), gauge())
+}
+
+// The real facade writes from a goroutine per call; the ticker must still converge on the exact count.
+func TestStartServer_GaugeConvergesThroughAsyncFacade(t *testing.T) {
+	var last atomic.Uint64
+	facade, err := statusHandler.NewAppStatusFacadeWithHandlers(&mock.AppStatusHandlerStub{
+		SetUInt64ValueHandler: func(key string, value uint64) {
+			if key == core.MetricWSSubscribedAddresses {
+				last.Store(value)
+			}
+		},
+	})
+	require.NoError(t, err)
+	hub := NewHub("", "", nil, Limits{MaxAddressesPerSubscribe: 10, MaxAddressesPerClient: 10, MaxAddressesPerIP: 1000, MaxTotalAddresses: 1000})
+	hub.gaugePeriod = 5 * time.Millisecond
+	hub.SetAppStatusHandler(facade)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		hub.StartServer(ctx)
+		close(done)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	clients := make([]*client, 40)
+	var wg sync.WaitGroup
+	for i := range clients {
+		clients[i] = liveIPClient(t, hub, "1.2.3.4")
+		wg.Add(1)
+		go func(c *client, i int) {
+			defer wg.Done()
+			assert.NoError(t, hub.HandleClientInsertion(accounts, []string{fmt.Sprint(i), "shared"}, c))
+		}(clients[i], i)
+	}
+	wg.Wait()
+	assert.Eventually(t, func() bool { return last.Load() == 80 }, 2*time.Second, 5*time.Millisecond)
+
+	for _, c := range clients[:30] {
+		wg.Add(1)
+		go func(c *client) {
+			defer wg.Done()
+			hub.handleClientDelete(c)
+		}(c)
+	}
+	wg.Wait()
+	assert.Eventually(t, func() bool { return last.Load() == 20 }, 2*time.Second, 5*time.Millisecond)
+
+	cancel()
+	<-done
+	assert.Eventually(t, func() bool { return last.Load() == 0 }, 2*time.Second, 5*time.Millisecond)
 }

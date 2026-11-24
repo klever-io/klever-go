@@ -219,7 +219,7 @@ restricting the port to the proxy host.
 | `webSocketMaxAddressesPerClient` | total addresses one connection may watch | use the built-in default |
 | `webSocketMaxAddressesPerIP` | total addresses all connections from one source IP may watch (raise toward the total behind a proxy) | use the built-in default |
 | `webSocketMaxAddressesPerIPv6Prefix48` | total addresses all IPv6 sources inside one `/48` may watch (default 400,000, capped at the total) | use the built-in default |
-| `webSocketMaxTotalAddresses` | total addresses all `/subscribe` connections on the node may watch; never raised, every other address cap above it is lowered to it (logged at startup). Current usage is exported as `klv_ws_subscribed_addresses` | use the built-in default |
+| `webSocketMaxTotalAddresses` | total addresses all `/subscribe` connections on the node may watch; never raised, every other address cap above it is lowered to it (logged at startup). Current usage is exported as `klv_ws_subscribed_addresses`, sampled every second | use the built-in default |
 | `webSocketSubscribeRatePerSec` | subscribe/unsubscribe frames one connection may send per second (default 10) | use the built-in default |
 | `webSocketSubscribeBurst` | subscribe/unsubscribe frames one connection may send at once (default 20, raised to at least the rate) | use the built-in default |
 | `logWebSocketConnections` | node-wide cap on live `/log` connections | use the built-in default |
