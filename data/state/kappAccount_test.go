@@ -241,6 +241,42 @@ func TestKAppAccount_StartProposalsKApp_LoadExisting(t *testing.T) {
 	assert.Equal(t, len(params1), len(params2))
 }
 
+// A failed read must not be taken for an absent controller: initializing would stage defaults over
+// the stored governance parameters and active proposals.
+func TestKAppAccount_StartProposalsKApp_ReturnsAFailedReadAndStagesNothing(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("disk read failed")
+	acc, err := state.NewKAppAccount([]byte("kapp-address"))
+	require.NoError(t, err)
+	acc.SetDataTrie(&mock.TrieStub{
+		GetCalled: func(_ []byte) ([]byte, error) { return nil, expectedErr },
+	})
+
+	controller, err := acc.StartProposalsKApp(mock.NewForkControllerStub())
+
+	require.ErrorIs(t, err, expectedErr)
+	require.Nil(t, controller)
+	require.Empty(t, acc.DataTrieTracker().DirtyData())
+}
+
+func TestKAppAccount_StartProposalsKApp_InitializesWhenTheKeyIsAbsent(t *testing.T) {
+	t.Parallel()
+
+	acc, err := state.NewKAppAccount([]byte("kapp-address"))
+	require.NoError(t, err)
+	acc.SetDataTrie(&mock.TrieStub{
+		GetCalled: func(_ []byte) ([]byte, error) { return nil, nil },
+	})
+
+	controller, err := acc.StartProposalsKApp(mock.NewForkControllerStub())
+
+	require.NoError(t, err)
+	require.NotNil(t, controller)
+	require.NotEmpty(t, controller.GetActiveParameters())
+	require.Contains(t, acc.DataTrieTracker().DirtyData(), string(kdautils.ProposalControllerKey))
+}
+
 func TestKAppAccount_StartProposalsKApp_InitialSaveSucceeds(t *testing.T) {
 	t.Parallel()
 
@@ -954,15 +990,14 @@ func TestKAppAccount_StartProposalsKApp_EmptyStoredController(t *testing.T) {
 
 	forks := mock.NewForkControllerStub()
 
-	// Save empty bytes to storage
+	// Save empty bytes to storage: a staged empty value, which RetrieveValue reports as a read error
 	err := acc.SetStorage(kdautils.ProposalControllerKey, []byte{})
 	require.Nil(t, err)
 
-	// Should create new proposal since stored data is empty
+	// A read error is returned, not taken for an absent controller
 	controller, err := acc.StartProposalsKApp(forks)
-	assert.Nil(t, err)
-	assert.NotNil(t, controller)
-	assert.NotNil(t, controller.GetActiveParameters())
+	assert.ErrorIs(t, err, common.ErrNegativeValue)
+	assert.Nil(t, controller)
 }
 
 func TestKAppAccount_MergeAndSaveParameters_EqualParameterCounts(t *testing.T) {
