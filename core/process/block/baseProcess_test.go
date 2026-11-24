@@ -361,13 +361,10 @@ func Test_checkBlockValidity_FirstBlockAgainstGenesis(t *testing.T) {
 			TxBurnedFees: 100,
 		}}
 	}
-	newProcessor := func(genesis data.HeaderHandler, v7Epoch uint32, validSlotTimestamp bool) *baseProcessor {
-		forkController := mock.NewForkControllerStub()
-		forkController.FixAuditChangesV7Epoch = &v7Epoch
-
+	newProcessor := func(genesis data.HeaderHandler, validSlotTimestamp bool) *baseProcessor {
 		return &baseProcessor{
 			hasher:                       hasher,
-			forkController:               forkController,
+			forkController:               mock.NewForkControllerStub(),
 			validatorStatisticsProcessor: &mock.ValidatorStatisticsProcessorStub{},
 			slotManager: &slotTimestampStub{
 				SlotManagerMock: consensusMock.SlotManagerMock{IndexCalled: func() int64 { return 10 }},
@@ -402,7 +399,7 @@ func Test_checkBlockValidity_FirstBlockAgainstGenesis(t *testing.T) {
 			blk := validFirstBlock()
 			tt.mutate(blk)
 
-			err := newProcessor(newGenesis(), 0, true).checkBlockValidity(blk)
+			err := newProcessor(newGenesis(), true).checkBlockValidity(blk)
 			if tt.err == nil {
 				require.NoError(t, err)
 				return
@@ -414,14 +411,14 @@ func Test_checkBlockValidity_FirstBlockAgainstGenesis(t *testing.T) {
 	t.Run("timestamp outside its slot", func(t *testing.T) {
 		t.Parallel()
 
-		err := newProcessor(newGenesis(), 0, false).checkBlockValidity(validFirstBlock())
+		err := newProcessor(newGenesis(), false).checkBlockValidity(validFirstBlock())
 		require.ErrorIs(t, err, process.ErrInvalidBlockTimestamp)
 	})
 
 	t.Run("nil genesis header", func(t *testing.T) {
 		t.Parallel()
 
-		err := newProcessor(nil, 0, true).checkBlockValidity(validFirstBlock())
+		err := newProcessor(nil, true).checkBlockValidity(validFirstBlock())
 		require.ErrorIs(t, err, process.ErrNilBlockHeader)
 	})
 
@@ -440,7 +437,7 @@ func Test_checkBlockValidity_FirstBlockAgainstGenesis(t *testing.T) {
 			}}
 		}
 
-		bp := newProcessor(newGenesis(), 0, true)
+		bp := newProcessor(newGenesis(), true)
 		forksOff := mock.NewForkControllerStub()
 		forksOff.SetAll(false)
 		bp.forkController = forksOff
