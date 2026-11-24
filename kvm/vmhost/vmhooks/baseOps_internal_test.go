@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	commonMock "github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/kvm/config"
 	"github.com/klever-io/klever-go/kvm/executor"
 	kvmmath "github.com/klever-io/klever-go/kvm/math"
@@ -514,6 +515,18 @@ func TestPrepareIndirectContractCallInput_KeepsItsOwnCopies(t *testing.T) {
 		require.NotSame(t, value, input.KDATransfers[0].KDAValue)
 	})
 
+	t.Run("token name is independent of the KLV identifier", func(t *testing.T) {
+		t.Parallel()
+
+		input, err := prepareIndirectContractCallInput(newInternalMockVMHost(), []byte("sender"), big.NewInt(25), 100, []byte("destination"), []byte("fn"), nil, 0)
+		require.NoError(t, err)
+		require.Len(t, input.KDATransfers, 1)
+
+		tokenName := input.KDATransfers[0].KDATokenName
+		require.Equal(t, kdautils.KLVIdentifier, tokenName)
+		require.NotSame(t, &kdautils.KLVIdentifier[0], &tokenName[0])
+	})
+
 	t.Run("negative call value stays negative", func(t *testing.T) {
 		t.Parallel()
 
@@ -554,7 +567,7 @@ func TestPrepareIndirectContractCallInput_KeepsItsOwnCopies(t *testing.T) {
 	})
 }
 
-func TestCreateContract_KeepsItsOwnCallValue(t *testing.T) {
+func TestCreateContract_KeepsItsOwnCopies(t *testing.T) {
 	t.Parallel()
 
 	t.Run("call value is independent of the source big int", func(t *testing.T) {
@@ -577,6 +590,26 @@ func TestCreateContract_KeepsItsOwnCallValue(t *testing.T) {
 
 		require.Equal(t, big.NewInt(25), captured.KDATransfers[0].KDAValue)
 		require.NotSame(t, value, captured.KDATransfers[0].KDAValue)
+	})
+
+	t.Run("token name is independent of the KLV identifier", func(t *testing.T) {
+		t.Parallel()
+
+		host := newInternalMockVMHost()
+		var captured *vmcommon.ContractCreateInput
+		host.CreateNewContractCalled = func(input *vmcommon.ContractCreateInput, createContractCallType int) ([]byte, error) {
+			captured = input
+			return []byte("new-address"), nil
+		}
+
+		_, err := createContract([]byte("sender"), nil, big.NewInt(25), 100, []byte("code"), []byte("metadata"), host, CreateContract)
+		require.NoError(t, err)
+		require.NotNil(t, captured)
+		require.Len(t, captured.KDATransfers, 1)
+
+		tokenName := captured.KDATransfers[0].KDATokenName
+		require.Equal(t, kdautils.KLVIdentifier, tokenName)
+		require.NotSame(t, &kdautils.KLVIdentifier[0], &tokenName[0])
 	})
 
 	t.Run("negative call value stays negative", func(t *testing.T) {

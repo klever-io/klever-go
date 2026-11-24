@@ -2570,7 +2570,7 @@ func createContract(
 	if value.Cmp(big.NewInt(0)) != 0 {
 		contractCreate.KDATransfers = append(contractCreate.KDATransfers, &vmcommon.KDATransfer{
 			KDAValue:     big.NewInt(0).Set(value),
-			KDATokenName: kdautils.KLVIdentifier,
+			KDATokenName: bytes.Clone(kdautils.KLVIdentifier),
 		})
 	}
 
@@ -2752,7 +2752,7 @@ func prepareIndirectContractCallInput(
 	if value.Cmp(big.NewInt(0)) != 0 {
 		contractCallInput.KDATransfers = append(contractCallInput.KDATransfers, &vmcommon.KDATransfer{
 			KDAValue:     big.NewInt(0).Set(value),
-			KDATokenName: kdautils.KLVIdentifier,
+			KDATokenName: bytes.Clone(kdautils.KLVIdentifier),
 		})
 	}
 

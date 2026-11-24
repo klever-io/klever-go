@@ -8,6 +8,7 @@ import (
 
 	commonMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
 	"github.com/klever-io/klever-go/kvm/vmhost"
@@ -951,7 +952,7 @@ func TestOutputContext_WriteLogWithIdentifier_KeepsItsOwnCopies(t *testing.T) {
 	})
 }
 
-func TestOutputContext_TransferValueOnly_KeepsItsOwnAddresses(t *testing.T) {
+func TestOutputContext_TransferValueOnly_KeepsItsOwnCopies(t *testing.T) {
 	t.Parallel()
 
 	sender := []byte("sender")
@@ -977,6 +978,9 @@ func TestOutputContext_TransferValueOnly_KeepsItsOwnAddresses(t *testing.T) {
 	require.Len(t, receiverAccount.OutputTransfers, 1)
 	require.Equal(t, []byte("sender"), receiverAccount.OutputTransfers[0].SenderAddress)
 	require.Equal(t, []byte("receiver"), receiverAccount.OutputTransfers[0].RcvAddr)
+	tokenName := receiverAccount.OutputTransfers[0].KDATransfers.KDATokenName
+	require.Equal(t, kdautils.KLVIdentifier, tokenName)
+	require.NotSame(t, &kdautils.KLVIdentifier[0], &tokenName[0])
 }
 
 func TestOutputContext_TransferValueOnly_KeepsNilAndEmptyAddressesAsGiven(t *testing.T) {
@@ -1053,16 +1057,27 @@ func TestOutputContext_DeployCode_KeepsItsOwnCopies(t *testing.T) {
 	require.Equal(t, []byte("deployer"), account.CodeDeployerAddress)
 }
 
-func TestOutputContext_MergeOutputAccounts_KeepsItsOwnAddress(t *testing.T) {
+func TestOutputContext_MergeOutputAccounts_KeepsItsOwnCopies(t *testing.T) {
 	t.Parallel()
 
 	left := &vmcommon.OutputAccount{Address: []byte("left")}
-	right := &vmcommon.OutputAccount{Address: []byte("right")}
+	right := &vmcommon.OutputAccount{
+		Address:             []byte("right"),
+		Code:                []byte("code"),
+		CodeMetadata:        []byte("metadata"),
+		CodeDeployerAddress: []byte("deployer"),
+	}
 
 	mergeOutputAccounts(left, right, false)
 	overwriteBytes(right.Address)
+	overwriteBytes(right.Code)
+	overwriteBytes(right.CodeMetadata)
+	overwriteBytes(right.CodeDeployerAddress)
 
 	require.Equal(t, []byte("right"), left.Address)
+	require.Equal(t, []byte("code"), left.Code)
+	require.Equal(t, []byte("metadata"), left.CodeMetadata)
+	require.Equal(t, []byte("deployer"), left.CodeDeployerAddress)
 }
 
 func TestOutputContext_RecordedOutputKeepsNilAndEmptyAsGiven(t *testing.T) {

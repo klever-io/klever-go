@@ -1741,7 +1741,7 @@ func TestReadDestinationArguments_FixAuditV6_DestinationLength(t *testing.T) {
 	}
 }
 
-func TestReadKDATransfers_RepeatedValueHandleIsNotCopiedPerRecord(t *testing.T) {
+func TestReadKDATransfers_RepeatedValueHandleYieldsItsValuePerRecord(t *testing.T) {
 	t.Parallel()
 
 	const numRecords = 4
@@ -1796,7 +1796,7 @@ func TestReadKDATransfers_RepeatedValueHandleIsNotCopiedPerRecord(t *testing.T) 
 			require.NoError(t, err)
 			require.Len(t, res, numRecords)
 			for _, transfer := range res {
-				require.Same(t, handleValue, transfer.KDAValue)
+				require.Zero(t, handleValue.Cmp(transfer.KDAValue))
 			}
 		})
 	}

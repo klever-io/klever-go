@@ -398,7 +398,7 @@ func (context *outputContext) TransferValueOnly(destination []byte, sender []byt
 		RcvAddr:       bytes.Clone(destination),
 		KDATransfers: vmcommon.KDATransfer{
 			KDAValue:     recordedValue,
-			KDATokenName: kdautils.KLVIdentifier,
+			KDATokenName: bytes.Clone(kdautils.KLVIdentifier),
 		},
 	}
 
@@ -695,10 +695,10 @@ func mergeOutputAccounts(
 	mergeStorageUpdates(leftAccount, rightAccount)
 
 	if len(rightAccount.Code) > 0 {
-		leftAccount.Code = rightAccount.Code
+		leftAccount.Code = bytes.Clone(rightAccount.Code)
 	}
 	if len(rightAccount.CodeMetadata) > 0 {
-		leftAccount.CodeMetadata = rightAccount.CodeMetadata
+		leftAccount.CodeMetadata = bytes.Clone(rightAccount.CodeMetadata)
 	}
 
 	mergeTransfers(leftAccount, rightAccount, mergeAllTransfers)
@@ -706,7 +706,7 @@ func mergeOutputAccounts(
 	leftAccount.GasUsed = rightAccount.GasUsed
 
 	if rightAccount.CodeDeployerAddress != nil {
-		leftAccount.CodeDeployerAddress = rightAccount.CodeDeployerAddress
+		leftAccount.CodeDeployerAddress = bytes.Clone(rightAccount.CodeDeployerAddress)
 	}
 
 	if rightAccount.BytesAddedToStorage > leftAccount.BytesAddedToStorage {
