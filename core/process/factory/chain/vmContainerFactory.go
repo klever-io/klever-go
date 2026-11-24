@@ -105,28 +105,34 @@ func NewVMContainerFactory(args ArgVMContainerFactory) (*vmContainerFactory, err
 	if err != nil {
 		return nil, err
 	}
-	vmf.warnOnUnmatchedWasmVMVersions()
+	vmf.warnOnUnknownWasmVMVersions()
 
 	return vmf, nil
 }
 
-func (vmf *vmContainerFactory) warnOnUnmatchedWasmVMVersions() {
+func (vmf *vmContainerFactory) warnOnUnknownWasmVMVersions() {
 	for _, ver := range vmf.wasmVMVersions {
-		if matchesHostWasmVMVersion(ver.Version) {
+		hostVersion, known := resolveWasmVMHostVersion(ver.Version)
+		if known {
 			continue
 		}
 
-		logVMContainerFactory.Warn("configured Wasm VM version differs from the VM host version, "+
-			"the Wasm VM is rebuilt at node start and at every epoch change while this entry is active",
+		logVMContainerFactory.Warn("unknown Wasm VM version configured, the VM host version is used",
 			"configured version", ver.Version,
 			"start epoch", ver.StartEpoch,
-			"host version", wasmvm10.VMVersion,
+			"host version", hostVersion,
 		)
 	}
 }
 
-func matchesHostWasmVMVersion(version string) bool {
-	return version == "*" || version == wasmvm10.VMVersion
+func resolveWasmVMHostVersion(version string) (string, bool) {
+	switch version {
+	case "v1.0", wasmvm10.VMVersion, "*":
+		return wasmvm10.VMVersion, true
+	// TODO: Handle additional versions in the future
+	default:
+		return wasmvm10.VMVersion, false
+	}
 }
 
 func (vmf *vmContainerFactory) sortWasmVMVersions() {
@@ -274,7 +280,8 @@ func (vmf *vmContainerFactory) shouldReplaceWasmVMInstance(
 	currentVM vmcommon.VMExecutionHandler,
 ) bool {
 	specificVersionRequired := newVersion.Version != "*"
-	differentVersion := newVersion.Version != currentVM.GetVersion()
+	hostVersion, _ := resolveWasmVMHostVersion(newVersion.Version)
+	differentVersion := hostVersion != currentVM.GetVersion()
 
 	return specificVersionRequired && differentVersion
 }
@@ -307,12 +314,12 @@ func (vmf *vmContainerFactory) getMatchingVersion(epoch uint32) config.WasmVMVer
 
 func (vmf *vmContainerFactory) createInProcessWasmVMByVersion(version config.WasmVMVersionByEpoch) (vmcommon.VMExecutionHandler, error) {
 	logVMContainerFactory.Debug("createInProcessWasmVMByVersion", "version", version)
-	switch version.Version {
-	case "v1.0", wasmvm10.VMVersion, "*":
+	hostVersion, _ := resolveWasmVMHostVersion(version.Version)
+	switch hostVersion {
+	case wasmvm10.VMVersion:
 		return vmf.createInProcessWasmVMV10()
-	// TODO: Handle additional versions in the future
 	default:
-		return vmf.createInProcessWasmVMV10()
+		return nil, fmt.Errorf("unknown Wasm VM host version %q", hostVersion)
 	}
 }
 

@@ -3,6 +3,7 @@ package chain
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/klever-io/klever-go/common"
 	testscommon "github.com/klever-io/klever-go/common/mock"
@@ -225,7 +226,7 @@ func getWasmVMVersion(t testing.TB, container process.VirtualMachinesContainer) 
 }
 
 func TestVmContainerFactory_KeepsWasmVMWhenVersionMatchesHost(t *testing.T) {
-	for _, version := range []string{vmhost.VMVersion, "*"} {
+	for _, version := range []string{vmhost.VMVersion, "*", "v1.0", "unknown"} {
 		t.Run(version, func(t *testing.T) {
 			epochNotifierInstance := notifier.NewGenericEpochNotifier()
 
@@ -256,14 +257,16 @@ func TestVmContainerFactory_KeepsWasmVMWhenVersionMatchesHost(t *testing.T) {
 	}
 }
 
-func TestVmContainerFactory_ReplacesWasmVMWhenVersionDiffersFromHost(t *testing.T) {
+func TestVmContainerFactory_ReplacesWasmVMWhenRunningVersionDiffersFromResolvedHost(t *testing.T) {
 	epochNotifierInstance := notifier.NewGenericEpochNotifier()
+	blockChainHook := &compiledCodesClearCounter{BlockchainHookStub: &contextmock.BlockchainHookStub{}}
 
 	args := createMockVMAccountsArguments()
 	args.Config = config.VirtualMachineConfig{
 		WasmVMVersions: []config.WasmVMVersionByEpoch{{StartEpoch: 0, Version: "v1.0"}},
 	}
 	args.EpochNotifier = epochNotifierInstance
+	args.BlockChainHook = blockChainHook
 	vmf, err := NewVMContainerFactory(args)
 	require.Nil(t, err)
 
@@ -272,14 +275,69 @@ func TestVmContainerFactory_ReplacesWasmVMWhenVersionDiffersFromHost(t *testing.
 	defer func() {
 		_ = container.Close()
 	}()
-	initialVM := getWasmVM(t, container)
+
+	staleVM := &contextmock.VMExecutionHandlerStub{
+		GetVersionCalled: func() string {
+			return "v0.9"
+		},
+	}
+	require.Nil(t, container.Replace(common.WasmVirtualMachine, staleVM))
+	clearsBeforeReplace := blockChainHook.numClears
 
 	epochNotifierInstance.CheckEpoch(1)
 	replacedVM := getWasmVM(t, container)
-	require.NotSame(t, initialVM, replacedVM)
+	require.NotSame(t, staleVM, replacedVM)
+	require.Equal(t, vmhost.VMVersion, replacedVM.GetVersion())
+	require.Equal(t, clearsBeforeReplace+1, blockChainHook.numClears)
 
 	epochNotifierInstance.CheckEpoch(2)
-	require.NotSame(t, replacedVM, getWasmVM(t, container))
+	require.Same(t, replacedVM, getWasmVM(t, container))
+}
+
+func TestVmContainerFactory_WasmVMReplacementTakesChangeLock(t *testing.T) {
+	epochNotifierInstance := notifier.NewGenericEpochNotifier()
+	changeLocker := &sync.RWMutex{}
+
+	args := createMockVMAccountsArguments()
+	args.EpochNotifier = epochNotifierInstance
+	args.WasmVMChangeLocker = changeLocker
+	vmf, err := NewVMContainerFactory(args)
+	require.Nil(t, err)
+
+	container, err := vmf.Create()
+	require.Nil(t, err)
+	defer func() {
+		_ = container.Close()
+	}()
+
+	staleVM := &contextmock.VMExecutionHandlerStub{
+		GetVersionCalled: func() string {
+			return "v0.9"
+		},
+	}
+	require.Nil(t, container.Replace(common.WasmVirtualMachine, staleVM))
+
+	changeLocker.RLock()
+	done := make(chan struct{})
+	go func() {
+		epochNotifierInstance.CheckEpoch(1)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		changeLocker.RUnlock()
+		t.Fatal("the Wasm VM was replaced without taking the change lock")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	changeLocker.RUnlock()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the Wasm VM replacement did not finish after the change lock was released")
+	}
+	require.NotSame(t, staleVM, getWasmVM(t, container))
 }
 
 type compiledCodesClearCounter struct {
@@ -357,11 +415,23 @@ func TestVmContainerFactory_WasmVMClearsCompiledCodesAtActivationEpoch(t *testin
 	}
 }
 
-func TestMatchesHostWasmVMVersion(t *testing.T) {
-	require.True(t, matchesHostWasmVMVersion(vmhost.VMVersion))
-	require.True(t, matchesHostWasmVMVersion("*"))
-	require.False(t, matchesHostWasmVMVersion("v1.0"))
-	require.False(t, matchesHostWasmVMVersion(""))
+func TestResolveWasmVMHostVersion(t *testing.T) {
+	testCases := []struct {
+		version string
+		known   bool
+	}{
+		{version: vmhost.VMVersion, known: true},
+		{version: "*", known: true},
+		{version: "v1.0", known: true},
+		{version: "", known: false},
+		{version: "v9.9", known: false},
+	}
+
+	for _, tc := range testCases {
+		hostVersion, known := resolveWasmVMHostVersion(tc.version)
+		require.Equal(t, vmhost.VMVersion, hostVersion, tc.version)
+		require.Equal(t, tc.known, known, tc.version)
+	}
 }
 
 func getWasmVM(t testing.TB, container process.VirtualMachinesContainer) vmcommon.VMExecutionHandler {
