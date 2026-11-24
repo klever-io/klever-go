@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -96,6 +97,16 @@ type BlockChainHookImpl struct {
 	mapActivationEpochs map[uint32]struct{}
 
 	mutGasLock sync.RWMutex
+
+	// KLC-3001: mutCompiledCode orders writers of the compiled-code cache against a clear.
+	// Saves and reads take it shared; ClearCompiledCodes takes it exclusively and bumps
+	// compiledCodeGeneration, so a module compiled off the block path can tell whether the
+	// cache it was compiled for still exists (see SaveCompiledCodeIfCurrent).
+	mutCompiledCode        sync.RWMutex
+	compiledCodeGeneration uint64
+
+	// clearedHandler is called after every clear; only the KLC-3001 warmer registers one
+	clearedHandler atomic.Pointer[func()]
 }
 
 // NewBlockChainHookImpl creates a new BlockChainHookImpl instance
@@ -717,6 +728,13 @@ func (bh *BlockChainHookImpl) SetCurrentHeader(hdr data.HeaderHandler) {
 
 // SaveCompiledCode saves the compiled code to cache and storage
 func (bh *BlockChainHookImpl) SaveCompiledCode(codeHash []byte, code []byte) {
+	bh.mutCompiledCode.RLock()
+	defer bh.mutCompiledCode.RUnlock()
+
+	bh.saveCompiledCode(codeHash, code)
+}
+
+func (bh *BlockChainHookImpl) saveCompiledCode(codeHash []byte, code []byte) {
 	bh.compiledScPool.Put(codeHash, code, len(code))
 	err := bh.compiledScStorage.Put(codeHash, code)
 	if err != nil {
@@ -725,8 +743,66 @@ func (bh *BlockChainHookImpl) SaveCompiledCode(codeHash []byte, code []byte) {
 	}
 }
 
+// CompiledCodeGeneration returns the generation of the compiled-code cache. It is bumped
+// by every ClearCompiledCodes call.
+func (bh *BlockChainHookImpl) CompiledCodeGeneration() uint64 {
+	bh.mutCompiledCode.RLock()
+	defer bh.mutCompiledCode.RUnlock()
+
+	return bh.compiledCodeGeneration
+}
+
+// SaveCompiledCodeIfCurrent saves the compiled code like SaveCompiledCode, but only when the
+// cache has not been cleared since generation was read and isCurrent (when not nil) still
+// reports true. Both are evaluated under the same lock ClearCompiledCodes takes exclusively,
+// so a clear cannot slip in between the check and the insert. Returns whether it saved.
+//
+// isCurrent runs while the lock is held: it must be fast, must not block, and must not call
+// back into the compiled-code methods of this hook.
+func (bh *BlockChainHookImpl) SaveCompiledCodeIfCurrent(
+	generation uint64,
+	isCurrent func() bool,
+	codeHash []byte,
+	code []byte,
+) bool {
+	bh.mutCompiledCode.RLock()
+	defer bh.mutCompiledCode.RUnlock()
+
+	if bh.compiledCodeGeneration != generation {
+		return false
+	}
+	if isCurrent != nil && !isCurrent() {
+		return false
+	}
+
+	bh.saveCompiledCode(codeHash, code)
+	return true
+}
+
+// RegisterCompiledCodesClearedHandler sets the handler called after every ClearCompiledCodes,
+// once the lock is released, replacing any earlier one; a nil handler is ignored. The handler
+// runs synchronously on the goroutine that cleared the cache (block processing, epoch
+// notifications), so it must return immediately.
+func (bh *BlockChainHookImpl) RegisterCompiledCodesClearedHandler(handler func()) {
+	if handler == nil {
+		return
+	}
+
+	bh.clearedHandler.Store(&handler)
+}
+
+func (bh *BlockChainHookImpl) notifyCompiledCodesCleared() {
+	handler := bh.clearedHandler.Load()
+	if handler != nil {
+		(*handler)()
+	}
+}
+
 // GetCompiledCode returns the compiled code if it is found in the cache or storage
 func (bh *BlockChainHookImpl) GetCompiledCode(codeHash []byte) (bool, []byte) {
+	bh.mutCompiledCode.RLock()
+	defer bh.mutCompiledCode.RUnlock()
+
 	val, found := bh.compiledScPool.Get(codeHash)
 	if found {
 		compiledCode, ok := val.([]byte)
@@ -747,6 +823,9 @@ func (bh *BlockChainHookImpl) GetCompiledCode(codeHash []byte) (bool, []byte) {
 
 // DeleteCompiledCode deletes the compiled code from storage and cache
 func (bh *BlockChainHookImpl) DeleteCompiledCode(codeHash []byte) {
+	bh.mutCompiledCode.RLock()
+	defer bh.mutCompiledCode.RUnlock()
+
 	bh.compiledScPool.Remove(codeHash)
 	err := bh.compiledScStorage.Remove(codeHash)
 	if err != nil {
@@ -755,14 +834,31 @@ func (bh *BlockChainHookImpl) DeleteCompiledCode(codeHash []byte) {
 	}
 }
 
-// Close closes/cleans up the blockchain hook
+// Close closes/cleans up the blockchain hook. Like ClearCompiledCodes it takes the
+// compiled-code lock exclusively and bumps the generation, so a module compiled off the block
+// path is never saved into the destroyed storage.
 func (bh *BlockChainHookImpl) Close() error {
+	bh.mutCompiledCode.Lock()
+	defer bh.mutCompiledCode.Unlock()
+
+	bh.compiledCodeGeneration++
 	bh.compiledScPool.Clear()
 	return bh.compiledScStorage.DestroyUnit()
 }
 
-// ClearCompiledCodes deletes the compiled codes from storage and cache
+// ClearCompiledCodes deletes the compiled codes from storage and cache, bumps the
+// compiled-code generation and then notifies the registered cleared handlers
 func (bh *BlockChainHookImpl) ClearCompiledCodes() {
+	bh.clearCompiledCodes()
+	bh.notifyCompiledCodesCleared()
+}
+
+func (bh *BlockChainHookImpl) clearCompiledCodes() {
+	bh.mutCompiledCode.Lock()
+	defer bh.mutCompiledCode.Unlock()
+
+	bh.compiledCodeGeneration++
+
 	bh.compiledScPool.Clear()
 	err := bh.compiledScStorage.DestroyUnit()
 	if err != nil {

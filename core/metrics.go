@@ -318,3 +318,30 @@ const MetricWSMirrorQueueDroppedTotal = "klv_ws_mirror_queue_dropped_total"
 
 // MetricWSMirrorPostFailuresTotal is the cumulative count of /subscribe mirror POST requests that failed
 const MetricWSMirrorPostFailuresTotal = "klv_ws_mirror_post_failures_total"
+
+// MetricSCWarmupEnqueued is the cumulative count of smart-contract addresses queued for module precompilation (KLC-3001)
+const MetricSCWarmupEnqueued = "klv_sc_warmup_enqueued_total"
+
+// MetricSCWarmupDropped is the cumulative count of smart-contract addresses dropped because the precompilation queue was full
+const MetricSCWarmupDropped = "klv_sc_warmup_dropped_total"
+
+// MetricSCWarmupCompiled is the cumulative count of modules precompiled and stored in the compiled-code cache
+const MetricSCWarmupCompiled = "klv_sc_warmup_compiled_total"
+
+// MetricSCWarmupSkippedPresent is the cumulative count of precompilations skipped because the module was already cached
+const MetricSCWarmupSkippedPresent = "klv_sc_warmup_skipped_present_total"
+
+// MetricSCWarmupDiscardedStale is the cumulative count of precompiled modules discarded because the cache was cleared or the gas schedule or fork flags changed while compiling
+const MetricSCWarmupDiscardedStale = "klv_sc_warmup_discarded_stale_total"
+
+// MetricSCWarmupSkippedNoCode is the cumulative count of precompilations skipped because the address has no account or no code
+const MetricSCWarmupSkippedNoCode = "klv_sc_warmup_skipped_no_code_total"
+
+// MetricSCWarmupSkippedUnsupported is the cumulative count of precompilations skipped because the module declares a start function
+const MetricSCWarmupSkippedUnsupported = "klv_sc_warmup_skipped_unsupported_total"
+
+// MetricSCWarmupErrors is the cumulative count of precompilations that failed: unreadable state, compile errors, an unusable gas schedule, or a recovered panic
+const MetricSCWarmupErrors = "klv_sc_warmup_errors_total"
+
+// MetricSCWarmupCompileTimeMs is the cumulative time, in milliseconds, spent precompiling modules
+const MetricSCWarmupCompileTimeMs = "klv_sc_warmup_compile_time_ms_total"

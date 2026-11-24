@@ -715,6 +715,16 @@ virtualMachine:
     wasmVMVersions:
       - startEpoch: 0
         version: "v1.0"
+    # Precompiles the wasm module of every smart contract called by a transaction entering the
+    # pool, on a background worker, so the first call after a node start or a gas schedule or
+    # VM change restores a module instead of compiling it inside the execution timeout. It
+    # changes only how long a call takes, never its gas or its result for the same timing; but
+    # timing feeds the SC timeout and the block's timeout tolerance checks, so a borderline call
+    # can time out on a cold node and not on a warm one. Keep the setting the same on all
+    # validators. Turning it off saves the CPU and memory of the background compiles, e.g. on
+    # an observer that never processes smart-contract calls. An absent key means enabled.
+    compiledCodeWarmUp:
+      enabled: true
 
   querying:
     # Each query goes to the next VM round-robin before it waits, so with more than one VM a

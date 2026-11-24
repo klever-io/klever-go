@@ -7,7 +7,6 @@ import (
 	builtinMath "math"
 
 	logger "github.com/klever-io/klever-go-logger"
-	"github.com/klever-io/klever-go/kvm/config"
 	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/kvm/wasmbytes"
@@ -212,19 +211,15 @@ func (context *runtimeContext) startWasmerInstance(contract []byte, gasLimit uin
 // They must stay identical: the same contract has to compile the same way whether it
 // comes from bytecode or from the compiled-code cache, or the two paths could meter
 // the same call differently.
+//
+// KLC-3001: the body lives in BuildCompilationOptions so the compiled-code warmer
+// builds byte-for-byte the same options from the same gas schedule and fork flags.
 func (context *runtimeContext) compilationOptions(gasLimit uint64) executor.CompilationOptions {
-	gasSchedule := context.host.Metering().GasSchedule()
-
-	return executor.CompilationOptions{
-		GasLimit:             gasLimit,
-		UnmeteredLocals:      uint64(gasSchedule.WASMOpcodeCost.LocalsUnmetered),
-		MaxMemoryGrow:        uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrow),
-		MaxMemoryGrowDelta:   uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrowDelta),
-		MaxDeclaredTableSize: context.effectiveMaxDeclaredTableSize(gasSchedule),
-		OpcodeTrace:          false,
-		Metering:             true,
-		RuntimeBreakpoints:   true,
-	}
+	return BuildCompilationOptions(
+		context.host.Metering().GasSchedule(),
+		context.isTableCheckActive(),
+		gasLimit,
+	)
 }
 
 func (context *runtimeContext) makeInstanceFromCompiledCode(gasLimit uint64, newCode bool) (bool, error) {
@@ -252,6 +247,23 @@ func (context *runtimeContext) makeInstanceFromCompiledCode(gasLimit uint64, new
 		newInstance.Clean()
 		return false, err
 	}
+
+	// KLC-3001: a cached module may have been compiled before the declared-table cap applied,
+	// by the block path before FixAuditChangesV4 or by the compiled-code warmer before the first
+	// CheckEpoch after a start. The executor checks the cap again on restore; this check makes
+	// the restore path independent of that, as the warm path is. On a failure the fresh instance
+	// is dropped and the call falls through to instantiation from bytecode, which rejects the
+	// module the same way on every node (see useWarmInstanceIfExists for why the error itself
+	// is not returned).
+	err = context.verifyTableDeclarationIfActive()
+	if err != nil {
+		context.iTracker.ForceCleanInstance(true)
+		// cleaning unsets the code hash: put it back, so the bytecode compile runs keyed on the
+		// contract, exactly as a call that never found the compiled module
+		context.iTracker.SetCodeHash(codeHash)
+		logRuntime.Trace("compiled code rejected, falling through to instantiation", "error", err)
+		return false, nil
+	}
 	context.verifyCode = false
 
 	context.saveWarmInstance()
@@ -269,21 +281,6 @@ func (context *runtimeContext) makeInstanceFromCompiledCode(gasLimit uint64, new
 func (context *runtimeContext) isTableCheckActive() bool {
 	forkController := context.host.ForkController()
 	return !check.IfNil(forkController) && forkController.FixAuditChangesV4()
-}
-
-// effectiveMaxDeclaredTableSize returns the table-maximum cap to pass to the
-// executor for this instantiation. The executor has no fork-epoch awareness
-// of its own (see KLC-2526 / KLR-19): it always enforces whatever value it is
-// given, on every instantiation, which is what makes it safe to call
-// unconditionally without risking a consensus split during rollout - nodes
-// on the old binary never see this parameter at all, and nodes on the new
-// binary only start passing the real cap once FixAuditChangesV4 is reached
-// network-wide. Before that, math.MaxUint64 disables the check entirely.
-func (context *runtimeContext) effectiveMaxDeclaredTableSize(gasSchedule *config.GasCost) uint64 {
-	if !context.isTableCheckActive() {
-		return builtinMath.MaxUint64
-	}
-	return uint64(gasSchedule.WASMOpcodeCost.MaxDeclaredTableSize)
 }
 
 // verifyTableDeclarationIfActive runs the declared-table-size check against the

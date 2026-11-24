@@ -1032,6 +1032,9 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		clockMetricsCloser,
 		currentNode.GetPeerHonestyHandler(),
 		currentNode.GetHeartbeatHandler(),
+		// KLC-3001: stop the warm-up worker before the stores and tries it reads are closed. A nil
+		// warmer (warm-up off) is a nil closer, which closeAllComponents skips.
+		processComponents.CompiledCodeWarmer,
 	}
 
 	log.Trace("creating klever node facade")
