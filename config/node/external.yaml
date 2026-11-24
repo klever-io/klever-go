@@ -10,7 +10,7 @@ elasticSearchConnector:
     - blocks
     - accounts
     - accountshistory
-    - accountskdahistory
+    - accountskdahistory # written only when accounts is enabled
     - assets
     - proposals
     - marketplaces

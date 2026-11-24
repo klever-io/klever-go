@@ -1881,6 +1881,7 @@ func (ei *elasticProcessor) indexResolvedAccounts(
 // saveAccountsKDAHistory writes one accountskdahistory row per altered (address, asset) into
 // the block's bulk buffer. A balance that dropped to zero is still written: unlike the
 // accountskda current state, which deletes the document, history keeps that point.
+// KLV is skipped: its balance is not in the KDA trie, and accountshistory already has it.
 func (ei *elasticProcessor) saveAccountsKDAHistory(blockTimestamp int64, accountsKDA []*data.AccountKDA, buffSlice *data.BufferSlice) error {
 	if !ei.isIndexEnabled(accountsKDAHistoryIndex) {
 		return nil
@@ -1888,6 +1889,9 @@ func (ei *elasticProcessor) saveAccountsKDAHistory(blockTimestamp int64, account
 
 	rows := make(map[string]*data.AccountBalanceHistory, len(accountsKDA))
 	for _, acc := range accountsKDA {
+		if acc.AssetID == KLVAssetID {
+			continue
+		}
 		rows[fmt.Sprintf("%s-%s_%d", acc.AccountAddress, acc.AssetID, blockTimestamp)] = &data.AccountBalanceHistory{
 			Address:         acc.AccountAddress,
 			TokenIdentifier: acc.AssetID,
