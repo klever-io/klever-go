@@ -6,6 +6,11 @@ on:
   push:
     branches: [master, main, develop]
   workflow_dispatch:
+    inputs:
+      short:
+        description: 'Run go test -short, as on a pull request (measurement only)'
+        type: boolean
+        default: false
 
 jobs:
   setup-and-lint:
@@ -18,7 +23,7 @@ jobs:
   test:
     needs: setup-and-lint
     # KLC-2968: fork pull requests run on GitHub-hosted runners, see go-setup-lint.yaml
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || 'klever-pipe' }}
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -33,7 +38,7 @@ jobs:
         continue-on-error: true
         run: |
           set +e  # Disable immediate exit on error
-          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+          if [[ "${{ github.event_name }}" != "pull_request" && "${{ inputs.short }}" != "true" ]]; then
             echo "Running full tests..."
             go test -covermode=atomic -coverprofile=coverage.out -json ./... > test-output.json
           else
@@ -97,7 +102,7 @@ jobs:
 
   sonarqube:
     needs: [setup-and-lint, test]
-    runs-on: klever-pipe
+    runs-on: ubuntu-latest
     # KLC-2968: skipped for fork pull requests, which get no secrets and must not run on the
     # self-hosted runners
     if: |
@@ -172,13 +177,8 @@ jobs:
 
   notify:
     needs: [setup-and-lint, test, sonarqube]
-    runs-on: klever-pipe
-    # KLC-2968: skipped for fork pull requests, which get no secrets and must not run on the
-    # self-hosted runners
-    if: |
-      always() &&
-      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
-      !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    if: false # measurement branch: no Slack notification
     permissions:
       contents: read
       pull-requests: read
@@ -358,7 +358,7 @@ jobs:
   result-check:
     needs: [setup-and-lint, sonarqube, test]
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || 'klever-pipe' }}
+    runs-on: ubuntu-latest
     steps:
       - name: Check for failed jobs
         env:
