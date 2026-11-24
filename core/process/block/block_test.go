@@ -4235,6 +4235,7 @@ type epochStartRevertNode struct {
 	params         kapps.ActiveProposalController
 	requestHandler *epochAwareRequestHandler
 	hookHeader     data.HeaderHandler
+	peerHeader     data.HeaderHandler
 }
 
 // the smart contract fork activates at epoch 1, so the epoch start block merges its defaults
@@ -4272,6 +4273,9 @@ func newEpochStartRevertNode(t *testing.T, head *block.Block, headHash []byte, s
 	arguments.RequestHandler = node.requestHandler
 	arguments.BlockChainHook = &contextmock.BlockchainHookStub{
 		SetCurrentHeaderCalled: func(hdr data.HeaderHandler) { node.hookHeader = hdr },
+	}
+	arguments.ValidatorStatisticsProcessor = &mock.ValidatorStatisticsProcessorStub{
+		RevertPeerStateCalled: func(hdr data.HeaderHandler) error { node.peerHeader = hdr; return nil },
 	}
 	node.trigger = newEpochStartTriggerForProcessBlock(t, arguments.ForkController, arguments.Hasher, head.GetEpoch(), 0, slotsPerEpoch)
 	arguments.EpochStartTrigger = node.trigger
@@ -4366,6 +4370,12 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		assert.Same(t, node.head, node.hookHeader)
 	}
 
+	assertSettledEpochStart := func(t *testing.T, node *epochStartRevertNode) {
+		assert.False(t, node.trigger.IsEpochStart(), "the commit settled the epoch start")
+		assert.Equal(t, uint32(1), node.trigger.Epoch())
+		assert.Equal(t, epochStartSlot, node.trigger.EpochStartSlot())
+	}
+
 	// a node whose rollback target carries the roots of its own tries
 	newRollbackNode := func(t *testing.T, slotsPerEpoch uint64) *epochStartRevertNode {
 		rollbackHead := &block.Block{Header: &block.BlockHeader{Nonce: headNonce, Slot: epochStartSlot - 1}}
@@ -4378,6 +4388,29 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		require.NoError(t, err)
 
 		return node
+	}
+
+	// commitAll walks a map: the KApp trie saves, then the User trie fails. Returns the User commit's restore.
+	failCommitAfterKAppSaved := func(t *testing.T, node *epochStartRevertNode, hdr *block.Block) func() {
+		t.Helper()
+		kApps := node.accountsDB[state.KAppAccountsState]
+		require.NoError(t, node.mp.ProcessBlock(hdr, haveTime))
+		requireAdvanced(t, node)
+
+		_, err := kApps.Commit()
+		require.NoError(t, err)
+		userAccounts, ok := node.accountsDB[state.UserAccountsState].(*mock.AccountsStub)
+		require.True(t, ok)
+		commit := userAccounts.CommitCalled
+		userAccounts.CommitCalled = func() ([]byte, error) { return nil, assert.AnError }
+
+		require.Error(t, node.mp.CommitBlock(hdr))
+		assertCommittedEpochState(t, node)
+		kAppsRoot, err := kApps.RootHash()
+		require.NoError(t, err)
+		assert.Equal(t, node.head.GetKAppsTrieRoot(), kAppsRoot, "the KApp trie must be back at the head")
+
+		return func() { userAccounts.CommitCalled = commit }
 	}
 
 	t.Run("validator: processed, then reverted on slot timeout", func(t *testing.T) {
@@ -4417,9 +4450,7 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 
 		validator.mp.RevertStateToSnapshot(hdr)
 
-		assert.False(t, validator.trigger.IsEpochStart(), "the commit settled the epoch start")
-		assert.Equal(t, uint32(1), validator.trigger.Epoch())
-		assert.Equal(t, epochStartSlot, validator.trigger.EpochStartSlot())
+		assertSettledEpochStart(t, validator)
 		assert.Equal(t, uint32(1), validator.epochNotifier.CurrentEpoch())
 		assert.True(t, validator.forks.EnableSmartContracts())
 		assert.Contains(t, validator.params.GetActiveParameters(), maxGasPerBlock)
@@ -4432,75 +4463,42 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 
 		_, hdr := proposeEpochStart(t)
 		validator := newRollbackNode(t, slotsPerEpoch)
-		kApps := validator.accountsDB[state.KAppAccountsState]
-
-		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
-		requireAdvanced(t, validator)
-
-		// commitAll walks a map: commit the KApp trie first, as it does when the User trie fails after it
-		_, err := kApps.Commit()
-		require.NoError(t, err)
-		userAccounts, ok := validator.accountsDB[state.UserAccountsState].(*mock.AccountsStub)
-		require.True(t, ok)
-		commit := userAccounts.CommitCalled
-		userAccounts.CommitCalled = func() ([]byte, error) { return nil, assert.AnError }
-
-		require.Error(t, validator.mp.CommitBlock(hdr))
-		assertCommittedEpochState(t, validator)
-		kAppsRoot, err := kApps.RootHash()
-		require.NoError(t, err)
-		assert.Equal(t, validator.head.GetKAppsTrieRoot(), kAppsRoot, "the KApp trie must be back at the head")
+		restoreCommit := failCommitAfterKAppSaved(t, validator, hdr)
 
 		// a later block captures whatever the failed commit left behind
-		err = validator.mp.ProcessBlock(hdr, func() time.Duration { return -1 })
+		err := validator.mp.ProcessBlock(hdr, func() time.Duration { return -1 })
 		require.ErrorIs(t, err, process.ErrTimeIsOut)
 		assertCommittedEpochState(t, validator)
 
 		// the retried epoch start block is taken and commits
-		userAccounts.CommitCalled = commit
+		restoreCommit()
 		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
 		requireAdvanced(t, validator)
 		require.NoError(t, validator.mp.CommitBlock(hdr))
-		assert.False(t, validator.trigger.IsEpochStart(), "the commit settled the epoch start")
-		assert.Equal(t, uint32(1), validator.trigger.Epoch())
-		assert.Equal(t, epochStartSlot, validator.trigger.EpochStartSlot())
+		assertSettledEpochStart(t, validator)
 	})
 
-	// RevertStateToBlock returns before its own KApp recreate and reload: the failed-commit
-	// path must still put the KApp trie and the live parameters back on the head
+	// RevertStateToBlock returns before its own KApp recreate, Peer revert and reload: the
+	// failed-commit path must still put the KApp and Peer tries and the live parameters back on the head
 	t.Run("a failed commit still restores parameters when RecreateTrie fails", func(t *testing.T) {
 		t.Parallel()
 
 		_, hdr := proposeEpochStart(t)
 		validator := newRollbackNode(t, slotsPerEpoch)
-		kApps := validator.accountsDB[state.KAppAccountsState]
-
-		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
-		requireAdvanced(t, validator)
-
-		_, err := kApps.Commit()
-		require.NoError(t, err)
 		userAccounts, ok := validator.accountsDB[state.UserAccountsState].(*mock.AccountsStub)
 		require.True(t, ok)
-		commit := userAccounts.CommitCalled
 		recreate := userAccounts.RecreateTrieCalled
-		userAccounts.CommitCalled = func() ([]byte, error) { return nil, assert.AnError }
 		userAccounts.RecreateTrieCalled = func([]byte) error { return assert.AnError }
 
-		require.Error(t, validator.mp.CommitBlock(hdr))
-		assertCommittedEpochState(t, validator)
-		kAppsRoot, err := kApps.RootHash()
-		require.NoError(t, err)
-		assert.Equal(t, validator.head.GetKAppsTrieRoot(), kAppsRoot, "the KApp trie must be back at the head")
+		restoreCommit := failCommitAfterKAppSaved(t, validator, hdr)
+		assert.Same(t, validator.head, validator.peerHeader, "the Peer trie must be back at the head")
 
-		userAccounts.CommitCalled = commit
+		restoreCommit()
 		userAccounts.RecreateTrieCalled = recreate
 		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
 		requireAdvanced(t, validator)
 		require.NoError(t, validator.mp.CommitBlock(hdr))
-		assert.False(t, validator.trigger.IsEpochStart(), "the commit settled the epoch start")
-		assert.Equal(t, uint32(1), validator.trigger.Epoch())
-		assert.Equal(t, epochStartSlot, validator.trigger.EpochStartSlot())
+		assertSettledEpochStart(t, validator)
 	})
 
 	// any block's commitAll can save a trie before another fails

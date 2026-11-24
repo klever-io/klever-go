@@ -741,7 +741,8 @@ func (mp *metaProcessor) CreateEpochStartHeader(blk *block.Block) error {
 	return mp.applyEpochStartSideEffects(blk, sideEffects)
 }
 
-// revertFailedCommit undoes a CommitBlock that failed after it started writing.
+// revertFailedCommit undoes a failed CommitBlock: before commitEpochStart it reverts to the
+// snapshot; once CommitBlock has started writing it recreates the tries and the trigger from the head.
 func (mp *metaProcessor) revertFailedCommit(headerHandler data.HeaderHandler, committing bool) {
 	if !committing {
 		mp.RevertStateToSnapshot(headerHandler)
@@ -758,29 +759,32 @@ func (mp *metaProcessor) revertFailedCommit(headerHandler data.HeaderHandler, co
 		return
 	}
 
+	report := func(step string, err error) {
+		log.Error("revertFailedCommit: "+step, "nonce", head.GetNonce(), "error", err.Error())
+		_ = bugsnag.Notify(fmt.Errorf("revertFailedCommit: %s: %w", step, err),
+			bugsnag.MetaData{"data": {"nonce": head.GetNonce()}})
+	}
+
 	err := mp.RevertStateToBlock(head)
 	if err == nil {
 		return
 	}
-	log.Error("revertFailedCommit: revert to the head", "nonce", head.GetNonce(), "error", err.Error())
-	_ = bugsnag.Notify(fmt.Errorf("revertFailedCommit: revert to the head: %w", err),
-		bugsnag.MetaData{"data": {"nonce": head.GetNonce()}})
+	report("revert to the head", err)
 
-	// RecreateTrie of the user trie may have failed before the KApp recreate, the trigger
-	// revert and the reload: still put those back on the head. SetProcessed already pointed
-	// epochStartBlock at the failed block, so a trigger left unrestored rejects the retry.
-	if recErr := mp.accountsDB[state.KAppAccountsState].RecreateTrie(head.GetKAppsTrieRoot()); recErr != nil {
-		log.Error("revertFailedCommit: recreate kapp trie", "error", recErr.Error())
-		_ = bugsnag.Notify(fmt.Errorf("revertFailedCommit: recreate kapp trie: %w", recErr))
+	// RecreateTrie of the user trie may have failed before the KApp recreate, the Peer revert,
+	// the trigger revert and the reload: still put those back on the head. SetProcessed already
+	// pointed epochStartBlock at the failed block, so a trigger left unrestored rejects the retry.
+	if err = mp.accountsDB[state.KAppAccountsState].RecreateTrie(head.GetKAppsTrieRoot()); err != nil {
+		report("recreate kapp trie", err)
 	}
-	if trigErr := mp.epochStartTrigger.RevertStateToBlock(head); trigErr != nil {
-		log.Error("revertFailedCommit: revert epoch start trigger", "nonce", head.GetNonce(), "error", trigErr.Error())
-		_ = bugsnag.Notify(fmt.Errorf("revertFailedCommit: revert epoch start trigger: %w", trigErr),
-			bugsnag.MetaData{"data": {"nonce": head.GetNonce()}})
+	if err = mp.validatorStatisticsProcessor.RevertPeerState(head); err != nil {
+		report("revert peer state", err)
 	}
-	if reloadErr := mp.reloadProposalParameters(); reloadErr != nil {
-		log.Error("revertFailedCommit: reload proposal parameters", "error", reloadErr.Error())
-		_ = bugsnag.Notify(fmt.Errorf("revertFailedCommit: reload proposal parameters: %w", reloadErr))
+	if err = mp.epochStartTrigger.RevertStateToBlock(head); err != nil {
+		report("revert epoch start trigger", err)
+	}
+	if err = mp.reloadProposalParameters(); err != nil {
+		report("reload proposal parameters", err)
 	}
 }
 
