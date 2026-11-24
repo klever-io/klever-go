@@ -72,9 +72,6 @@ type MockWorld struct {
 	OtherVMOutputMap           map[string]*vmcommon.VMOutput
 	MockAsset                  *kapps.KDAData
 	KAppController             kapp.KAppController
-
-	compiledCodeGeneration uint64
-	clearedHandlers        []func()
 }
 
 var marshalizer = marshal.NewProtoMarshalizer()
@@ -544,6 +541,7 @@ func (b *MockWorld) Clear() {
 	b.CurrentBlockInfo = nil
 	b.Blockhashes = nil
 	b.NewAddressMocks = nil
+	b.CompiledCode = make(map[string][]byte)
 	b.BuiltinFuncs = nil
 	b.OtherVMOutputMap = make(map[string]*vmcommon.VMOutput)
 
@@ -565,10 +563,6 @@ func (b *MockWorld) Clear() {
 	if err = b.CommitChangesToDB(); err != nil {
 		panic(err)
 	}
-
-	// last, once the world is reset: like the real hook, a cache reset bumps the compiled-code
-	// generation and then notifies the cleared handlers
-	b.ClearCompiledCodes()
 }
 
 // SetCurrentBlockHash -

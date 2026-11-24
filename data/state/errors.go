@@ -54,3 +54,6 @@ var ErrAPRGainDropped = errors.New("apr gain dropped")
 
 // ErrNegativeCirculatingSupply signals that an asset's circulating supply is negative
 var ErrNegativeCirculatingSupply = errors.New("negative circulating supply")
+
+// ErrCodeEntryNotFound signals that an account's code hash points to no stored code entry
+var ErrCodeEntryNotFound = errors.New("code entry not found")

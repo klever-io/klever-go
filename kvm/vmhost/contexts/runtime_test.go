@@ -1337,7 +1337,10 @@ func TestRuntimeContext_WarmAndColdRejectionsAreIdentical(t *testing.T) {
 // TestRuntimeContext_CompiledCodeFromBeforeTheTableCapIsRejectedLikeACold covers a module that
 // entered the compiled-code cache before FixAuditChangesV4 applied, as the block path does before
 // the fork and the KLC-3001 warmer can after a start, before the first CheckEpoch. Restored once
-// the cap applies, it must be rejected exactly as a node that compiles it cold rejects it.
+// the cap applies, it must be rejected exactly as a node that compiles it cold rejects it. With
+// the real executor the rejection comes from the executor itself, on restore, so this test does
+// not reach the runtime's own check; TestRuntimeContext_CompiledCodeRestoreChecksTheTableCapItself
+// covers that one.
 func TestRuntimeContext_CompiledCodeFromBeforeTheTableCapIsRejectedLikeACold(t *testing.T) {
 	oversized, err := hex.DecodeString(oversizedTableNonMutatingWasmHex)
 	require.NoError(t, err)
@@ -1376,6 +1379,101 @@ func TestRuntimeContext_CompiledCodeFromBeforeTheTableCapIsRejectedLikeACold(t *
 	require.Error(t, coldErr)
 	require.Equal(t, coldErr.Error(), restoredErr.Error(),
 		"a restored module and a cold compile must be rejected identically")
+}
+
+var errTestExecutorTableCap = errors.New("declared table exceeds the cap")
+
+// tableCapExecutor restores any compiled module without checking the declared-table cap, as an
+// executor that stopped checking it on restore would, while its bytecode compile still rejects
+// the module whenever a cap is passed, as the real executor does.
+type tableCapExecutor struct {
+	*contextmock.ExecutorMock
+	restored            []*contextmock.InstanceMock
+	numBytecodeCompiles int
+	codeHashOnBytecode  []byte
+	codeHashOf          func() []byte
+}
+
+func (exec *tableCapExecutor) NewInstanceFromCompiledCodeWithOptions(
+	code []byte,
+	_ executor.CompilationOptions,
+) (executor.Instance, error) {
+	instance := contextmock.NewInstanceMock(code)
+	instance.MaxDeclaredTableSizeMock = math.MaxUint32
+	exec.restored = append(exec.restored, instance)
+	return instance, nil
+}
+
+func (exec *tableCapExecutor) NewInstanceWithOptions(
+	code []byte,
+	options executor.CompilationOptions,
+) (executor.Instance, error) {
+	exec.numBytecodeCompiles++
+	exec.codeHashOnBytecode = exec.codeHashOf()
+	if options.MaxDeclaredTableSize != math.MaxUint64 {
+		return nil, errTestExecutorTableCap
+	}
+	instance := contextmock.NewInstanceMock(code)
+	instance.MaxDeclaredTableSizeMock = math.MaxUint32
+	return instance, nil
+}
+
+// TestRuntimeContext_CompiledCodeRestoreChecksTheTableCapItself covers the runtime's own check on
+// the compiled-code restore path, which the test above cannot reach: there the real executor
+// rejects the module on restore first. Here the restore succeeds with an over-cap module, so
+// only the runtime check stands between it and execution. Once the cap applies, the restored
+// instance must be dropped and the call must fall through to the bytecode compile, with the
+// tracker still keyed on the contract, and be rejected as a cold compile is. Before the cap
+// applies, the restored module runs.
+func TestRuntimeContext_CompiledCodeRestoreChecksTheTableCapItself(t *testing.T) {
+	contract := []byte("module compiled before the table cap")
+	codeHash := defaultHasher.Compute(string(contract))
+
+	run := func(t *testing.T, epoch uint32) (*tableCapExecutor, error) {
+		t.Helper()
+
+		fc, err := fork.NewForkController(blockchainConfig.EnableEpochs{
+			FixAuditChangesV4: 1, // inactive at epoch 0, active from epoch 1
+		}, &commonMock.EpochNotifierStub{})
+		require.NoError(t, err)
+		fc.EpochConfirmed(epoch)
+
+		host := InitializeVMAndWasmer()
+		host.ForkControllerContext = fc
+		runtimeCtx := makeDefaultRuntimeContext(t, host)
+		t.Cleanup(runtimeCtx.ClearWarmInstanceCache)
+		runtimeCtx.SetMaxInstanceStackSize(2)
+
+		exec := &tableCapExecutor{
+			ExecutorMock: contextmock.NewExecutorMock(nil),
+			codeHashOf:   runtimeCtx.iTracker.CodeHash,
+		}
+		runtimeCtx.ReplaceVMExecutor(exec)
+		host.Blockchain().SaveCompiledCode(codeHash, contract)
+
+		return exec, runtimeCtx.StartWasmerInstance(contract, 100_000_000, false)
+	}
+
+	t.Run("cap active", func(t *testing.T) {
+		exec, err := run(t, 1)
+
+		require.ErrorIs(t, err, errTestExecutorTableCap,
+			"the restored module must be rejected and the call fall through to the bytecode compile")
+		require.Len(t, exec.restored, 1)
+		require.True(t, exec.restored[0].IsAlreadyCleaned(), "the rejected restored instance must be cleaned")
+		require.Equal(t, 1, exec.numBytecodeCompiles)
+		require.Equal(t, codeHash, exec.codeHashOnBytecode,
+			"the fall-through must keep the tracker keyed on the contract")
+	})
+
+	t.Run("cap not active yet", func(t *testing.T) {
+		exec, err := run(t, 0)
+
+		require.NoError(t, err, "before the fork the restored module runs")
+		require.Len(t, exec.restored, 1)
+		require.False(t, exec.restored[0].IsAlreadyCleaned())
+		require.Zero(t, exec.numBytecodeCompiles)
+	})
 }
 
 // TestRuntimeContext_VerifyContractCode_TableCheckSkippedPreFork is the

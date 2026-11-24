@@ -12,8 +12,10 @@
 //     only input known to be baked in.
 //   - The fork-dependent option is not. The declared-table cap (FixAuditChangesV4) is handed to
 //     the executor on every instantiation, from the restoring call's options, and the executor
-//     checks it on restore; the runtime checks it again on the compiled-code restore path
-//     (kvm/vmhost/contexts TestRuntimeContext_CompiledCodeFromBeforeTheTableCapIsRejectedLikeACold).
+//     checks it on restore (kvm/vmhost/contexts
+//     TestRuntimeContext_CompiledCodeFromBeforeTheTableCapIsRejectedLikeACold). The runtime
+//     checks it again on the compiled-code restore path, for a restore the executor accepts
+//     (TestRuntimeContext_CompiledCodeRestoreChecksTheTableCapItself).
 //   - GasLimit is serialized into Cache() output, but the restoring call's limit is the one
 //     enforced (kvm/wasmer2 TestCompiledModuleGasLimitIsAppliedOnRestore), which is why the
 //     pool is shared by calls with different gas limits.
@@ -163,12 +165,10 @@ type compiledCodeWarmer struct {
 	closing   chan struct{}
 	done      chan struct{}
 	closeOnce sync.Once
-	closed    atomic.Bool
 	started   atomic.Bool
 
 	// owned by the worker goroutine
 	exec         executor.Executor
-	execOpcodes  *executor.WASMOpcodeCost
 	backlog      [][]byte
 	readInterval time.Duration
 	lastRead     time.Time
@@ -272,7 +272,7 @@ func checkArgs(args ArgsCompiledCodeWarmer) error {
 }
 
 func (w *compiledCodeWarmer) start() {
-	if w.closed.Load() {
+	if w.isClosing() {
 		return
 	}
 	w.started.Store(true)
@@ -282,7 +282,7 @@ func (w *compiledCodeWarmer) start() {
 // onTxAdded is the transactions pool OnAdded handler. It runs synchronously in the
 // interceptor goroutines, so it must never block, compile or panic.
 func (w *compiledCodeWarmer) onTxAdded(_ []byte, value interface{}) {
-	if w.closed.Load() {
+	if w.isClosing() {
 		return
 	}
 
@@ -385,7 +385,7 @@ func (w *compiledCodeWarmer) forget(address []byte) {
 // TriggerRescan asks the worker to re-enqueue the contracts called by the transactions
 // currently in the pool. Requests are coalesced and the call never blocks.
 func (w *compiledCodeWarmer) TriggerRescan() {
-	if w.closed.Load() {
+	if w.isClosing() {
 		return
 	}
 
@@ -482,9 +482,9 @@ func (w *compiledCodeWarmer) rescan() {
 // warm compiles the module of the contract at address and stores it, unless it is cached
 // already or the cache inputs changed while it compiled. Every failure only skips the
 // contract: its next call compiles cold, exactly as without the warmer. Failures that can
-// pass (unreadable state, no code yet, a stale cache) forget the address, so a later
-// transaction or rescan retries it; those that are a property of the code (a start function,
-// undecodable code, a compile error) do not.
+// pass (unreadable state, a stale cache) forget the address, so a later transaction or rescan
+// retries it; those that are a property of the address or the code (no account or no code
+// yet, a start function, undecodable code, a compile error) do not.
 func (w *compiledCodeWarmer) warm(address []byte) {
 	defer w.publishMetrics()
 
@@ -513,7 +513,7 @@ func (w *compiledCodeWarmer) warm(address []byte) {
 		log.Debug("compiledCodeWarmer: cannot build the compilation inputs", logKeyError, err)
 		return
 	}
-	w.ensureExecutorOpcodeCosts(&compiledFor.opcodes)
+	w.exec.SetOpcodeCosts(&compiledFor.opcodes)
 
 	startTime := time.Now()
 	compiled, err := w.compile(code, compiledFor.options)
@@ -578,17 +578,19 @@ func (w *compiledCodeWarmer) loadUncachedCode(address []byte) ([]byte, []byte, b
 	return codeHash, code, true
 }
 
-// skipUnreadable counts and forgets an address whose code could not be read: no account and
-// no code are ordinary inputs, any other error is a failure.
+// skipUnreadable counts an address whose code could not be read. No account and no code are
+// ordinary inputs: the address stays in the dedup set, so pool transactions to an address
+// without a contract do not cost an accounts read each. A contract deployed there later is
+// cached by its deploy, and a rescan clears the set. Any other error is a failure, and the
+// address is forgotten so a later transaction retries it.
 func (w *compiledCodeWarmer) skipUnreadable(address []byte, err error) {
-	w.forget(address)
-
 	if err == nil || errors.Is(err, common.ErrAccNotFound) {
 		w.numSkippedNoCode.Add(1)
 		log.Trace("compiledCodeWarmer: no code to warm", logKeyAddress, address, logKeyError, err)
 		return
 	}
 
+	w.forget(address)
 	w.numErrors.Add(1)
 	log.Debug("compiledCodeWarmer: cannot read contract code", logKeyAddress, address, logKeyError, err)
 }
@@ -628,16 +630,6 @@ func (w *compiledCodeWarmer) compile(code []byte, options executor.CompilationOp
 	defer instance.Clean()
 
 	return instance.Cache()
-}
-
-func (w *compiledCodeWarmer) ensureExecutorOpcodeCosts(opcodes *executor.WASMOpcodeCost) {
-	if w.execOpcodes != nil && *w.execOpcodes == *opcodes {
-		return
-	}
-
-	costs := *opcodes
-	w.exec.SetOpcodeCosts(&costs)
-	w.execOpcodes = &costs
 }
 
 // currentFingerprint builds the compilation inputs in force now. The save's recheck also calls
@@ -696,7 +688,6 @@ func (w *compiledCodeWarmer) publishMetrics() {
 // Close stops the worker and waits for it to exit. It is idempotent.
 func (w *compiledCodeWarmer) Close() error {
 	w.closeOnce.Do(func() {
-		w.closed.Store(true)
 		close(w.closing)
 		if w.started.Load() {
 			<-w.done

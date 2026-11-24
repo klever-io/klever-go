@@ -26,6 +26,13 @@ import (
 func newAccountsDBWithContract(t *testing.T) (*state.AccountsDB, []byte, []byte) {
 	t.Helper()
 
+	adb, _, address, codeHash := newAccountsDBWithContractTrie(t)
+	return adb, address, codeHash
+}
+
+func newAccountsDBWithContractTrie(t *testing.T) (*state.AccountsDB, data.Trie, []byte, []byte) {
+	t.Helper()
+
 	marshalizer := &mock.MarshalizerMock{}
 	hasher := mock.HasherMock{}
 	storageManager, err := trie.NewTrieStorageManagerWithoutPruning(mock.NewMemDbMock())
@@ -50,7 +57,7 @@ func newAccountsDBWithContract(t *testing.T) (*state.AccountsDB, []byte, []byte)
 	require.NoError(t, err)
 	require.Equal(t, 0, adb.NumTrackedDataTries(), "Commit leaves no tracked data tries")
 
-	return adb, address, hasher.Compute(string(code))
+	return adb, tr, address, hasher.Compute(string(code))
 }
 
 func TestAccountsDB_GetAccountCodeReturnsTheCode(t *testing.T) {
@@ -182,6 +189,36 @@ func TestAccountsDB_GetAccountCodeTrieError(t *testing.T) {
 	got, err := adb.GetAccountCode(make([]byte, 32))
 	require.Nil(t, got)
 	require.True(t, errors.Is(err, errTrie), "got %v", err)
+}
+
+// The warmer counts an unreadable code entry as an error, not as an account without code, so
+// GetAccountCode must report it; GetCode keeps returning nil for the block path.
+func TestAccountsDB_GetAccountCodeUnreadableCodeEntry(t *testing.T) {
+	t.Parallel()
+
+	t.Run("missing", func(t *testing.T) {
+		t.Parallel()
+
+		adb, tr, address, codeHash := newAccountsDBWithContractTrie(t)
+		require.NoError(t, tr.Delete(codeHash))
+
+		got, err := adb.GetAccountCode(address)
+		require.Nil(t, got)
+		require.True(t, errors.Is(err, state.ErrCodeEntryNotFound), "got %v", err)
+		require.Nil(t, adb.GetCode(codeHash))
+	})
+
+	t.Run("undecodable", func(t *testing.T) {
+		t.Parallel()
+
+		adb, tr, address, codeHash := newAccountsDBWithContractTrie(t)
+		require.NoError(t, tr.Update(codeHash, []byte("not a code entry")))
+
+		got, err := adb.GetAccountCode(address)
+		require.Nil(t, got)
+		require.Error(t, err)
+		require.Nil(t, adb.GetCode(codeHash))
+	})
 }
 
 func TestAccountsDB_GetAccountCodeHashReadsOnlyTheAccount(t *testing.T) {

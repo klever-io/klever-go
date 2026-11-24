@@ -258,6 +258,9 @@ func (context *runtimeContext) makeInstanceFromCompiledCode(gasLimit uint64, new
 	err = context.verifyTableDeclarationIfActive()
 	if err != nil {
 		context.iTracker.ForceCleanInstance(true)
+		// cleaning unsets the code hash: put it back, so the bytecode compile runs keyed on the
+		// contract, exactly as a call that never found the compiled module
+		context.iTracker.SetCodeHash(codeHash)
 		logRuntime.Trace("compiled code rejected, falling through to instantiation", "error", err)
 		return false, nil
 	}

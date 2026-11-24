@@ -667,7 +667,8 @@ func (adb *AccountsDB) GetAccountCodeHash(address []byte) ([]byte, error) {
 	return userAccount.GetCodeHash(), nil
 }
 
-// GetAccountCode returns the code of an existing account, nil for an account without code.
+// GetAccountCode returns the code of an existing account, nil for an account without code,
+// and an error when the account's code hash points to code that cannot be read or decoded.
 // Like GetAccountCodeHash it does not load the account's data trie, and it reads the account
 // and its code under one hold of mutOp, so RecreateTrie cannot swap the main trie between the
 // two reads. The read is not counted in the code-load measurements, which report the block
@@ -681,7 +682,7 @@ func (adb *AccountsDB) GetAccountCode(address []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return adb.readCode(userAccount.GetCodeHash()), nil
+	return adb.readCodeOrError(userAccount.GetCodeHash())
 }
 
 // getUserAccountForCodeRead returns the user account at address without loading its data
@@ -1123,25 +1124,36 @@ func (adb *AccountsDB) GetCode(codeHash []byte) []byte {
 	return code
 }
 
-// readCode reads the code stored under codeHash without recording a code-load measurement;
-// callers that must not race RecreateTrie hold mutOp
+// readCode reads the code stored under codeHash without recording a code-load measurement,
+// and returns nil when it cannot be read; callers that must not race RecreateTrie hold mutOp
 func (adb *AccountsDB) readCode(codeHash []byte) []byte {
+	code, _ := adb.readCodeOrError(codeHash)
+	return code
+}
+
+// readCodeOrError is readCode that reports why a non-empty code hash yields no code: a trie
+// read error, a missing code entry or an undecodable one. An empty code hash is no code and
+// no error.
+func (adb *AccountsDB) readCodeOrError(codeHash []byte) ([]byte, error) {
 	if len(codeHash) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	val, err := adb.mainTrie.Get(codeHash)
 	if err != nil {
-		return nil
+		return nil, err
+	}
+	if len(val) == 0 {
+		return nil, ErrCodeEntryNotFound
 	}
 
 	var codeEntry CodeEntry
 	err = adb.marshalizer.Unmarshal(&codeEntry, val)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("cannot decode the code entry: %w", err)
 	}
 
-	return codeEntry.Code
+	return codeEntry.Code, nil
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

@@ -240,9 +240,9 @@ func (f *fakeForkFlags) IsInterfaceNil() bool    { return f == nil }
 // hookedExecutor wraps a real executor so a test can act in the middle of a compile.
 type hookedExecutor struct {
 	executor.Executor
-	beforeCompile     func()
-	numCompiles       atomic.Int64
-	numSetOpcodeCosts atomic.Int64
+	beforeCompile   func()
+	numCompiles     atomic.Int64
+	lastOpcodeCosts atomic.Pointer[executor.WASMOpcodeCost]
 }
 
 func (h *hookedExecutor) NewInstanceWithOptions(code []byte, options executor.CompilationOptions) (executor.Instance, error) {
@@ -254,7 +254,8 @@ func (h *hookedExecutor) NewInstanceWithOptions(code []byte, options executor.Co
 }
 
 func (h *hookedExecutor) SetOpcodeCosts(costs *executor.WASMOpcodeCost) {
-	h.numSetOpcodeCosts.Add(1)
+	stored := *costs
+	h.lastOpcodeCosts.Store(&stored)
 	h.Executor.SetOpcodeCosts(costs)
 }
 
@@ -636,6 +637,7 @@ func TestCompiledCodeWarmer_DiscardsModuleWhenGasScheduleChangesDuringCompile(t 
 	f := newWarmerFixture(t)
 	code := readBasicFeatures(t)
 	f.accounts.setContract(scAddress(1), code)
+	oldSchedule := f.gas.LatestGasSchedule()
 	newSchedule := kvmConfig.MakeGasMapForTests()
 	newSchedule["WASMOpcodeCost"]["I64Add"]++
 	f.exec.beforeCompile = func() { f.gas.GasSchedule = newSchedule }
@@ -644,31 +646,26 @@ func TestCompiledCodeWarmer_DiscardsModuleWhenGasScheduleChangesDuringCompile(t 
 	w.warm(scAddress(1))
 	assert.Equal(t, 0, f.cache.len())
 	assert.Equal(t, uint64(1), w.Counters().DiscardedStale)
-	assert.Equal(t, int64(1), f.exec.numSetOpcodeCosts.Load())
+	assertExecutorCosts(t, f.exec, oldSchedule)
 
 	// the next attempt picks up the new schedule, moves the executor to it and saves
 	f.exec.beforeCompile = nil
 	w.warm(scAddress(1))
 	assert.Equal(t, 1, f.cache.len())
 	assert.Equal(t, uint64(1), w.Counters().Compiled)
-	assert.Equal(t, int64(2), f.exec.numSetOpcodeCosts.Load())
+	assertExecutorCosts(t, f.exec, newSchedule)
 }
 
-func TestCompiledCodeWarmer_KeepsExecutorCostsWhileScheduleIsUnchanged(t *testing.T) {
-	t.Parallel()
+// assertExecutorCosts checks that the executor compiled under the opcode costs of schedule,
+// the costs the module's fingerprint records
+func assertExecutorCosts(t *testing.T, exec *hookedExecutor, schedule kvmConfig.GasScheduleMap) {
+	t.Helper()
 
-	f := newWarmerFixture(t)
-	code := readBasicFeatures(t)
-	f.accounts.setContract(scAddress(1), code)
-	f.accounts.setContract(scAddress(2), append(append([]byte{}, code...), []byte{}...))
-	w := f.newStopped(t, 16)
-
-	w.warm(scAddress(1))
-	f.cache.clear()
-	w.warm(scAddress(2))
-
-	assert.Equal(t, uint64(2), w.Counters().Compiled)
-	assert.Equal(t, int64(1), f.exec.numSetOpcodeCosts.Load())
+	gasCost, err := kvmConfig.CreateGasConfig(schedule)
+	require.NoError(t, err)
+	last := exec.lastOpcodeCosts.Load()
+	require.NotNil(t, last, "the executor's opcode costs were never set")
+	assert.Equal(t, *gasCost.WASMOpcodeCost, *last)
 }
 
 func TestCompiledCodeWarmer_SkipsCodeWithStartSection(t *testing.T) {
@@ -890,8 +887,8 @@ func TestCompiledCodeWarmer_RetriesOnlyFailuresThatCanPass(t *testing.T) {
 	w.enqueue(scAddress(2))
 	w.enqueue(scAddress(3))
 	w.enqueue(scAddress(4))
-	assert.Equal(t, [][]byte{scAddress(1), scAddress(3), scAddress(4)}, queued(w),
-		"unreadable state, a stale cache and a missing account can pass; undecodable code cannot")
+	assert.Equal(t, [][]byte{scAddress(1), scAddress(3)}, queued(w),
+		"unreadable state and a stale cache can pass; a missing account and undecodable code cannot")
 }
 
 func TestCompiledCodeWarmer_ReadsCodeOnlyWhenTheModuleIsMissing(t *testing.T) {
