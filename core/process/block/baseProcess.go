@@ -35,6 +35,7 @@ const (
 	// Log parameter names
 	LogHeaderTxRootHash   = "header tx root hash"
 	LogComputedTxRootHash = "computed tx root hash"
+	LogReceivedBlockSlot  = "received block slot"
 )
 
 type baseProcessor struct {
@@ -117,7 +118,11 @@ func (bp *baseProcessor) checkBlockValidity(
 	currentBlockHeader := bp.blockChain.GetCurrentBlockHeader()
 
 	if check.IfNil(currentBlockHeader) {
-		return bp.validateGenesisBlock(headerHandler, currentBlockHeader)
+		if err := bp.validateGenesisBlock(headerHandler, currentBlockHeader); err != nil {
+			return err
+		}
+
+		return bp.validateFirstBlockAgainstGenesis(headerHandler)
 	}
 
 	if err := bp.validateBlockAgainstCurrentHeader(headerHandler, currentBlockHeader); err != nil {
@@ -147,7 +152,7 @@ func (bp *baseProcessor) checkSlotIsNotInTheFuture(headerHandler data.HeaderHand
 	maxAcceptedSlot := tools.SafeI64ToU64(bp.slotManager.Index()) + 1
 	if headerHandler.GetSlot() > maxAcceptedSlot {
 		log.Debug("slot is in the future",
-			"received block slot", headerHandler.GetSlot(),
+			LogReceivedBlockSlot, headerHandler.GetSlot(),
 			"max accepted slot", maxAcceptedSlot)
 		return process.ErrSlotAheadOfChronology
 	}
@@ -160,7 +165,6 @@ func (bp *baseProcessor) validateGenesisBlock(headerHandler data.HeaderHandler, 
 	if check.IfNil(currentBlockHeader) {
 		if headerHandler.GetNonce() == bp.genesisNonce+1 {
 			if bytes.Equal(headerHandler.GetParentHash(), bp.blockChain.GetGenesisHeaderHash()) {
-				// TODO: add genesis block verification
 				return nil
 			}
 			log.Debug("hash does not match",
@@ -178,12 +182,55 @@ func (bp *baseProcessor) validateGenesisBlock(headerHandler data.HeaderHandler, 
 	return nil
 }
 
+// validateFirstBlockAgainstGenesis applies the current-header and slot checks to the
+// first block, using the genesis header as its predecessor (KLC-2963). Not fork gated:
+// block 1 of every live network already satisfies these rules.
+func (bp *baseProcessor) validateFirstBlockAgainstGenesis(headerHandler data.HeaderHandler) error {
+	genesisHeader := bp.blockChain.GetGenesisHeader()
+	if check.IfNil(genesisHeader) {
+		return process.ErrNilBlockHeader
+	}
+
+	if headerHandler.GetSlot() <= genesisHeader.GetSlot() {
+		log.Debug("slot does not match",
+			"genesis block slot", genesisHeader.GetSlot(),
+			LogReceivedBlockSlot, headerHandler.GetSlot())
+		return process.ErrLowerSlotInBlock
+	}
+
+	// backstop independent of the slot manager's own timestamp check
+	if headerHandler.GetTimestamp() < genesisHeader.GetTimestamp() {
+		log.Debug("timestamp is before genesis",
+			"genesis timestamp", genesisHeader.GetTimestamp(),
+			"received timestamp", headerHandler.GetTimestamp())
+		return process.ErrInvalidBlockTimestamp
+	}
+
+	if !bytes.Equal(headerHandler.GetPrevRandSeed(), genesisHeader.GetRandSeed()) {
+		log.Debug("random seed does not match",
+			"genesis random seed", genesisHeader.GetRandSeed(),
+			"received previous random seed", headerHandler.GetPrevRandSeed())
+		return process.ErrRandSeedDoesNotMatch
+	}
+
+	// the epoch-start trigger needs more than minSlotsToTrigger blocks, so block 1
+	// always stays in the genesis epoch
+	if headerHandler.GetEpoch() != genesisHeader.GetEpoch() {
+		log.Debug("epoch does not match",
+			"genesis epoch", genesisHeader.GetEpoch(),
+			"received epoch", headerHandler.GetEpoch())
+		return process.ErrEpochDoesNotMatch
+	}
+
+	return bp.validateBlockAndSlot(headerHandler)
+}
+
 // Helper function to validate the block against the current block header
 func (bp *baseProcessor) validateBlockAgainstCurrentHeader(headerHandler data.HeaderHandler, currentBlockHeader data.HeaderHandler) error {
 	if headerHandler.GetSlot() <= currentBlockHeader.GetSlot() {
 		log.Debug("slot does not match",
 			"local block slot", currentBlockHeader.GetSlot(),
-			"received block slot", headerHandler.GetSlot())
+			LogReceivedBlockSlot, headerHandler.GetSlot())
 		return process.ErrLowerSlotInBlock
 	}
 

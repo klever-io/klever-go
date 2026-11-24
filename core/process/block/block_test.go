@@ -149,15 +149,23 @@ func createMockMetaArguments() blproc.ArgMetaProcessor {
 	return arguments
 }
 
+// withCurrentHeaderInEpoch gives the chain a current header in the given epoch, so a
+// test block takes the later-block checks instead of the block 1 checks against genesis.
+func withCurrentHeaderInEpoch(arguments *blproc.ArgMetaProcessor, epoch uint32) {
+	blkc := createTestBlockchain()
+	blkc.GetCurrentBlockHeaderCalled = func() data.HeaderHandler {
+		return &block.Block{Header: &block.BlockHeader{Epoch: epoch}}
+	}
+	arguments.BlockChain = blkc
+}
+
 func createMetaBlockHeader() *block.Block {
 	hdr := block.Block{
 		Header: &block.BlockHeader{
 			Nonce:        1,
 			Slot:         1,
 			ParentHash:   []byte(""),
-			TxRootHash:   []byte("txRootHash"),
 			TrieRoot:     []byte("rootHash"),
-			TxCount:      1,
 			PrevRandSeed: make([]byte, 0),
 			RandSeed:     make([]byte, 0),
 		},
@@ -657,6 +665,7 @@ func TestMetaProcessor_ProcessWithDirtyAccountShouldErr(t *testing.T) {
 	hdr := block.Block{
 		Header: &block.BlockHeader{
 			Nonce:      1,
+			Slot:       1,
 			ParentHash: []byte(""),
 			TrieRoot:   []byte("roothash"),
 		},
@@ -685,6 +694,7 @@ func createEpochStartHeaderForProcess() *block.Block {
 	return &block.Block{
 		Header: &block.BlockHeader{
 			Nonce:        1,
+			Slot:         1,
 			ParentHash:   []byte(""),
 			TrieRoot:     []byte("roothash"),
 			IsEpochStart: true,
@@ -707,10 +717,15 @@ func TestMetaProcessor_ProcessBlockEpochStartErrorShouldRevertState(t *testing.T
 		prepare     func(hdr *block.Block, arguments *blproc.ArgMetaProcessor)
 	}{
 		{
-			name:        "invalid tx count",
+			// a well-formed body, so only the epoch start rule can reject the transaction
+			name:        "epoch start carrying a transaction",
 			expectedErr: process.ErrInvalidTXCount,
-			prepare: func(hdr *block.Block, _ *blproc.ArgMetaProcessor) {
+			prepare: func(hdr *block.Block, arguments *blproc.ArgMetaProcessor) {
+				arguments.Hasher = &sha256.Sha256{}
+				hdr.TxHashes = [][]byte{bytes.Repeat([]byte{1}, arguments.Hasher.Size())}
+				hdr.TxResults = []uint32{0}
 				hdr.Header.TxCount = 1
+				hdr.Header.TxRootHash, _ = hdr.ComputeRootHash(arguments.Hasher)
 			},
 		},
 		{
@@ -718,6 +733,7 @@ func TestMetaProcessor_ProcessBlockEpochStartErrorShouldRevertState(t *testing.T
 			expectedErr: process.ErrInvalidTXFees,
 			prepare: func(hdr *block.Block, _ *blproc.ArgMetaProcessor) {
 				hdr.Header.TxFees = 1
+				hdr.Header.TxBurnedFees = 1
 			},
 		},
 		{
@@ -1185,6 +1201,7 @@ func TestMetaProcessor_RejectedEpochStartWithSettledProposalsShouldNotNotifyInde
 		arguments.EventsProcessor = &mock.EventsProcessorStub{
 			UpdateProposalsAndParametersCalled: func(_ []string) { indexerCalls++ },
 		}
+		withCurrentHeaderInEpoch(&arguments, 1)
 
 		mpp, err := blproc.NewMetaProcessor(arguments)
 		require.NoError(t, err)
@@ -1559,6 +1576,7 @@ func TestMetaProcessor_RejectedEpochStartMustRollBackProposalParameters(t *testi
 	// path calls right before it restores the proposal parameters
 	newProcessor := func(t *testing.T, onRevert func()) (*blproc.MetaProcessorForTests, kapps.ActiveProposalController) {
 		arguments := createMockMetaArguments()
+		withCurrentHeaderInEpoch(&arguments, 1)
 		arguments.AccountsDB[state.UserAccountsState] = &mock.AccountsStub{
 			JournalLenCalled: func() int { return 0 },
 			RootHashCalled:   func() ([]byte, error) { return []byte("roothash"), nil },
@@ -3568,13 +3586,14 @@ func TestMetaProcessor_CreateEpochStartBodyWithInvalidTxCountShouldErr(t *testin
 	t.Parallel()
 
 	hdr := createMetaBlockHeader()
+	hdr.Header.TxCount = 1
 
 	arguments := createMockMetaArguments()
 
 	mp, err := blproc.NewMetaProcessor(arguments)
 	require.NoError(t, err)
 	err = mp.CreateEpochStartHeader(hdr)
-	require.Error(t, err, "invalid block tx count")
+	require.ErrorIs(t, err, process.ErrInvalidTXCount)
 }
 
 func TestMetaProcessor_CreateAndProcessWithInvalidProcess(t *testing.T) {
@@ -3797,7 +3816,6 @@ func TestMetaProcessor_CommitBlockCallsEventsProcessor(t *testing.T) {
 	mdp := initDataPool([]byte("tx_hash"))
 	rootHash := []byte("rootHash")
 	hdr := createMetaBlockHeader()
-	hdr.Header.PrevRandSeed = []byte("prevRandSeed")
 	hdr.PubKeysBitmap = []byte{0x01}
 
 	marshalerMock := &mock.MarshalizerMock{}

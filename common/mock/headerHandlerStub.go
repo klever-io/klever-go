@@ -22,6 +22,7 @@ type HeaderHandlerStub struct {
 	GetPrevEpochStartSlotCalled func() uint64
 	GetEpochCaled               func() uint32
 	GetSlotCalled               func() uint64
+	GetTimestampCalled          func() int64
 	GetTxRootHashCalled         func() []byte
 	GetProducerPublicKeyCalled  func() []byte
 	GetBlockHeaderCalled        func() interface{}
@@ -186,7 +187,11 @@ func (hhs *HeaderHandlerStub) GetSlot() uint64 {
 
 // GetTimestamp -
 func (hhs *HeaderHandlerStub) GetTimestamp() int64 {
-	panic("implement me")
+	if hhs.GetTimestampCalled != nil {
+		return hhs.GetTimestampCalled()
+	}
+
+	return 0
 }
 
 // GetParentHash -
