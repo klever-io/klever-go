@@ -656,6 +656,10 @@ func (context *outputContext) SetCrtTransferIndex(index uint32) {
 	context.crtTransferIndex = index
 }
 
+// mergeVMOutputs merges rightOutput into leftOutput. Storage updates, transfer contents, log
+// entries, return-data and deleted-account items, and code stay shared: replace them, never
+// write in place. The one exception is CompleteLogEntriesWithCallType setting an unset call
+// type on a returned call's logs.
 func mergeVMOutputs(leftOutput *vmcommon.VMOutput, rightOutput *vmcommon.VMOutput) {
 	mergeVMOutputsConditionally(leftOutput, rightOutput, false)
 }
@@ -694,11 +698,12 @@ func mergeOutputAccounts(
 
 	mergeStorageUpdates(leftAccount, rightAccount)
 
+	// Shared: code can be large and merges are uncharged; DeployCode and GetCode never write it in place.
 	if len(rightAccount.Code) > 0 {
-		leftAccount.Code = bytes.Clone(rightAccount.Code)
+		leftAccount.Code = rightAccount.Code
 	}
 	if len(rightAccount.CodeMetadata) > 0 {
-		leftAccount.CodeMetadata = bytes.Clone(rightAccount.CodeMetadata)
+		leftAccount.CodeMetadata = rightAccount.CodeMetadata
 	}
 
 	mergeTransfers(leftAccount, rightAccount, mergeAllTransfers)
