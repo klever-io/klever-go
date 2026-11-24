@@ -1,6 +1,7 @@
 package vmhooks
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -2596,8 +2597,8 @@ func createContract(
 
 	if value.Cmp(big.NewInt(0)) != 0 {
 		contractCreate.KDATransfers = append(contractCreate.KDATransfers, &vmcommon.KDATransfer{
-			KDAValue:     value,
-			KDATokenName: kdautils.KLVIdentifier,
+			KDAValue:     big.NewInt(0).Set(value),
+			KDATokenName: bytes.Clone(kdautils.KLVIdentifier),
 		})
 	}
 
@@ -2772,14 +2773,14 @@ func prepareIndirectContractCallInput(
 			CallType:           vm.DirectCall,
 			KDATransfers:       make([]*vmcommon.KDATransfer, 0),
 		},
-		RecipientAddr: destination,
+		RecipientAddr: bytes.Clone(destination),
 		Function:      string(function),
 	}
 
 	if value.Cmp(big.NewInt(0)) != 0 {
 		contractCallInput.KDATransfers = append(contractCallInput.KDATransfers, &vmcommon.KDATransfer{
-			KDAValue:     value,
-			KDATokenName: kdautils.KLVIdentifier,
+			KDAValue:     big.NewInt(0).Set(value),
+			KDATokenName: bytes.Clone(kdautils.KLVIdentifier),
 		})
 	}
 

@@ -1,11 +1,14 @@
 package contexts
 
 import (
+	"bytes"
+	"encoding/json"
 	"math/big"
 	"testing"
 
 	commonMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
 	"github.com/klever-io/klever-go/kvm/vmhost"
@@ -834,4 +837,394 @@ func TestOutputContext_DeletedAccountsInheritedBeforeFixAuditChangesV6(t *testin
 	for _, address := range outputContext.outputState.DeletedAccounts {
 		require.Equal(t, deletedAddress, address)
 	}
+}
+
+func newOutputContextForOwnershipTests() *outputContext {
+	host := &contextmock.VMHostMock{ForkControllerContext: commonMock.NewForkControllerStub()}
+	host.RuntimeContext = &contextmock.RuntimeContextMock{VMInput: &vmcommon.ContractCallInput{}}
+	outputContext, _ := NewOutputContext(host)
+	host.OutputContext = outputContext
+
+	return outputContext
+}
+
+func overwriteBytes(data []byte) {
+	for i := range data {
+		data[i] = 'X'
+	}
+}
+
+func requireSameByteShape(t *testing.T, expected []byte, actual []byte) {
+	t.Helper()
+
+	if expected == nil {
+		require.Nil(t, actual)
+		return
+	}
+
+	require.NotNil(t, actual)
+	require.Len(t, actual, len(expected))
+	require.True(t, bytes.Equal(expected, actual))
+}
+
+func TestNewVMOutputAccount_KeepsItsOwnAddress(t *testing.T) {
+	t.Parallel()
+
+	address := []byte("address")
+	account := NewVMOutputAccount(address)
+	overwriteBytes(address)
+
+	require.Equal(t, []byte("address"), account.Address)
+}
+
+func TestOutputContext_Finish_KeepsItsOwnData(t *testing.T) {
+	t.Parallel()
+
+	outputContext := newOutputContextForOwnershipTests()
+	data := []byte("data")
+	outputContext.Finish(data)
+	overwriteBytes(data)
+
+	require.Equal(t, [][]byte{[]byte("data")}, outputContext.ReturnData())
+}
+
+func TestOutputContext_PrependFinish_KeepsItsOwnData(t *testing.T) {
+	t.Parallel()
+
+	outputContext := newOutputContextForOwnershipTests()
+	outputContext.Finish([]byte("existing"))
+	data := []byte("data")
+	outputContext.PrependFinish(data)
+	overwriteBytes(data)
+
+	require.Equal(t, [][]byte{[]byte("data"), []byte("existing")}, outputContext.ReturnData())
+}
+
+func TestOutputContext_WriteLogWithIdentifier_KeepsItsOwnCopies(t *testing.T) {
+	t.Parallel()
+
+	newInputs := func() ([]byte, []byte, [][]byte, [][]byte) {
+		return []byte("address"),
+			[]byte("identifier"),
+			[][]byte{[]byte("topic1"), []byte("topic2")},
+			[][]byte{[]byte("data1"), []byte("data2")}
+	}
+
+	t.Run("mutating the source bytes leaves the entry unchanged", func(t *testing.T) {
+		t.Parallel()
+
+		outputContext := newOutputContextForOwnershipTests()
+		address, identifier, topics, data := newInputs()
+		outputContext.WriteLogWithIdentifier(address, topics, data, identifier)
+
+		overwriteBytes(address)
+		overwriteBytes(identifier)
+		overwriteBytes(topics[0])
+		overwriteBytes(topics[1])
+		overwriteBytes(data[0])
+		overwriteBytes(data[1])
+
+		require.Len(t, outputContext.outputState.Logs, 1)
+		entry := outputContext.outputState.Logs[0]
+		expectedAddress, expectedIdentifier, expectedTopics, expectedData := newInputs()
+		require.Equal(t, expectedAddress, entry.Address)
+		require.Equal(t, expectedIdentifier, entry.Identifier)
+		require.Equal(t, expectedTopics, entry.Topics)
+		require.Equal(t, expectedData, entry.Data)
+	})
+
+	t.Run("replacing outer elements leaves the entry unchanged", func(t *testing.T) {
+		t.Parallel()
+
+		outputContext := newOutputContextForOwnershipTests()
+		address, identifier, topics, data := newInputs()
+		outputContext.WriteLogWithIdentifier(address, topics, data, identifier)
+
+		topics[0] = []byte("replaced")
+		topics[1] = nil
+		data[0] = []byte("replaced")
+		data[1] = nil
+
+		entry := outputContext.outputState.Logs[0]
+		_, _, expectedTopics, expectedData := newInputs()
+		require.Equal(t, expectedTopics, entry.Topics)
+		require.Equal(t, expectedData, entry.Data)
+	})
+}
+
+func TestOutputContext_TransferValueOnly_KeepsItsOwnCopies(t *testing.T) {
+	t.Parallel()
+
+	sender := []byte("sender")
+	receiver := []byte("receiver")
+
+	mockWorld := worldmock.NewMockWorld()
+	mockWorld.PutAccount(&worldmock.Account{Address: []byte("sender"), Balance: big.NewInt(10000)})
+	mockWorld.PutAccount(&worldmock.Account{Address: []byte("receiver"), Balance: big.NewInt(0)})
+
+	host := &contextmock.VMHostMock{ForkControllerContext: commonMock.NewForkControllerStub()}
+	host.RuntimeContext = &contextmock.RuntimeContextMock{VMInput: &vmcommon.ContractCallInput{}}
+	outputContext, _ := NewOutputContext(host)
+	blockchainContext, _ := NewBlockchainContext(host, mockWorld)
+	host.OutputContext = outputContext
+	host.BlockchainContext = blockchainContext
+
+	require.NoError(t, outputContext.TransferValueOnly(receiver, sender, big.NewInt(1000), false))
+
+	overwriteBytes(sender)
+	overwriteBytes(receiver)
+
+	receiverAccount, _ := outputContext.GetOutputAccount([]byte("receiver"))
+	require.Len(t, receiverAccount.OutputTransfers, 1)
+	require.Equal(t, []byte("sender"), receiverAccount.OutputTransfers[0].SenderAddress)
+	require.Equal(t, []byte("receiver"), receiverAccount.OutputTransfers[0].RcvAddr)
+	tokenName := receiverAccount.OutputTransfers[0].KDATransfers.KDATokenName
+	require.Equal(t, kdautils.KLVIdentifier, tokenName)
+	require.NotSame(t, &kdautils.KLVIdentifier[0], &tokenName[0])
+}
+
+func TestOutputContext_TransferValueOnly_KeepsNilAndEmptyAddressesAsGiven(t *testing.T) {
+	t.Parallel()
+
+	newOutput := func() *outputContext {
+		mockWorld := worldmock.NewMockWorld()
+		mockWorld.PutAccount(&worldmock.Account{Address: []byte("other"), Balance: big.NewInt(10000)})
+		mockWorld.PutAccount(&worldmock.Account{Address: []byte{}, Balance: big.NewInt(10000)})
+
+		host := &contextmock.VMHostMock{ForkControllerContext: commonMock.NewForkControllerStub()}
+		host.RuntimeContext = &contextmock.RuntimeContextMock{VMInput: &vmcommon.ContractCallInput{}}
+		outputContext, _ := NewOutputContext(host)
+		blockchainContext, _ := NewBlockchainContext(host, mockWorld)
+		host.OutputContext = outputContext
+		host.BlockchainContext = blockchainContext
+
+		return outputContext
+	}
+
+	addressCases := []struct {
+		name  string
+		input func() []byte
+	}{
+		{name: "nil", input: func() []byte { return nil }},
+		{name: "empty", input: func() []byte { return []byte{} }},
+	}
+
+	for _, tc := range addressCases {
+		tc := tc
+		t.Run("sender is "+tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			outputContext := newOutput()
+			require.NoError(t, outputContext.TransferValueOnly([]byte("other"), tc.input(), big.NewInt(0), false))
+
+			account, _ := outputContext.GetOutputAccount([]byte("other"))
+			require.Len(t, account.OutputTransfers, 1)
+			requireSameByteShape(t, tc.input(), account.OutputTransfers[0].SenderAddress)
+		})
+
+		t.Run("destination is "+tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			outputContext := newOutput()
+			require.NoError(t, outputContext.TransferValueOnly(tc.input(), []byte("other"), big.NewInt(0), false))
+
+			account, _ := outputContext.GetOutputAccount(tc.input())
+			require.Len(t, account.OutputTransfers, 1)
+			requireSameByteShape(t, tc.input(), account.OutputTransfers[0].RcvAddr)
+		})
+	}
+}
+
+func TestOutputContext_DeployCode_KeepsItsOwnCopies(t *testing.T) {
+	t.Parallel()
+
+	outputContext := newOutputContextForOwnershipTests()
+	input := vmhost.CodeDeployInput{
+		ContractCode:         []byte("code"),
+		ContractCodeMetadata: []byte("metadata"),
+		ContractAddress:      []byte("contract"),
+		CodeDeployerAddress:  []byte("deployer"),
+	}
+	outputContext.DeployCode(input)
+
+	overwriteBytes(input.ContractCode)
+	overwriteBytes(input.ContractCodeMetadata)
+	overwriteBytes(input.CodeDeployerAddress)
+
+	account, _ := outputContext.GetOutputAccount([]byte("contract"))
+	require.Equal(t, []byte("code"), account.Code)
+	require.Equal(t, []byte("metadata"), account.CodeMetadata)
+	require.Equal(t, []byte("deployer"), account.CodeDeployerAddress)
+}
+
+func TestOutputContext_MergeOutputAccounts_KeepsItsOwnCopies(t *testing.T) {
+	t.Parallel()
+
+	left := &vmcommon.OutputAccount{Address: []byte("left")}
+	right := &vmcommon.OutputAccount{
+		Address:             []byte("right"),
+		Code:                []byte("code"),
+		CodeMetadata:        []byte("metadata"),
+		CodeDeployerAddress: []byte("deployer"),
+	}
+
+	mergeOutputAccounts(left, right, false)
+	overwriteBytes(right.Address)
+	overwriteBytes(right.Code)
+	overwriteBytes(right.CodeMetadata)
+	overwriteBytes(right.CodeDeployerAddress)
+
+	require.Equal(t, []byte("right"), left.Address)
+	require.Equal(t, []byte("code"), left.Code)
+	require.Equal(t, []byte("metadata"), left.CodeMetadata)
+	require.Equal(t, []byte("deployer"), left.CodeDeployerAddress)
+}
+
+func TestOutputContext_RecordedOutputKeepsNilAndEmptyAsGiven(t *testing.T) {
+	t.Parallel()
+
+	byteSliceCases := []struct {
+		name  string
+		input func() []byte
+	}{
+		{name: "nil", input: func() []byte { return nil }},
+		{name: "empty", input: func() []byte { return []byte{} }},
+		{name: "non-empty", input: func() []byte { return []byte("value") }},
+	}
+
+	byteSlicesCases := []struct {
+		name  string
+		input func() [][]byte
+	}{
+		{name: "nil", input: func() [][]byte { return nil }},
+		{name: "empty", input: func() [][]byte { return [][]byte{} }},
+		{name: "nil element", input: func() [][]byte { return [][]byte{nil} }},
+		{name: "empty element", input: func() [][]byte { return [][]byte{{}} }},
+		{name: "value element", input: func() [][]byte { return [][]byte{[]byte("value")} }},
+	}
+
+	for _, tc := range byteSliceCases {
+		tc := tc
+		t.Run("output account address is "+tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			account := NewVMOutputAccount(tc.input())
+			requireSameByteShape(t, tc.input(), account.Address)
+		})
+
+		t.Run("finished data is "+tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			outputContext := newOutputContextForOwnershipTests()
+			outputContext.Finish(tc.input())
+			require.Len(t, outputContext.ReturnData(), 1)
+			requireSameByteShape(t, tc.input(), outputContext.ReturnData()[0])
+		})
+
+		t.Run("prepended data is "+tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			outputContext := newOutputContextForOwnershipTests()
+			outputContext.PrependFinish(tc.input())
+			require.Len(t, outputContext.ReturnData(), 1)
+			requireSameByteShape(t, tc.input(), outputContext.ReturnData()[0])
+		})
+
+		t.Run("deployed code fields are "+tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			outputContext := newOutputContextForOwnershipTests()
+			outputContext.DeployCode(vmhost.CodeDeployInput{
+				ContractCode:         tc.input(),
+				ContractCodeMetadata: tc.input(),
+				ContractAddress:      []byte("contract"),
+				CodeDeployerAddress:  tc.input(),
+			})
+
+			account, _ := outputContext.GetOutputAccount([]byte("contract"))
+			requireSameByteShape(t, tc.input(), account.Code)
+			requireSameByteShape(t, tc.input(), account.CodeMetadata)
+			requireSameByteShape(t, tc.input(), account.CodeDeployerAddress)
+		})
+
+		t.Run("log address and identifier are "+tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			outputContext := newOutputContextForOwnershipTests()
+			outputContext.WriteLogWithIdentifier(tc.input(), nil, nil, tc.input())
+
+			require.Len(t, outputContext.outputState.Logs, 1)
+			requireSameByteShape(t, tc.input(), outputContext.outputState.Logs[0].Address)
+			requireSameByteShape(t, tc.input(), outputContext.outputState.Logs[0].Identifier)
+		})
+	}
+
+	for _, tc := range byteSlicesCases {
+		tc := tc
+		t.Run("log data is "+tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			outputContext := newOutputContextForOwnershipTests()
+			outputContext.WriteLogWithIdentifier([]byte("address"), nil, tc.input(), []byte("identifier"))
+
+			require.Equal(t, tc.input(), outputContext.outputState.Logs[0].Data)
+		})
+
+		t.Run("log topics are "+tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			outputContext := newOutputContextForOwnershipTests()
+			outputContext.WriteLogWithIdentifier([]byte("address"), tc.input(), nil, []byte("identifier"))
+
+			recorded := outputContext.outputState.Logs[0].Topics
+			if len(tc.input()) == 0 {
+				require.Nil(t, recorded)
+				return
+			}
+			require.Equal(t, tc.input(), recorded)
+		})
+	}
+
+	t.Run("recorded values marshal like the raw inputs", func(t *testing.T) {
+		t.Parallel()
+
+		outputContext := newOutputContextForOwnershipTests()
+		address := []byte("address")
+		identifier := []byte{}
+		topics := [][]byte{nil, {}, []byte("topic")}
+		data := [][]byte{[]byte("data"), nil}
+		outputContext.WriteLogWithIdentifier(address, topics, data, identifier)
+
+		expectedEntry := &vmcommon.LogEntry{
+			Address:    []byte("address"),
+			Identifier: []byte{},
+			Topics:     [][]byte{nil, {}, []byte("topic")},
+			Data:       [][]byte{[]byte("data"), nil},
+		}
+		expectedEntryJSON, err := json.Marshal(expectedEntry)
+		require.NoError(t, err)
+		recordedEntryJSON, err := json.Marshal(outputContext.outputState.Logs[0])
+		require.NoError(t, err)
+		require.Equal(t, expectedEntryJSON, recordedEntryJSON)
+
+		outputContext.DeployCode(vmhost.CodeDeployInput{
+			ContractCode:         []byte{},
+			ContractCodeMetadata: nil,
+			ContractAddress:      []byte("contract"),
+			CodeDeployerAddress:  []byte("deployer"),
+		})
+		recordedAccount, _ := outputContext.GetOutputAccount([]byte("contract"))
+		expectedAccount := &vmcommon.OutputAccount{
+			Address:             []byte("contract"),
+			StorageUpdates:      make(map[string]*vmcommon.StorageUpdate),
+			Code:                []byte{},
+			CodeMetadata:        nil,
+			CodeDeployerAddress: []byte("deployer"),
+		}
+		expectedAccountJSON, err := json.Marshal(expectedAccount)
+		require.NoError(t, err)
+		recordedAccountJSON, err := json.Marshal(recordedAccount)
+		require.NoError(t, err)
+		require.Equal(t, expectedAccountJSON, recordedAccountJSON)
+	})
 }

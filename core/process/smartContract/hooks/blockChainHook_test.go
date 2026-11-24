@@ -1587,3 +1587,131 @@ func TestBlockChainHook_ProcessBuiltInFunction_BuiltInError(t *testing.T) {
 	require.ErrorIs(t, err, expectedErr)
 	require.Nil(t, vmOutput)
 }
+
+func TestBlockChainHook_ProcessBuiltInFunction_ContractCaller_OutputTransfersKeepTheirOwnAddresses(t *testing.T) {
+	t.Parallel()
+
+	sender := []byte("sender-addr")
+	recipient := []byte("recipient-addr")
+
+	ctx := newDispatchContext()
+	hook := dispatchHook(t, ctx, func(_ *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+		ctx.Receipts().Add(transferReceipt(sender, recipient, "7", "KLV", "0", kapps.KDAData_Fungible))
+		ctx.Receipts().Add(transferReceipt(sender, recipient, "3", "KLV", "0", kapps.KDAData_Fungible))
+		return &vmcommon.VMOutput{}, nil
+	})
+
+	vmOutput, err := hook.ProcessBuiltInFunction(dispatchInput(builtInSCAddress("caller")))
+	require.NoError(t, err)
+
+	sender[0] = 'X'
+	recipient[0] = 'X'
+
+	outAcc, ok := vmOutput.OutputAccounts["recipient-addr"]
+	require.True(t, ok)
+	require.Equal(t, []byte("recipient-addr"), outAcc.Address)
+	require.Len(t, outAcc.OutputTransfers, 2)
+	for _, transfer := range outAcc.OutputTransfers {
+		require.Equal(t, []byte("sender-addr"), transfer.SenderAddress)
+		require.Equal(t, []byte("recipient-addr"), transfer.RcvAddr)
+	}
+}
+
+func TestAddOutputTransferToVMOutput_KeepsItsOwnAddresses(t *testing.T) {
+	t.Parallel()
+
+	newTransfer := func() *vmcommon.KDATransfer {
+		return &vmcommon.KDATransfer{KDAValue: big.NewInt(1), KDATokenName: []byte("KLV")}
+	}
+
+	t.Run("source slices mutated after the call create the account", func(t *testing.T) {
+		t.Parallel()
+
+		sender := []byte("sender-addr")
+		recipient := []byte("recipient-addr")
+		vmOutput := &vmcommon.VMOutput{}
+
+		addOutputTransferToVMOutput(1, sender, recipient, newTransfer(), vmOutput)
+
+		sender[0] = 'X'
+		recipient[0] = 'X'
+
+		outAcc := vmOutput.OutputAccounts["recipient-addr"]
+		require.NotNil(t, outAcc)
+		require.Equal(t, []byte("recipient-addr"), outAcc.Address)
+		require.Len(t, outAcc.OutputTransfers, 1)
+		require.Equal(t, []byte("sender-addr"), outAcc.OutputTransfers[0].SenderAddress)
+		require.Equal(t, []byte("recipient-addr"), outAcc.OutputTransfers[0].RcvAddr)
+	})
+
+	t.Run("source slices mutated after the call append to the existing account", func(t *testing.T) {
+		t.Parallel()
+
+		sender := []byte("sender-addr")
+		recipient := []byte("recipient-addr")
+		vmOutput := &vmcommon.VMOutput{}
+
+		addOutputTransferToVMOutput(1, sender, recipient, newTransfer(), vmOutput)
+		addOutputTransferToVMOutput(2, sender, recipient, newTransfer(), vmOutput)
+
+		sender[0] = 'X'
+		recipient[0] = 'X'
+
+		outAcc := vmOutput.OutputAccounts["recipient-addr"]
+		require.NotNil(t, outAcc)
+		require.Equal(t, []byte("recipient-addr"), outAcc.Address)
+		require.Len(t, outAcc.OutputTransfers, 2)
+		for _, transfer := range outAcc.OutputTransfers {
+			require.Equal(t, []byte("sender-addr"), transfer.SenderAddress)
+			require.Equal(t, []byte("recipient-addr"), transfer.RcvAddr)
+		}
+	})
+
+	t.Run("nil sender stays nil", func(t *testing.T) {
+		t.Parallel()
+
+		vmOutput := &vmcommon.VMOutput{}
+		addOutputTransferToVMOutput(1, nil, []byte("recipient-addr"), newTransfer(), vmOutput)
+
+		require.Nil(t, vmOutput.OutputAccounts["recipient-addr"].OutputTransfers[0].SenderAddress)
+	})
+
+	t.Run("empty sender stays empty and non-nil", func(t *testing.T) {
+		t.Parallel()
+
+		vmOutput := &vmcommon.VMOutput{}
+		addOutputTransferToVMOutput(1, []byte{}, []byte("recipient-addr"), newTransfer(), vmOutput)
+
+		sender := vmOutput.OutputAccounts["recipient-addr"].OutputTransfers[0].SenderAddress
+		require.NotNil(t, sender)
+		require.Empty(t, sender)
+	})
+
+	t.Run("nil recipient stays nil", func(t *testing.T) {
+		t.Parallel()
+
+		vmOutput := &vmcommon.VMOutput{}
+		addOutputTransferToVMOutput(1, []byte("sender-addr"), nil, newTransfer(), vmOutput)
+
+		outAcc := vmOutput.OutputAccounts[""]
+		require.NotNil(t, outAcc)
+		require.Nil(t, outAcc.Address)
+		require.Len(t, outAcc.OutputTransfers, 1)
+		require.Nil(t, outAcc.OutputTransfers[0].RcvAddr)
+	})
+
+	t.Run("empty recipient stays empty and non-nil", func(t *testing.T) {
+		t.Parallel()
+
+		vmOutput := &vmcommon.VMOutput{}
+		addOutputTransferToVMOutput(1, []byte("sender-addr"), []byte{}, newTransfer(), vmOutput)
+
+		outAcc := vmOutput.OutputAccounts[""]
+		require.NotNil(t, outAcc)
+		require.NotNil(t, outAcc.Address)
+		require.Empty(t, outAcc.Address)
+		require.Len(t, outAcc.OutputTransfers, 1)
+		require.NotNil(t, outAcc.OutputTransfers[0].RcvAddr)
+		require.Empty(t, outAcc.OutputTransfers[0].RcvAddr)
+	})
+}

@@ -71,7 +71,7 @@ func newVMOutput() *vmcommon.VMOutput {
 // NewVMOutputAccount creates a new output account and sets the given address
 func NewVMOutputAccount(address []byte) *vmcommon.OutputAccount {
 	return &vmcommon.OutputAccount{
-		Address:                 address,
+		Address:                 bytes.Clone(address),
 		StorageUpdates:          make(map[string]*vmcommon.StorageUpdate),
 		BytesAddedToStorage:     0,
 		BytesDeletedFromStorage: 0,
@@ -277,13 +277,13 @@ func (context *outputContext) RemoveReturnData(index uint32) {
 
 // Finish appends the given data to the return data of the current output state.
 func (context *outputContext) Finish(data []byte) {
-	context.outputState.ReturnData = append(context.outputState.ReturnData, data)
+	context.outputState.ReturnData = append(context.outputState.ReturnData, bytes.Clone(data))
 	logOutput.Trace("finish", "data", data)
 }
 
 // PrependFinish appends the given data to the return data of the current output state.
 func (context *outputContext) PrependFinish(data []byte) {
-	context.outputState.ReturnData = append([][]byte{data}, context.outputState.ReturnData...)
+	context.outputState.ReturnData = append([][]byte{bytes.Clone(data)}, context.outputState.ReturnData...)
 }
 
 // DeleteFirstReturnData deletes the first return data, to be used after prepend
@@ -301,9 +301,9 @@ func (context *outputContext) WriteLogWithIdentifier(address []byte, topics [][]
 	}
 
 	newLogEntry := &vmcommon.LogEntry{
-		Address:    address,
-		Data:       data,
-		Identifier: identifier,
+		Address:    bytes.Clone(address),
+		Data:       cloneByteSlices(data),
+		Identifier: bytes.Clone(identifier),
 	}
 	logOutput.Trace("log entry", "address", address, "data", data)
 
@@ -312,10 +312,23 @@ func (context *outputContext) WriteLogWithIdentifier(address []byte, topics [][]
 		return
 	}
 
-	newLogEntry.Topics = topics
+	newLogEntry.Topics = cloneByteSlices(topics)
 
 	context.outputState.Logs = append(context.outputState.Logs, newLogEntry)
 	logOutput.Trace("log entry", "endpoint", newLogEntry.Identifier, "topics", newLogEntry.Topics)
+}
+
+func cloneByteSlices(source [][]byte) [][]byte {
+	if source == nil {
+		return nil
+	}
+
+	cloned := make([][]byte, len(source))
+	for i, item := range source {
+		cloned[i] = bytes.Clone(item)
+	}
+
+	return cloned
 }
 
 // WriteLog creates a new LogEntry and appends it to the logs of the current output state.
@@ -381,11 +394,11 @@ func (context *outputContext) TransferValueOnly(destination []byte, sender []byt
 	}
 	outputTransfer := vmcommon.OutputTransfer{
 		Index:         context.NextOutputTransferIndex(),
-		SenderAddress: sender,
-		RcvAddr:       destination,
+		SenderAddress: bytes.Clone(sender),
+		RcvAddr:       bytes.Clone(destination),
 		KDATransfers: vmcommon.KDATransfer{
 			KDAValue:     recordedValue,
-			KDATokenName: kdautils.KLVIdentifier,
+			KDATokenName: bytes.Clone(kdautils.KLVIdentifier),
 		},
 	}
 
@@ -525,9 +538,9 @@ func (context *outputContext) GetVMOutput() *vmcommon.VMOutput {
 // DeployCode sets the given code to a an account, and creates a new codeUpdates entry at the accounts address.
 func (context *outputContext) DeployCode(input vmhost.CodeDeployInput) {
 	newSCAccount, _ := context.GetOutputAccount(input.ContractAddress)
-	newSCAccount.Code = input.ContractCode
-	newSCAccount.CodeMetadata = input.ContractCodeMetadata
-	newSCAccount.CodeDeployerAddress = input.CodeDeployerAddress
+	newSCAccount.Code = bytes.Clone(input.ContractCode)
+	newSCAccount.CodeMetadata = bytes.Clone(input.ContractCodeMetadata)
+	newSCAccount.CodeDeployerAddress = bytes.Clone(input.CodeDeployerAddress)
 
 	var empty struct{}
 	context.codeUpdates[string(input.ContractAddress)] = empty
@@ -676,16 +689,16 @@ func mergeOutputAccounts(
 	mergeAllTransfers bool,
 ) {
 	if len(rightAccount.Address) != 0 {
-		leftAccount.Address = rightAccount.Address
+		leftAccount.Address = bytes.Clone(rightAccount.Address)
 	}
 
 	mergeStorageUpdates(leftAccount, rightAccount)
 
 	if len(rightAccount.Code) > 0 {
-		leftAccount.Code = rightAccount.Code
+		leftAccount.Code = bytes.Clone(rightAccount.Code)
 	}
 	if len(rightAccount.CodeMetadata) > 0 {
-		leftAccount.CodeMetadata = rightAccount.CodeMetadata
+		leftAccount.CodeMetadata = bytes.Clone(rightAccount.CodeMetadata)
 	}
 
 	mergeTransfers(leftAccount, rightAccount, mergeAllTransfers)
@@ -693,7 +706,7 @@ func mergeOutputAccounts(
 	leftAccount.GasUsed = rightAccount.GasUsed
 
 	if rightAccount.CodeDeployerAddress != nil {
-		leftAccount.CodeDeployerAddress = rightAccount.CodeDeployerAddress
+		leftAccount.CodeDeployerAddress = bytes.Clone(rightAccount.CodeDeployerAddress)
 	}
 
 	if rightAccount.BytesAddedToStorage > leftAccount.BytesAddedToStorage {

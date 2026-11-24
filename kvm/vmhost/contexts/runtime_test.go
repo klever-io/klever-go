@@ -1654,3 +1654,90 @@ func TestRuntimeContext_APIErrorsFailExecution(t *testing.T) {
 	require.True(t, runtimeCtx.ManagedBufferAPIErrorShouldFailExecution())
 	require.True(t, runtimeCtx.ManagedMapAPIErrorShouldFailExecution())
 }
+
+func TestRuntimeContext_SetVMInput_KeepsItsOwnRecipientAddr(t *testing.T) {
+	t.Parallel()
+
+	host := &contextmock.VMHostMock{ForkControllerContext: commonMock.NewForkControllerStub()}
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+
+	t.Run("mutating the source leaves the recipient unchanged", func(t *testing.T) {
+		recipient := []byte("recipient")
+		runtimeCtx.SetVMInput(&vmcommon.ContractCallInput{RecipientAddr: recipient})
+		overwriteBytes(recipient)
+
+		require.Equal(t, []byte("recipient"), runtimeCtx.GetVMInput().RecipientAddr)
+	})
+
+	t.Run("nil recipient stays nil", func(t *testing.T) {
+		runtimeCtx.SetVMInput(&vmcommon.ContractCallInput{RecipientAddr: nil})
+
+		require.Nil(t, runtimeCtx.GetVMInput().RecipientAddr)
+	})
+
+	t.Run("empty recipient stays empty and not nil", func(t *testing.T) {
+		runtimeCtx.SetVMInput(&vmcommon.ContractCallInput{RecipientAddr: []byte{}})
+
+		require.NotNil(t, runtimeCtx.GetVMInput().RecipientAddr)
+		require.Empty(t, runtimeCtx.GetVMInput().RecipientAddr)
+	})
+}
+
+func TestRuntimeContext_InitStateFromContractCallInput_KeepsItsOwnCodeAddress(t *testing.T) {
+	t.Parallel()
+
+	host := &contextmock.VMHostMock{ForkControllerContext: commonMock.NewForkControllerStub()}
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+
+	t.Run("mutating the source leaves the code address unchanged", func(t *testing.T) {
+		recipient := []byte("recipient")
+		runtimeCtx.InitStateFromContractCallInput(&vmcommon.ContractCallInput{RecipientAddr: recipient})
+		overwriteBytes(recipient)
+
+		require.Equal(t, []byte("recipient"), runtimeCtx.codeAddress)
+	})
+
+	t.Run("nil code address stays nil", func(t *testing.T) {
+		runtimeCtx.InitStateFromContractCallInput(&vmcommon.ContractCallInput{RecipientAddr: nil})
+
+		require.Nil(t, runtimeCtx.codeAddress)
+	})
+
+	t.Run("empty code address stays empty and not nil", func(t *testing.T) {
+		runtimeCtx.InitStateFromContractCallInput(&vmcommon.ContractCallInput{RecipientAddr: []byte{}})
+
+		require.NotNil(t, runtimeCtx.codeAddress)
+		require.Empty(t, runtimeCtx.codeAddress)
+	})
+}
+
+func TestRuntimeContext_SetCodeAddress_KeepsItsOwnCopy(t *testing.T) {
+	t.Parallel()
+
+	host := &contextmock.VMHostMock{ForkControllerContext: commonMock.NewForkControllerStub()}
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+
+	t.Run("mutating the source leaves the code address unchanged", func(t *testing.T) {
+		address := []byte("address")
+		runtimeCtx.SetCodeAddress(address)
+		overwriteBytes(address)
+
+		require.Equal(t, []byte("address"), runtimeCtx.codeAddress)
+	})
+
+	t.Run("nil code address stays nil", func(t *testing.T) {
+		runtimeCtx.SetCodeAddress(nil)
+
+		require.Nil(t, runtimeCtx.codeAddress)
+	})
+
+	t.Run("empty code address stays empty and not nil", func(t *testing.T) {
+		runtimeCtx.SetCodeAddress([]byte{})
+
+		require.NotNil(t, runtimeCtx.codeAddress)
+		require.Empty(t, runtimeCtx.codeAddress)
+	})
+}
