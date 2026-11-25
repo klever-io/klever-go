@@ -30,6 +30,7 @@ import (
 	"github.com/klever-io/klever-go/storage/storageUnit"
 	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/klever-io/klever-go/vmcommon"
+	"github.com/klever-io/klever-go/vmcommon/parsers"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1010,4 +1011,171 @@ func TestCreateNewContract_FailedDeployDoesNotArmTheNextInstantiation(t *testing
 	require.Nil(t, err)
 	require.Error(t, deployErr, "the deploy must fail on the value transfer")
 	require.Equal(t, 1, libraryCalls, "the library call must not inherit the failed deploy's pending verification")
+}
+
+const (
+	builtinTransferCallerFunction = "callTransferBuiltin"
+	builtinTransferCallerGas      = 2000
+	builtinTransferCallGas        = 500
+)
+
+func runBuiltinTransferCaller(
+	t *testing.T,
+	callerBody func(host vmhost.VMHost),
+	assertResults func(verify *testcommon.VMOutputVerifier),
+) {
+	_, err := testcommon.BuildMockInstanceCallTest(t).
+		WithContracts(
+			testcommon.CreateMockContract(testcommon.ParentAddress).
+				WithBalance(1000).
+				WithMethods(func(parentInstance *contextmock.InstanceMock, _ any) {
+					parentInstance.AddMockMethod(builtinTransferCallerFunction, func() *contextmock.InstanceMock {
+						callerBody(parentInstance.Host)
+						return parentInstance
+					})
+				}),
+			testcommon.CreateMockContract(testcommon.ChildAddress).
+				WithBalance(1000).
+				WithMethods(func(_ *contextmock.InstanceMock, _ any) {}),
+		).
+		WithInput(testcommon.CreateTestContractCallInputBuilder().
+			WithRecipientAddr(testcommon.ParentAddress).
+			WithGasProvided(builtinTransferCallerGas).
+			WithFunction(builtinTransferCallerFunction).
+			Build()).
+		WithSetup(func(host vmhost.VMHost, world *worldmock.MockWorld) {
+			setupNoRollbackHost(t, host, world)
+			host.SetBuiltInFunctionsContainer(world.BuiltinFuncs.Container)
+
+			caller, err := world.AccountsCacher.LoadUser(testcommon.ParentAddress)
+			require.NoError(t, err)
+			require.NoError(t, caller.AddToBalance(noRollbackKDAFunding, testcommon.KDATestTokenName, true))
+			require.NoError(t, world.AccountsCacher.SaveAll())
+		}).
+		AndAssertResults(func(_ *worldmock.MockWorld, verify *testcommon.VMOutputVerifier) {
+			assertResults(verify)
+		})
+
+	require.NoError(t, err)
+}
+
+func TestExecution_CallBuiltinFunction_FailedTransferChargesProvidedGas(t *testing.T) {
+	nonce := make([]byte, 8)
+	wideNonce := append([]byte{1}, nonce...)
+	value := big.NewInt(1).Bytes()
+
+	tests := []struct {
+		name        string
+		arguments   [][]byte
+		expectedErr error
+	}{
+		{
+			name:        "too few arguments",
+			arguments:   [][]byte{{1}},
+			expectedErr: parsers.ErrNotEnoughArguments,
+		},
+		{
+			name:        "transfer count beyond the arguments",
+			arguments:   [][]byte{{5}, testcommon.KDATestTokenName, nonce, value},
+			expectedErr: parsers.ErrNotEnoughArguments,
+		},
+		{
+			name:        "nonce wider than 64 bits",
+			arguments:   [][]byte{{1}, testcommon.KDATestTokenName, wideNonce, value},
+			expectedErr: parsers.ErrNonceOutOfRange,
+		},
+		{
+			name:        "transfer refused by the built-in",
+			arguments:   [][]byte{{1}, []byte("UNFUNDED-0000"), nonce, value},
+			expectedErr: common.ErrAssetNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var callErr error
+			var gasCharged uint64
+
+			runBuiltinTransferCaller(t, func(host vmhost.VMHost) {
+				input := &vmcommon.ContractCallInput{
+					VMInput: vmcommon.VMInput{
+						CallerAddr:  testcommon.ParentAddress,
+						Arguments:   tt.arguments,
+						GasProvided: builtinTransferCallGas,
+					},
+					RecipientAddr: testcommon.ChildAddress,
+					Function:      core.BuiltInFunctionTransfer,
+				}
+
+				pointsUsedBefore := host.Runtime().GetPointsUsed()
+				callErr = hostCore.CallBuiltinFunctionForTest(host, input)
+				gasCharged = host.Runtime().GetPointsUsed() - pointsUsedBefore
+			}, func(verify *testcommon.VMOutputVerifier) {
+				verify.Ok()
+			})
+
+			require.ErrorIs(t, callErr, tt.expectedErr)
+			require.Equal(t, uint64(builtinTransferCallGas), gasCharged)
+		})
+	}
+}
+
+func TestExecution_UnparsableBuiltinTransferFailsCallerAndConsumesItsGas(t *testing.T) {
+	unparsableArguments := [][]byte{{1}}
+
+	tests := []struct {
+		name string
+		call func(host vmhost.VMHost) int32
+	}{
+		{
+			name: "execute on dest context",
+			call: func(host vmhost.VMHost) int32 {
+				return vmhooks.ExecuteOnDestContextWithTypedArgs(
+					host,
+					builtinTransferCallGas,
+					big.NewInt(0),
+					[]byte(core.BuiltInFunctionTransfer),
+					testcommon.ChildAddress,
+					unparsableArguments,
+				)
+			},
+		},
+		{
+			name: "transfer and execute",
+			call: func(host vmhost.VMHost) int32 {
+				transfer := &vmcommon.KDATransfer{
+					KDAValue:     big.NewInt(noRollbackKDAAmount),
+					KDATokenName: testcommon.KDATestTokenName,
+				}
+
+				return vmhooks.TransferKDANFTExecuteWithTypedArgs(
+					host,
+					testcommon.ChildAddress,
+					[]*vmcommon.KDATransfer{transfer},
+					builtinTransferCallGas,
+					[]byte(core.BuiltInFunctionTransfer),
+					unparsableArguments,
+				)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var returnCode int32
+			var gasLeft uint64
+
+			runBuiltinTransferCaller(t, func(host vmhost.VMHost) {
+				returnCode = tt.call(host)
+				gasLeft = host.Metering().GasLeft()
+			}, func(verify *testcommon.VMOutputVerifier) {
+				verify.ExecutionFailed().
+					ReturnMessage(parsers.ErrNotEnoughArguments.Error()).
+					GasRemaining(0)
+			})
+
+			require.Equal(t, int32(1), returnCode)
+			require.Zero(t, gasLeft)
+		})
+	}
 }
