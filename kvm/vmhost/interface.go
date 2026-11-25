@@ -117,7 +117,10 @@ type BlockchainContext interface {
 	ExecuteSmartContractCallOnOtherVM(input *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error)
 }
 
-// RuntimeContext defines the functionality needed for interacting with the runtime context
+// RuntimeContext defines the functionality needed for interacting with the runtime context.
+// Getters return the context's own slices and values: callers must treat them as read-only
+// and copy before writing. The pre-FixAuditChangesV4 branch of ManagedGetMultiKDAWithoutKLVCallValue
+// is the one known exception and is kept for replay.
 type RuntimeContext interface {
 	StateStack
 
@@ -244,7 +247,11 @@ type ManagedTypesContext interface {
 	AddBackTransfers(transfers []*vmcommon.KDATransfer)
 }
 
-// OutputContext defines the functionality needed for interacting with the output context
+// OutputContext defines the functionality needed for interacting with the output context.
+// Account structs and their maps belong to the active state; the items they hold (return data,
+// log entries, storage updates, transfer contents, code) are shared with the state stack:
+// replace them, never write into them. The one exception is CompleteLogEntriesWithCallType,
+// which sets an unset call type on a returned call's logs.
 type OutputContext interface {
 	StateStack
 	PopMergeActiveState()
@@ -331,7 +338,8 @@ const (
 	StorageDeleted
 )
 
-// StorageContext defines the functionality needed for interacting with the storage context
+// StorageContext defines the functionality needed for interacting with the storage context.
+// GetStorageUpdates entries are shared with the state stack: replace them, never edit them.
 type StorageContext interface {
 	StateStack
 

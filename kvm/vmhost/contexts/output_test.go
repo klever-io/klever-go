@@ -1057,7 +1057,7 @@ func TestOutputContext_DeployCode_KeepsItsOwnCopies(t *testing.T) {
 	require.Equal(t, []byte("deployer"), account.CodeDeployerAddress)
 }
 
-func TestOutputContext_MergeOutputAccounts_KeepsItsOwnCopies(t *testing.T) {
+func TestOutputContext_MergeOutputAccounts_CopiesAddressesAndSharesCode(t *testing.T) {
 	t.Parallel()
 
 	left := &vmcommon.OutputAccount{Address: []byte("left")}
@@ -1069,15 +1069,130 @@ func TestOutputContext_MergeOutputAccounts_KeepsItsOwnCopies(t *testing.T) {
 	}
 
 	mergeOutputAccounts(left, right, false)
-	overwriteBytes(right.Address)
-	overwriteBytes(right.Code)
-	overwriteBytes(right.CodeMetadata)
-	overwriteBytes(right.CodeDeployerAddress)
 
+	require.Same(t, &right.Code[0], &left.Code[0])
+	require.Same(t, &right.CodeMetadata[0], &left.CodeMetadata[0])
+
+	overwriteBytes(right.Address)
+	overwriteBytes(right.CodeDeployerAddress)
 	require.Equal(t, []byte("right"), left.Address)
-	require.Equal(t, []byte("code"), left.Code)
-	require.Equal(t, []byte("metadata"), left.CodeMetadata)
 	require.Equal(t, []byte("deployer"), left.CodeDeployerAddress)
+}
+
+func newOutputContextForIsolationTests(t *testing.T) *outputContext {
+	t.Helper()
+
+	mockWorld := worldmock.NewMockWorld()
+	mockWorld.PutAccount(&worldmock.Account{Address: []byte("sender"), Balance: big.NewInt(10000)})
+	mockWorld.PutAccount(&worldmock.Account{Address: []byte("receiver"), Balance: big.NewInt(0)})
+
+	host := &contextmock.VMHostMock{
+		ForkControllerContext: commonMock.NewForkControllerStub(),
+		MeteringContext:       &contextmock.MeteringContextMock{},
+	}
+	host.RuntimeContext = &contextmock.RuntimeContextMock{VMInput: &vmcommon.ContractCallInput{}}
+	outputContext, _ := NewOutputContext(host)
+	blockchainContext, _ := NewBlockchainContext(host, mockWorld)
+	host.OutputContext = outputContext
+	host.BlockchainContext = blockchainContext
+
+	outputContext.Finish([]byte("first"))
+	outputContext.Finish([]byte("second"))
+	outputContext.WriteLog([]byte("address"), [][]byte{[]byte("topic")}, [][]byte{[]byte("data")})
+	require.NoError(t, outputContext.TransferValueOnly([]byte("receiver"), []byte("sender"), big.NewInt(100), false))
+	outputContext.DeployCode(vmhost.CodeDeployInput{
+		ContractCode:         []byte("code"),
+		ContractCodeMetadata: []byte("metadata"),
+		ContractAddress:      []byte("contract"),
+		CodeDeployerAddress:  []byte("deployer"),
+	})
+	account, _ := outputContext.GetOutputAccount([]byte("contract"))
+	account.StorageUpdates["key"] = &vmcommon.StorageUpdate{Offset: []byte("key"), Data: []byte("value"), Written: true}
+	account.StorageUpdates["read"] = &vmcommon.StorageUpdate{Offset: []byte("read"), Data: []byte("cached")}
+	cachedCodeAccount, _ := outputContext.GetOutputAccount([]byte("called"))
+	cachedCodeAccount.Code = []byte("cached code")
+	cachedCodeAccount.CodeMetadata = []byte("cached metadata")
+	outputContext.outputState.DeletedAccounts = append(outputContext.outputState.DeletedAccounts, []byte("deleted"))
+
+	return outputContext
+}
+
+func marshalVMOutput(t *testing.T, vmOutput *vmcommon.VMOutput) string {
+	t.Helper()
+
+	serialized, err := json.Marshal(vmOutput)
+	require.NoError(t, err)
+
+	return string(serialized)
+}
+
+var nestedOutputMutations = []struct {
+	name   string
+	mutate func(t *testing.T, outputContext *outputContext)
+}{
+	{name: "Finish", mutate: func(_ *testing.T, oc *outputContext) { oc.Finish([]byte("child")) }},
+	{name: "PrependFinish", mutate: func(_ *testing.T, oc *outputContext) { oc.PrependFinish([]byte("child")) }},
+	{name: "RemoveReturnData", mutate: func(_ *testing.T, oc *outputContext) { oc.RemoveReturnData(0) }},
+	{name: "DeleteFirstReturnData", mutate: func(_ *testing.T, oc *outputContext) { oc.DeleteFirstReturnData() }},
+	{name: "ClearReturnData", mutate: func(_ *testing.T, oc *outputContext) { oc.ClearReturnData() }},
+	{name: "WriteLog", mutate: func(_ *testing.T, oc *outputContext) {
+		oc.WriteLog([]byte("address"), [][]byte{[]byte("child")}, [][]byte{[]byte("child")})
+	}},
+	{name: "TransferValueOnly", mutate: func(t *testing.T, oc *outputContext) {
+		require.NoError(t, oc.TransferValueOnly([]byte("receiver"), []byte("sender"), big.NewInt(7), false))
+	}},
+	{name: "DeployCode over existing code", mutate: func(_ *testing.T, oc *outputContext) {
+		oc.DeployCode(vmhost.CodeDeployInput{
+			ContractCode:         []byte("upgraded"),
+			ContractCodeMetadata: []byte("upgraded"),
+			ContractAddress:      []byte("contract"),
+			CodeDeployerAddress:  []byte("upgrader"),
+		})
+	}},
+	{name: "CensorVMOutput", mutate: func(_ *testing.T, oc *outputContext) { oc.CensorVMOutput() }},
+	{name: "DeleteOutputAccount", mutate: func(_ *testing.T, oc *outputContext) { oc.DeleteOutputAccount([]byte("contract")) }},
+	{name: "GetVMOutput", mutate: func(t *testing.T, oc *outputContext) {
+		_ = oc.GetVMOutput()
+		require.Nil(t, oc.outputState.OutputAccounts["called"].Code, "cached code must be cleared")
+	}},
+	{name: "RemoveNonUpdatedStorage", mutate: func(t *testing.T, oc *outputContext) {
+		oc.RemoveNonUpdatedStorage()
+		require.NotContains(t, oc.outputState.OutputAccounts["contract"].StorageUpdates, "read")
+	}},
+}
+
+func TestOutputContext_NestedCallChangesDoNotReachTheStateStack(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range nestedOutputMutations {
+		tc := tc
+		t.Run(tc.name+" then revert restores the parent", func(t *testing.T) {
+			t.Parallel()
+
+			outputContext := newOutputContextForIsolationTests(t)
+			expected := marshalVMOutput(t, outputContext.outputState)
+
+			outputContext.PushState()
+			tc.mutate(t, outputContext)
+			outputContext.PopSetActiveState()
+
+			require.Equal(t, expected, marshalVMOutput(t, outputContext.outputState))
+		})
+
+		t.Run(tc.name+" then merge leaves the entry below unchanged", func(t *testing.T) {
+			t.Parallel()
+
+			outputContext := newOutputContextForIsolationTests(t)
+			outputContext.PushState()
+			expected := marshalVMOutput(t, outputContext.stateStack[0])
+
+			outputContext.PushState()
+			tc.mutate(t, outputContext)
+			outputContext.PopMergeActiveState()
+
+			require.Equal(t, expected, marshalVMOutput(t, outputContext.stateStack[0]))
+		})
+	}
 }
 
 func TestOutputContext_RecordedOutputKeepsNilAndEmptyAsGiven(t *testing.T) {

@@ -738,3 +738,43 @@ func TestStorageContext_SetAddress_KeepsItsOwnCopy(t *testing.T) {
 		require.Empty(t, storageCtx.address)
 	})
 }
+
+func TestStorageContext_NestedWriteDoesNotReachTheStateStack(t *testing.T) {
+	t.Parallel()
+
+	address := []byte("account")
+	key := []byte("key")
+
+	mockMetering := &contextmock.MeteringContextMock{}
+	mockMetering.SetGasSchedule(config.MakeGasMapForTests())
+	mockMetering.BlockGasLimitMock = uint64(15000)
+	mockMetering.GasLeftMock = 20000
+
+	host := &contextmock.VMHostMock{
+		MeteringContext:       mockMetering,
+		RuntimeContext:        &contextmock.RuntimeContextMock{VMInput: &vmcommon.ContractCallInput{}},
+		ForkControllerContext: &mock.ForkControllerStub{},
+	}
+	outputCtx, _ := NewOutputContext(host)
+	host.OutputContext = outputCtx
+	storageCtx, _ := NewStorageContext(host, &contextmock.BlockchainHookStub{}, reservedTestPrefix)
+	storageCtx.SetAddress(address)
+
+	_, err := storageCtx.SetStorage(key, []byte("parent"))
+	require.NoError(t, err)
+	parentUpdate := storageCtx.GetStorageUpdates(address)[string(key)]
+
+	outputCtx.PushState()
+	_, err = storageCtx.SetStorage(key, []byte("child"))
+	require.NoError(t, err)
+
+	// The write replaces the shared entry instead of editing it.
+	require.Equal(t, []byte("parent"), parentUpdate.Data)
+	snapshotUpdate := outputCtx.stateStack[0].OutputAccounts[string(address)].StorageUpdates[string(key)]
+	require.Equal(t, []byte("parent"), snapshotUpdate.Data)
+
+	outputCtx.PopSetActiveState()
+	value, _, _, err := storageCtx.GetStorage(key)
+	require.NoError(t, err)
+	require.Equal(t, []byte("parent"), value)
+}
