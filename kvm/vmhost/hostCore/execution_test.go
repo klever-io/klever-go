@@ -126,7 +126,10 @@ func createFullArgumentsForKAppsProcessingMemory(t *testing.T) state.AccountsCac
 
 // Create VM host and mock world with KApps loaded and builtin functions initialized
 func createVmHostAndMockWorld(t *testing.T) (vmhost.VMHost, *worldmock.MockWorld) {
-	hostParams := makeHostParameters()
+	return createVmHostAndMockWorldWithParams(t, makeHostParameters())
+}
+
+func createVmHostAndMockWorldWithParams(t *testing.T, hostParams *vmhost.VMHostParameters) (vmhost.VMHost, *worldmock.MockWorld) {
 	accCacher := createFullArgumentsForKAppsProcessingMemory(t)
 	mockWorld := worldmock.NewMockWorld()
 	mockWorld.AccountsCacher = accCacher

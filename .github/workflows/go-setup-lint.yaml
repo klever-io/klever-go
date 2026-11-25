@@ -8,32 +8,28 @@ on:
         required: false
         type: string
         default: ''
-      go-private:
-        required: false
-        type: string
-        default: 'github.com/klever-io/*'
       golangci-lint-version:
         required: false
         type: string
         default: 'v2.15.0'
-    secrets:
-      git-user:
-        required: false
-      git-pass:
-        required: false
     outputs:
       lint-results:
         description: "Lint results from golangci-lint"
         value: ${{ jobs.setup-and-lint.outputs.lint-results }}
 
+permissions:
+  contents: read
+
 jobs:
   setup-and-lint:
-    runs-on: klever-pipe
+    # KLC-2968: GitHub-hosted, a fresh VM per job; klever-go is public and must not use the
+    # shared self-hosted runners
+    runs-on: ubuntu-latest
     outputs:
       lint-results: ${{ steps.lint.outputs.results }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -41,14 +37,12 @@ jobs:
         uses: ./.github/actions/go-setup-action
         with:
           go-version: ${{ inputs.go-version }}
-          go-private: ${{ inputs.go-private }}
-          git-user: ${{ secrets.git-user }}
-          git-pass: ${{ secrets.git-pass }}
+          build-cache-key: lint
 
       - name: GoImports Formatter
         run: |
           # Pinned, not @latest: x/tools v0.50.0 raised its go directive to 1.26.0, and this
-          # runner sets GOTOOLCHAIN=local against go.mod's Go 1.25, so @latest fails to install and
+          # job sets GOTOOLCHAIN=local against go.mod's Go 1.25, so @latest fails to install and
           # breaks the lint job on every branch. v0.49.0 is the newest release that still
           # supports 1.25 and is what @latest resolved to until v0.50.0 shipped.
           go install golang.org/x/tools/cmd/goimports@v0.49.0
@@ -66,7 +60,7 @@ jobs:
           go vet -unsafeptr=false $(go list ./... | grep -v /vendor/)
 
       - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: ${{ inputs.golangci-lint-version }}
           install-only: true
@@ -86,9 +80,19 @@ jobs:
           fi
           test -s golangci-report.xml
 
+      # KLC-2968: SonarQube does not run for fork and Dependabot pull requests, so new findings
+      # fail lint there instead
+      - name: Fail on new golangci-lint findings
+        if: |
+          github.event_name == 'pull_request' &&
+          (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]')
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: golangci-lint run --new-from-merge-base="origin/$BASE_REF"
+
       - name: Upload lint results
         if: always() && steps.golangci.outcome != 'skipped'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lint-results
           path: |

@@ -8,13 +8,25 @@ import (
 	"time"
 
 	"github.com/klever-io/klever-go/data/vm"
+	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
 	"github.com/klever-io/klever-go/kvm/testcommon"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/require"
 )
 
 // Path to the heavy operations contract WASM file (relative to project root)
 const heavyOpsContractPath = "../../test/contracts/timeout/output/timeout.wasm"
+
+// heavyOpsTimeoutMs keeps these overhead measurements off the 400 ms execution timeout floor,
+// which slow CI runners can reach
+const heavyOpsTimeoutMs = 10_000
+
+func createHeavyOpsVmHostAndMockWorld(t *testing.T) (vmhost.VMHost, *worldmock.MockWorld) {
+	hostParams := makeHostParameters()
+	hostParams.TimeOutForSCExecutionInMilliseconds = heavyOpsTimeoutMs
+	return createVmHostAndMockWorldWithParams(t, hostParams)
+}
 
 // TestHeavyOperations_Run tests the run function which performs many hook calls
 // and measures its execution time to verify optimization effectiveness
@@ -29,7 +41,7 @@ func TestHeavyOperations_Run(t *testing.T) {
 	require.NotEmpty(t, contractCode, "Contract code is empty")
 
 	// Setup VM Host and Mock World
-	vmHost, mockWorld := createVmHostAndMockWorld(t)
+	vmHost, mockWorld := createHeavyOpsVmHostAndMockWorld(t)
 	defer vmHost.Reset()
 
 	// Create the smart contract account directly in the mock world
@@ -164,7 +176,7 @@ func TestHeavyOperations_RunMultipleIterations(t *testing.T) {
 
 	for i := 0; i < iterations; i++ {
 		// Setup fresh VM Host for each iteration
-		vmHost, mockWorld := createVmHostAndMockWorld(t)
+		vmHost, mockWorld := createHeavyOpsVmHostAndMockWorld(t)
 
 		// Create the smart contract account directly
 		scAddress := testcommon.MakeTestSCAddress("timeout")

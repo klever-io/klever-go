@@ -1,45 +1,35 @@
 name: 'Go Setup Action'
-description: 'Sets up Go environment with private modules support and caching'
+description: 'Sets up the Go environment, with module and build caching on GitHub-hosted runners'
 inputs:
   go-version:
     description: 'The Go version to use. Empty uses the version in go.mod.'
     required: false
     default: ''
-  go-private:
-    description: 'Private go modules'
-    required: false
-    default: 'github.com/klever-io/*'
   cache-enabled:
-    description: 'Enable caching of Go modules'
+    description: 'Enable caching of Go modules and of the Go build cache'
     required: false
     default: 'true'
-  git-user:
-    description: 'Git username for private modules'
+  build-cache-key:
+    description: >-
+      Names the Go build cache of the calling job, so jobs that compile differently (lint, each
+      test shard) keep separate caches. Empty disables the build cache.
     required: false
-  git-pass:
-    description: 'Git password or token for private modules'
-    required: false
+    default: ''
 
 runs:
   using: "composite"
   steps:
     - name: Set up Golang
-      uses: actions/setup-go@v7
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         go-version: ${{ inputs.go-version }}
         go-version-file: ${{ inputs.go-version == '' && 'go.mod' || '' }}
         cache: false
 
-    - name: Configure git for private modules
-      if: inputs.git-user != '' && inputs.git-pass != ''
-      shell: bash
-      run: |
-        git config --global url."https://${{ inputs.git-user }}:${{ inputs.git-pass }}@github.com".insteadOf "https://github.com"
-
     - name: Cache Go dependencies
       id: cache_vendor
       if: inputs.cache-enabled == 'true' && runner.environment == 'github-hosted'
-      uses: actions/cache@v6
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       env:
         cache-name: go-cache-vendor
       with:
@@ -49,6 +39,36 @@ runs:
         key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
           ${{ runner.os }}-${{ env.cache-name }}-
+
+    # KLC-2968: GitHub-hosted runners start without compiled packages, so the Go build cache is
+    # restored too. Only pushes save it, one entry per commit: a pull request restores the newest
+    # entry of its base branch and never writes one, so the cache count stays bounded and a pull
+    # request cannot change what develop builds from.
+    - name: Locate the Go build cache
+      id: go_build_cache
+      if: inputs.cache-enabled == 'true' && inputs.build-cache-key != '' && runner.environment == 'github-hosted'
+      shell: bash
+      run: echo "path=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the Go build cache
+      if: steps.go_build_cache.outputs.path != '' && github.event_name == 'pull_request'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.go_build_cache.outputs.path }}
+        key: ${{ runner.os }}-go-build-${{ inputs.build-cache-key }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-go-build-${{ inputs.build-cache-key }}-${{ hashFiles('**/go.sum') }}-
+          ${{ runner.os }}-go-build-${{ inputs.build-cache-key }}-
+
+    - name: Restore and save the Go build cache
+      if: steps.go_build_cache.outputs.path != '' && github.event_name != 'pull_request'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.go_build_cache.outputs.path }}
+        key: ${{ runner.os }}-go-build-${{ inputs.build-cache-key }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-go-build-${{ inputs.build-cache-key }}-${{ hashFiles('**/go.sum') }}-
+          ${{ runner.os }}-go-build-${{ inputs.build-cache-key }}-
 
     - name: Resolve package to module & Download dependencies
       if: ${{ steps.cache_vendor.outputs.cache-hit != 'true' }}
@@ -61,7 +81,7 @@ runs:
       if: ${{ steps.cache_vendor.outputs.cache-hit != 'true' }}
       shell: bash
       run: |
-        go install github.com/goware/modvendor@latest
+        go install github.com/goware/modvendor@v0.5.0
         go mod vendor
         modvendor -copy="**/*.c **/*.h **/*.proto **/*.a"
 

@@ -32,15 +32,15 @@ on:
 env:
   GO_VERSION: ${{ inputs.go_version }}
 
+permissions:
+  contents: read
+
 jobs:
   setup-and-lint:
     uses: ./.github/workflows/go-setup-lint.yaml
     with:
       go-version: ${{ inputs.go_version }}
       golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'v2.15.0' }}
-    secrets:
-      git-user: ${{ secrets.GIT_USER }}
-      git-pass: ${{ secrets.GIT_PASS }}
 
   unit-tests:
     if: ${{ inputs.run_unit_tests }}
@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Go Setup
         uses: ./.github/actions/go-setup-action
@@ -67,7 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Go Setup
         uses: ./.github/actions/go-setup-action
@@ -86,7 +86,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Go Setup
         uses: ./.github/actions/go-setup-action

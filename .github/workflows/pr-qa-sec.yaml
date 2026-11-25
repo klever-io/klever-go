@@ -7,6 +7,9 @@ on:
     branches: [master, main, develop]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   setup-and-lint:
     uses: ./.github/workflows/go-setup-lint.yaml
@@ -14,44 +17,115 @@ jobs:
     with:
       go-version: ${{ vars.GO_VERSION }}
       golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'v2.15.0' }}
-    secrets:
-      git-user: ${{ secrets.GIT_USER }}
-      git-pass: ${{ secrets.GIT_PASS }}
 
-  test:
-    needs: setup-and-lint
-    runs-on: klever-pipe
+  # KLC-2968: the tests run in parallel shards on GitHub-hosted runners. Each shard is a fixed set
+  # of top-level directories; "rest" takes every package the others do not, so a new directory is
+  # always tested.
+  test-shard:
+    name: test (${{ matrix.shard }})
+    # Runs alongside lint; result-check requires both
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [kvm, integration, storage-data, rest]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Go Setup
         uses: ./.github/actions/go-setup-action
         with:
           go-version: ${{ vars.GO_VERSION }}
+          build-cache-key: test-${{ matrix.shard }}
 
       - name: Run tests
-        id: run-tests
-        continue-on-error: true
+        env:
+          SHARD: ${{ matrix.shard }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          set +e  # Disable immediate exit on error
-          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-            echo "Running full tests..."
-            go test -covermode=atomic -coverprofile=coverage.out -json ./... > test-output.json
-          else
-            echo "Running short tests..."
-            go test -short -covermode=atomic -coverprofile=coverage.out -json ./... > test-output.json
+          set +e  # the exit code is recorded and checked by the test job
+          module=$(go list -m)
+          case "$SHARD" in
+            kvm) packages=$(go list ./kvm/...) ;;
+            integration) packages=$(go list ./integrationTest/...) ;;
+            storage-data) packages=$(go list ./storage/... ./data/...) ;;
+            rest) packages=$(go list ./... | grep -Ev "^${module}/(kvm|integrationTest|storage|data)(/|$)") ;;
+            *) echo "::error::unknown test shard $SHARD"; exit 1 ;;
+          esac
+          if [ -z "$packages" ]; then
+            echo "::error::test shard $SHARD has no packages"
+            exit 1
           fi
-          echo "test_exit_code=$?" >> $GITHUB_OUTPUT
+
+          short_flag=-short
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            short_flag=
+          fi
+          echo "Running $(wc -w <<<"$packages") packages in shard $SHARD (${short_flag:-full tests})"
+          # shellcheck disable=SC2086 # $packages is a list of import paths
+          go test $short_flag -covermode=atomic -coverprofile="coverage-$SHARD.out" -json $packages > "test-output-$SHARD.json"
+          echo $? > "test-exit-$SHARD.txt"
+
+      - name: Upload shard results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-shard-${{ matrix.shard }}
+          path: |
+            coverage-${{ matrix.shard }}.out
+            test-output-${{ matrix.shard }}.json
+            test-exit-${{ matrix.shard }}.txt
+          retention-days: 1
+          overwrite: true
+
+      # After the upload, so the test job still merges this shard's results; failing the shard
+      # itself lets "Re-run failed jobs" re-run only the shards that failed
+      - name: Fail on test failures
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          code=$(cat "test-exit-$SHARD.txt" 2>/dev/null || echo missing)
+          if [ "$code" != "0" ]; then
+            echo "::error::go test in shard $SHARD exited with $code"
+            exit 1
+          fi
+
+  test:
+    needs: test-shard
+    if: always() && needs.test-shard.result != 'skipped'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download shard results
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: test-shard-*
+          merge-multiple: true
 
       - name: Process test results
-        if: always()
         id: coverage
+        env:
+          NUM_SHARDS: 4
         run: |
-          # Generate coverage summary
-          if [ -f coverage.out ]; then
-            go tool cover -func=coverage.out > coverage-summary.txt
-            COVERAGE=$(grep "total:" coverage-summary.txt | awk '{print $3}')
+          # One exit file per shard, each 0: a shard that crashed or never ran leaves none
+          test_exit_code=0
+          num_exit_files=$(ls test-exit-*.txt 2>/dev/null | wc -l)
+          if [ "$num_exit_files" -ne "$NUM_SHARDS" ]; then
+            echo "::error::expected $NUM_SHARDS test shard results, found $num_exit_files"
+            test_exit_code=1
+          fi
+          for f in test-exit-*.txt; do
+            [ -f "$f" ] && [ "$(cat "$f")" != "0" ] && test_exit_code=1
+          done
+          echo "test_exit_code=$test_exit_code" >> $GITHUB_OUTPUT
+
+          # Each package is tested in exactly one shard, so the profiles concatenate
+          cat test-output-*.json > test-output.json 2>/dev/null || true
+          if ls coverage-*.out >/dev/null 2>&1; then
+            { echo "mode: atomic"; for f in coverage-*.out; do tail -n +2 "$f"; done; } > coverage.out
+            COVERAGE=$(awk 'NR > 1 { total += $2; if ($3 > 0) covered += $2 } END { if (total > 0) printf "%.1f%%", 100 * covered / total; else print "0.0%" }' coverage.out)
+            echo "total: $COVERAGE" > coverage-summary.txt
             echo "total=$COVERAGE" >> $GITHUB_OUTPUT
           else
             echo "No coverage data generated" > coverage-summary.txt
@@ -60,30 +134,30 @@ jobs:
 
           # Create test summary and check for failures
           echo "### Test Results 🧪" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ steps.run-tests.outputs.test_exit_code }}" == "0" ]; then
+          if [ "$test_exit_code" == "0" ]; then
             echo "✅ All tests passed successfully" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ Some tests failed" >> $GITHUB_STEP_SUMMARY
             echo "::error::🔴 Test failures detected!"
-            
-            if [ -f test-output.json ]; then
+
+            if [ -s test-output.json ]; then
               echo "#### Failed Tests" >> $GITHUB_STEP_SUMMARY
               echo '```' >> $GITHUB_STEP_SUMMARY
               jq -r 'select(.Action=="fail") | "- \(.Package) - \(.Test)"' test-output.json | tee -a $GITHUB_STEP_SUMMARY
               echo '```' >> $GITHUB_STEP_SUMMARY
-              
+
               # Output failures as GitHub annotations
               jq -r 'select(.Action=="fail") | "::error file=\(.Package)::❌ \(.Test): \(.Action)"' test-output.json
             fi
-            
+
             exit 1
           fi
-          
-          echo "Coverage: ${{ steps.coverage.outputs.total }}" >> $GITHUB_STEP_SUMMARY
+
+          echo "Coverage: ${COVERAGE:-0.0%}" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-artifacts
           path: |
@@ -95,36 +169,38 @@ jobs:
 
     outputs:
       coverage: ${{ steps.coverage.outputs.total }}
-      test_exit_code: ${{ steps.run-tests.outputs.test_exit_code }}
+      test_exit_code: ${{ steps.coverage.outputs.test_exit_code }}
 
   sonarqube:
     needs: [setup-and-lint, test]
-    runs-on: klever-pipe
+    runs-on: ubuntu-latest
+    # KLC-2968: skipped for fork and Dependabot pull requests, which get no Actions secrets
     if: |
       always() &&
-      github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
+      !(github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]'))
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Download lint results
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: lint-results
 
       - name: Download test results
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: test-artifacts
 
-      - uses: twingate/github-action@v1.11
+      - uses: twingate/github-action@358e205bb31e636fef1dfb706228ab60eb90c181 # v1.11
         with:
           service-key: ${{ secrets.TWINGATE_SERVICE_ACCOUNT }}
 
       - name: SonarQube Scan
-        uses: sonarsource/sonarqube-scan-action@v8
+        uses: sonarsource/sonarqube-scan-action@70bad232163b09d998ea0707ee80c0ec80798c16 # v8.5.1
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -142,7 +218,7 @@ jobs:
         if: github.event_name != 'pull_request'
 
       - name: SonarQube Go detailed scan PR
-        uses: sonarsource/sonarqube-scan-action@v8
+        uses: sonarsource/sonarqube-scan-action@70bad232163b09d998ea0707ee80c0ec80798c16 # v8.5.1
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -163,7 +239,7 @@ jobs:
 
       - name: SonarQube Quality Gate check
         continue-on-error: ${{ github.event_name != 'pull_request' }}
-        uses: sonarsource/sonarqube-quality-gate-action@v1.2.1
+        uses: sonarsource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1.2.1
         timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -171,19 +247,16 @@ jobs:
 
   notify:
     needs: [setup-and-lint, test, sonarqube]
-    runs-on: klever-pipe
+    runs-on: ubuntu-latest
+    # KLC-2968: skipped for fork and Dependabot pull requests, which get no Actions secrets
     if: |
       always() &&
-      github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
+      !(github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]'))
     permissions:
       contents: read
       pull-requests: read
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
       - name: Determine job statuses
         id: job-status
         run: |
@@ -199,162 +272,121 @@ jobs:
             echo "icon=✅" >> $GITHUB_OUTPUT
           fi
 
+      # KLC-2968: titles, branch and file names reach the payload only as jq data, never as
+      # shell or JSON text
       - name: Get event context
         id: context
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SONAR_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_PROJECT: ${{ github.event.repository.name }}
         run: |
-          echo "name=${{ github.event.sender.login }}" >> $GITHUB_OUTPUT
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            echo "event_title=${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
-            echo "changed_files=${{ github.event.pull_request.changed_files }}" >> $GITHUB_OUTPUT
-            echo "additions=${{ github.event.pull_request.additions }}" >> $GITHUB_OUTPUT
-            echo "deletions=${{ github.event.pull_request.deletions }}" >> $GITHUB_OUTPUT
-
-            # Get file list for PR
-            pr_files=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --jq '.[].filename')
-            echo "file_list<<EOF" >> $GITHUB_OUTPUT
-            echo "$pr_files" | head -n 10 >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-
-            echo "REPORT_URL=${{ secrets.SONAR_HOST_URL }}/dashboard?id=klever-go&pullRequest=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
-            echo "REVIEW_URL=${{ github.event.pull_request.html_url }}/files" >> $GITHUB_ENV
-            echo "REVIEW_TEXT=Review PR" >> $GITHUB_ENV
+          set -euo pipefail
+          repo_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" | jq -c '.[:10] | map(.filename)')
+            changes=$(jq -c --argjson files "$files" '.pull_request |
+              {changed: .changed_files, additions, deletions, files: $files}' "$GITHUB_EVENT_PATH")
+            report_url="$SONAR_URL/dashboard?id=$SONAR_PROJECT&pullRequest=$PR_NUMBER"
+            review_url="$repo_url/pull/$PR_NUMBER/files"
+            review_text="Review PR"
           else
-            echo "event_title=MERGE ${{ github.event.number }}" >> $GITHUB_OUTPUT
-            
-            # Use GitHub API to get commit details
-            commit_data=$(gh api repos/${{ github.repository }}/commits/${{ github.sha }} --jq '{files:.files}')
-            
-            changed_files=$(echo $commit_data | jq '.files | length')
-            echo "changed_files=$changed_files" >> $GITHUB_OUTPUT
-            
-            echo "file_list<<EOF" >> $GITHUB_OUTPUT
-            echo $commit_data | jq -r '.files[].filename' | head -n 10 >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-            
-            additions=$(echo $commit_data | jq '[.files[].additions] | add')
-            deletions=$(echo $commit_data | jq '[.files[].deletions] | add')
-            echo "additions=$additions" >> $GITHUB_OUTPUT
-            echo "deletions=$deletions" >> $GITHUB_OUTPUT
-
-            echo "REPORT_URL=${{ secrets.SONAR_HOST_URL }}/dashboard?id=klever-go&branch=${{ github.ref_name }}" >> $GITHUB_ENV
-            echo "REVIEW_URL=${{ github.event.repository.html_url }}/commits/${{ github.ref_name }}" >> $GITHUB_ENV
-            echo "REVIEW_TEXT=View Commits" >> $GITHUB_ENV
+            changes=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" | jq -c '
+              {changed: (.files | length), additions: .stats.additions, deletions: .stats.deletions,
+               files: (.files[:10] | map(.filename))}')
+            branch=$(jq -rn --arg ref "$GITHUB_REF_NAME" '$ref | @uri')
+            report_url="$SONAR_URL/dashboard?id=$SONAR_PROJECT&branch=$branch"
+            review_url="$repo_url/commits/$branch"
+            review_text="View Commits"
           fi
+          printf 'changes=%s\n' "$changes" >> "$GITHUB_OUTPUT"
+          printf 'report_url=%s\nreview_url=%s\nreview_text=%s\n' "$report_url" "$review_url" "$review_text" >> "$GITHUB_OUTPUT"
 
       - name: Slack Notification
-        run: |
-          curl -X POST -H 'Content-type: application/json' --data '
-            {
-              "text": "🚀 CI/CD Pipeline ${{ steps.job-status.outputs.icon }} Update for ${{ github.repository }}",
-              "attachments": [
-                {
-                  "color": "${{ steps.job-status.outputs.color }}",
-                  "blocks": [
-                    {
-                      "type": "section",
-                      "fields": [
-                        {
-                          "type": "mrkdwn",
-                          "text": "*Status:*\n${{ steps.job-status.outputs.overall_status }}"
-                        },
-                        {
-                          "type": "mrkdwn",
-                          "text": "*Branch:*\n${{ github.ref_name || github.ref }}"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "section",
-                      "fields": [
-                        {
-                          "type": "mrkdwn",
-                          "text": "*Event:*\n${{ github.event_name }}"
-                        },
-                        {
-                          "type": "mrkdwn",
-                          "text": "*Author:*\n${{ github.event.sender.login }}"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "section",
-                      "text": {
-                        "type": "mrkdwn",
-                        "text": "*${{ github.event_name == 'pull_request' && 'PR Title' || 'Commit Message' }}:*\n${{ steps.context.outputs.event_title }}"
-                      }
-                    },
-                    {
-                      "type": "section",
-                      "text": {
-                        "type": "mrkdwn",
-                        "text": "*Changes:*\n• Files changed: ${{ steps.context.outputs.changed_files }} (+${{ steps.context.outputs.additions }}/-${{ steps.context.outputs.deletions }})\n• First 10 changed files:\n```${{ steps.context.outputs.file_list }}```"
-                      }
-                    },
-                    {
-                      "type": "section",
-                      "text": {
-                        "type": "mrkdwn",
-                        "text": "*Job Results:*\n• SonarQube: ${{ steps.job-status.outputs.sonarqube_status }}\n• Tests: ${{ steps.job-status.outputs.test_status }}\n• Project Coverage: ${{ needs.test.outputs.coverage }}\n"
-                      }
-                    },
-                    {
-                      "type": "actions",
-                      "elements": [
-                        {
-                          "type": "button",
-                          "text": {
-                            "type": "plain_text",
-                            "text": "View Actions Run"
-                          },
-                          "url": "${{ github.event.repository.html_url }}/actions/runs/${{ github.run_id }}"
-                        },
-                        {
-                          "type": "button",
-                          "text": {
-                            "type": "plain_text",
-                            "text": "View SonarQube Report"
-                          },
-                          "url": "${{ env.REPORT_URL }}"
-                        },
-                        {
-                          "type": "button",
-                          "text": {
-                            "type": "plain_text",
-                            "text": "${{ env.REVIEW_TEXT }}"
-                          },
-                          "url": "${{ env.REVIEW_URL }}",
-                          "style": "primary"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "context",
-                      "elements": [
-                        {
-                          "type": "mrkdwn",
-                          "text": "Need help? <${{ github.event.repository.html_url }}/issues/new|Create an issue>"
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }' ${{ secrets.SLACK_WEBHOOK_URL }}
         env:
-          # build Sonar URL based on the event type
-          SONAR_URL: ${{ secrets.SONAR_HOST_URL }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          REPORT_URL: ${{ env.REPORT_URL }}
-          REVIEW_URL: ${{ env.REVIEW_URL }}
-          REVIEW_TEXT: ${{ env.REVIEW_TEXT }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_URL: ${{ github.event.repository.html_url }}
+          RUN_ID: ${{ github.run_id }}
+          BRANCH: ${{ github.ref_name || github.ref }}
+          AUTHOR: ${{ github.event.sender.login }}
+          OVERALL_STATUS: ${{ steps.job-status.outputs.overall_status }}
+          STATUS_ICON: ${{ steps.job-status.outputs.icon }}
+          STATUS_COLOR: ${{ steps.job-status.outputs.color }}
+          SONARQUBE_STATUS: ${{ steps.job-status.outputs.sonarqube_status }}
+          TEST_STATUS: ${{ steps.job-status.outputs.test_status }}
+          COVERAGE: ${{ needs.test.outputs.coverage }}
+          EVENT_TITLE: ${{ github.event.pull_request.title || github.event.head_commit.message || github.sha }}
+          CHANGES_JSON: ${{ steps.context.outputs.changes }}
+          REPORT_URL: ${{ steps.context.outputs.report_url }}
+          REVIEW_URL: ${{ steps.context.outputs.review_url }}
+          REVIEW_TEXT: ${{ steps.context.outputs.review_text }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            title_label="PR Title"
+          else
+            title_label="Commit Message"
+          fi
+          # Slack caps a section text at 3000 characters; a squash message's first line is enough
+          title="${EVENT_TITLE%%$'\n'*}"
+          title="${title:0:2900}"
 
+          payload=$(jq -n \
+            --arg text "🚀 CI/CD Pipeline ${STATUS_ICON} Update for ${REPOSITORY}" \
+            --arg color "$STATUS_COLOR" \
+            --arg status "$OVERALL_STATUS" \
+            --arg branch "$BRANCH" \
+            --arg event "$GITHUB_EVENT_NAME" \
+            --arg author "$AUTHOR" \
+            --arg title_label "$title_label" \
+            --arg title "$title" \
+            --argjson changes "$CHANGES_JSON" \
+            --arg sonarqube "$SONARQUBE_STATUS" \
+            --arg tests "$TEST_STATUS" \
+            --arg coverage "$COVERAGE" \
+            --arg run_url "$REPOSITORY_URL/actions/runs/$RUN_ID" \
+            --arg report_url "$REPORT_URL" \
+            --arg review_url "$REVIEW_URL" \
+            --arg review_text "$REVIEW_TEXT" \
+            --arg issue_url "$REPOSITORY_URL/issues/new" \
+            '{
+              text: $text,
+              attachments: [{
+                color: $color,
+                blocks: [
+                  {type: "section", fields: [
+                    {type: "mrkdwn", text: ("*Status:*\n" + $status)},
+                    {type: "mrkdwn", text: ("*Branch:*\n" + $branch)}
+                  ]},
+                  {type: "section", fields: [
+                    {type: "mrkdwn", text: ("*Event:*\n" + $event)},
+                    {type: "mrkdwn", text: ("*Author:*\n" + $author)}
+                  ]},
+                  {type: "section", text: {type: "mrkdwn", text: ("*" + $title_label + ":*\n" + $title)}},
+                  {type: "section", text: {type: "mrkdwn", text: (
+                    "*Changes:*\n• Files changed: \($changes.changed) (+\($changes.additions)/-\($changes.deletions))\n• First 10 changed files:\n```"
+                    + ($changes.files | join("\n")) + "```")}},
+                  {type: "section", text: {type: "mrkdwn", text: (
+                    "*Job Results:*\n• SonarQube: " + $sonarqube + "\n• Tests: " + $tests + "\n• Project Coverage: " + $coverage + "\n")}},
+                  {type: "actions", elements: [
+                    {type: "button", text: {type: "plain_text", text: "View Actions Run"}, url: $run_url},
+                    {type: "button", text: {type: "plain_text", text: "View SonarQube Report"}, url: $report_url},
+                    {type: "button", text: {type: "plain_text", text: $review_text}, url: $review_url, style: "primary"}
+                  ]},
+                  {type: "context", elements: [
+                    {type: "mrkdwn", text: ("Need help? <" + $issue_url + "|Create an issue>")}
+                  ]}
+                ]
+              }]
+            }')
+          curl --fail --silent --show-error -X POST -H 'Content-type: application/json' --data "$payload" "$SLACK_WEBHOOK_URL"
 
   result-check:
     needs: [setup-and-lint, sonarqube, test]
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: klever-pipe
+    runs-on: ubuntu-latest
     steps:
       - name: Check for failed jobs
         env:
@@ -362,7 +394,12 @@ jobs:
           SONARQUBE_RESULT: ${{ needs.sonarqube.result }}
           TEST_RESULT: ${{ needs.test.result }}
           TEST_EXIT_CODE: ${{ needs.test.outputs.test_exit_code }}
+          # KLC-2968: sonarqube is skipped for fork and Dependabot pull requests, see that job
+          NO_SECRETS_PR: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]') }}
         run: |
+          if [[ "$NO_SECRETS_PR" == "true" && "$SONARQUBE_RESULT" == "skipped" ]]; then
+            SONARQUBE_RESULT=success
+          fi
           if [[ "$LINT_RESULT" != "success" || "$SONARQUBE_RESULT" != "success" || "$TEST_RESULT" != "success" || "$TEST_EXIT_CODE" != "0" ]]; then
             echo "::error::Required jobs did not all pass: lint=$LINT_RESULT, sonarqube=$SONARQUBE_RESULT, test=$TEST_RESULT (exit=$TEST_EXIT_CODE)."
             exit 1
