@@ -161,7 +161,7 @@ func (bs *bootstrapStorer) RaiseHighestFinalBlockNonce(slot int64, nonce uint64,
 		return err
 	}
 
-	return bs.store.Put([]byte(strconv.FormatInt(slot, 10)), bootDataBytes)
+	return bs.store.PutInEpoch([]byte(strconv.FormatInt(slot, 10)), bootDataBytes, lastHeader.Epoch)
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

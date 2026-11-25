@@ -8,6 +8,12 @@ import (
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/block/bootstrapStorage"
+	"github.com/klever-io/klever-go/data/block"
+	"github.com/klever-io/klever-go/eventNotifier"
+	"github.com/klever-io/klever-go/storage"
+	"github.com/klever-io/klever-go/storage/memorydb"
+	"github.com/klever-io/klever-go/storage/pruning"
+	"github.com/klever-io/klever-go/storage/storageUnit"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -120,6 +126,10 @@ func newBootstrapStorerWithConsecutiveSlots(t *testing.T) (process.BootStorer, f
 		PutCalled: func(key, data []byte) error {
 			numPuts++
 			return inner.Put(key, data)
+		},
+		PutInEpochCalled: func(key, data []byte, epoch uint32) error {
+			numPuts++
+			return inner.PutInEpoch(key, data, epoch)
 		},
 		GetCalled: inner.Get,
 	}
@@ -278,6 +288,12 @@ func TestBootstrapStorer_RaiseHighestFinalBlockNonceStorageFailureShouldErrAndKe
 				}
 				return inner.Put(key, data)
 			},
+			PutInEpochCalled: func(key, data []byte, epoch uint32) error {
+				if failPut {
+					return errExpected
+				}
+				return inner.PutInEpoch(key, data, epoch)
+			},
 			GetCalled: inner.Get,
 		}
 		marshalizer := &mock.MarshalizerStub{
@@ -352,4 +368,94 @@ func TestBootstrapStorer_RaiseHighestFinalBlockNonceStorageFailureShouldErrAndKe
 		assert.Equal(t, storedBefore, storedAfter)
 		assert.Equal(t, int64(10), bt.GetHighestSlot())
 	})
+}
+
+func TestBootstrapStorer_RaiseHighestFinalBlockNonceAcrossAnEpochChangeShouldBeReadAfterReopeningAtTheRecordEpoch(t *testing.T) {
+	t.Parallel()
+
+	newPruningStorer := func(t *testing.T, persistersByPath map[string]storage.Persister, pruningEnabled bool) (*pruning.PruningStorer, eventNotifier.ActionHandler) {
+		t.Helper()
+
+		var epochStartHandler eventNotifier.ActionHandler
+		ps, err := pruning.NewPruningStorer(&pruning.StorerArgs{
+			Identifier:  "BootstrapData",
+			CacheConf:   storageUnit.CacheConfig{Capacity: 10, Type: storageUnit.LRUCache, Shards: 3},
+			PathManager: &mock.PathManagerStub{},
+			PersisterFactory: &mock.PersisterFactoryStub{
+				CreateCalled: func(path string) (storage.Persister, error) {
+					persister, ok := persistersByPath[path]
+					if !ok {
+						persister = memorydb.New()
+						persistersByPath[path] = persister
+					}
+
+					return persister, nil
+				},
+			},
+			Notifier: &mock.EpochStartNotifierStub{
+				RegisterHandlerCalled: func(handler eventNotifier.ActionHandler) {
+					epochStartHandler = handler
+				},
+			},
+			MaxBatchSize:          10,
+			NumOfEpochsToKeep:     3,
+			NumOfActivePersisters: 3,
+			PruningEnabled:        pruningEnabled,
+		})
+		assert.Nil(t, err)
+
+		return ps, epochStartHandler
+	}
+
+	tests := []struct {
+		name           string
+		pruningEnabled bool
+	}{
+		{name: "storage pruning enabled", pruningEnabled: true},
+		{name: "storage pruning disabled", pruningEnabled: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			persistersByPath := make(map[string]storage.Persister)
+			ps, epochStartHandler := newPruningStorer(t, persistersByPath, tt.pruningEnabled)
+			bt, err := bootstrapStorage.NewBootstrapStorer(testMarshalizer, ps)
+			assert.Nil(t, err)
+
+			for nonce := uint64(2); nonce <= 3; nonce++ {
+				err = bt.Put(int64(nonce)+5, &bootstrapStorage.BootstrapData{
+					LastHeader:             &bootstrapStorage.BootstrapHeaderInfo{Epoch: 0, Nonce: nonce, Hash: []byte(fmt.Sprintf("hash%d", nonce))},
+					HighestFinalBlockNonce: nonce - 1,
+				})
+				assert.Nil(t, err)
+			}
+
+			ps.SetEpochForPutOperation(1)
+			epochStartHandler.EpochStartAction(&block.Block{Header: &block.BlockHeader{Epoch: 1, Nonce: 4}})
+			err = bt.Put(9, &bootstrapStorage.BootstrapData{
+				LastHeader:             &bootstrapStorage.BootstrapHeaderInfo{Epoch: 1, Nonce: 4, Hash: []byte("hash4")},
+				HighestFinalBlockNonce: 3,
+			})
+			assert.Nil(t, err)
+
+			err = bt.RaiseHighestFinalBlockNonce(8, 3, []byte("hash3"))
+			assert.Nil(t, err)
+			err = bt.SaveLastSlot(8)
+			assert.Nil(t, err)
+			assert.Nil(t, ps.Close())
+
+			reopened, _ := newPruningStorer(t, persistersByPath, tt.pruningEnabled)
+			reopenedBootStorer, err := bootstrapStorage.NewBootstrapStorer(testMarshalizer, reopened)
+			assert.Nil(t, err)
+
+			assert.Equal(t, int64(8), reopenedBootStorer.GetHighestSlot())
+			head, err := reopenedBootStorer.Get(8)
+			assert.Nil(t, err)
+			assert.Equal(t, []byte("hash3"), head.LastHeader.GetHash())
+			assert.Equal(t, uint64(3), head.HighestFinalBlockNonce)
+		})
+	}
 }

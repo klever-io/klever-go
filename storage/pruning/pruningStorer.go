@@ -273,6 +273,14 @@ func (ps *PruningStorer) doPutInPersister(key, data []byte, persister storage.Pe
 func (ps *PruningStorer) PutInEpoch(key, data []byte, epoch uint32) error {
 	ps.cacher.Put(key, data, len(data))
 
+	if !ps.pruningEnabled {
+		ps.lock.RLock()
+		persisterToUse := ps.activePersisters[0]
+		ps.lock.RUnlock()
+
+		return ps.doPutInPersister(key, data, persisterToUse.persister)
+	}
+
 	ps.lock.RLock()
 	pd, exists := ps.persistersMapByEpoch[epoch]
 	ps.lock.RUnlock()
