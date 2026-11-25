@@ -24,3 +24,8 @@ func PayCreateTransfersForTest(
 func GetEffectiveTimeoutForTest(host vmhost.VMHost) time.Duration {
 	return host.(*vmHost).getEffectiveTimeout()
 }
+
+func CallBuiltinFunctionForTest(host vmhost.VMHost, input *vmcommon.ContractCallInput) error {
+	_, _, err := host.(*vmHost).callBuiltinFunction(input)
+	return err
+}

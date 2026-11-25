@@ -1305,6 +1305,7 @@ func (host *vmHost) callBuiltinFunction(input *vmcommon.ContractCallInput) (*vmc
 
 		parsedTransfer, err = host.kdaTransferParser.ParseKDATransfers(input.RecipientAddr, input.Arguments)
 		if err != nil {
+			metering.UseGas(input.GasProvided)
 			return nil, nil, err
 		}
 
