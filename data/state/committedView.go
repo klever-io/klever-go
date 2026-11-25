@@ -246,6 +246,11 @@ func (refusesWrites) SetStateCheckpoint(_ []byte, _ context.Context) {
 	// no-op: a read-only view never prunes or snapshots; the processing adapter owns that
 }
 
+// GetNumCheckpoints returns 0: a read-only view takes no checkpoints
+func (refusesWrites) GetNumCheckpoints() uint32 {
+	return 0
+}
+
 // lastCommittedAccounts is a read-only AccountsAdapter over the last committed root of accounts.
 // Every read opens a view of the root committed at that moment and releases it before returning, so
 // it never sees what a block in progress has saved, never hands out a trie block processing writes,
@@ -259,14 +264,15 @@ func (refusesWrites) SetStateCheckpoint(_ []byte, _ context.Context) {
 // ~5 µs for a live uncached read); cache data tries per committed root if REST load needs it.
 type lastCommittedAccounts struct {
 	refusesWrites
-	accounts AccountsAdapter
+	accounts CommittedOpener
 }
 
 var _ AccountsAdapter = (*lastCommittedAccounts)(nil)
+var _ CommittedOpener = (*AccountsDB)(nil)
 
 // NewLastCommittedAccounts returns a read-only AccountsAdapter that reads accounts at its last
 // committed root
-func NewLastCommittedAccounts(accounts AccountsAdapter) (*lastCommittedAccounts, error) {
+func NewLastCommittedAccounts(accounts CommittedOpener) (*lastCommittedAccounts, error) {
 	if check.IfNil(accounts) {
 		return nil, common.ErrNilAccountsAdapter
 	}
@@ -274,10 +280,12 @@ func NewLastCommittedAccounts(accounts AccountsAdapter) (*lastCommittedAccounts,
 	return &lastCommittedAccounts{accounts: accounts}, nil
 }
 
-func (l *lastCommittedAccounts) read(fn func(view *CommittedView) error) error {
+// readLast runs fn on a view of the last committed root and releases the view before returning
+func readLast[T any](l *lastCommittedAccounts, fn func(view *CommittedView) (T, error)) (T, error) {
 	view, err := l.accounts.OpenLastCommitted()
 	if err != nil {
-		return err
+		var zero T
+		return zero, err
 	}
 	defer view.Release()
 
@@ -286,49 +294,23 @@ func (l *lastCommittedAccounts) read(fn func(view *CommittedView) error) error {
 
 // GetExistingAccount returns the account at address in the last committed root, or common.ErrAccNotFound
 func (l *lastCommittedAccounts) GetExistingAccount(address []byte) (AccountHandler, error) {
-	var acc AccountHandler
-	err := l.read(func(view *CommittedView) error {
-		var errGet error
-		acc, errGet = view.GetExistingAccount(address)
-		return errGet
-	})
-
-	return acc, err
+	return readLast(l, func(view *CommittedView) (AccountHandler, error) { return view.GetExistingAccount(address) })
 }
 
 // LoadAccount returns the account at address in the last committed root, or a new empty one
 func (l *lastCommittedAccounts) LoadAccount(address []byte) (AccountHandler, error) {
-	var acc AccountHandler
-	err := l.read(func(view *CommittedView) error {
-		var errLoad error
-		acc, errLoad = view.LoadAccount(address)
-		return errLoad
-	})
-
-	return acc, err
+	return readLast(l, func(view *CommittedView) (AccountHandler, error) { return view.LoadAccount(address) })
 }
 
 // GetCode returns the code stored under codeHash in the last committed root, or nil
 func (l *lastCommittedAccounts) GetCode(codeHash []byte) []byte {
-	var code []byte
-	_ = l.read(func(view *CommittedView) error {
-		code = view.GetCode(codeHash)
-		return nil
-	})
-
+	code, _ := readLast(l, func(view *CommittedView) ([]byte, error) { return view.GetCode(codeHash), nil })
 	return code
 }
 
 // RootHash returns the last committed root
 func (l *lastCommittedAccounts) RootHash() ([]byte, error) {
-	var root []byte
-	err := l.read(func(view *CommittedView) error {
-		var errRoot error
-		root, errRoot = view.RootHash()
-		return errRoot
-	})
-
-	return root, err
+	return readLast(l, func(view *CommittedView) ([]byte, error) { return view.RootHash() })
 }
 
 // GetAllLeaves walks rootHash, a committed root such as one RootHash returned before a later commit.
@@ -341,21 +323,6 @@ func (l *lastCommittedAccounts) GetAllLeaves(rootHash []byte, ctx context.Contex
 	defer view.Release()
 
 	return view.GetAllLeaves(rootHash, ctx)
-}
-
-// GetNumCheckpoints returns the accounts' checkpoint count
-func (l *lastCommittedAccounts) GetNumCheckpoints() uint32 {
-	return l.accounts.GetNumCheckpoints()
-}
-
-// OpenLastCommitted opens a view of the last committed root
-func (l *lastCommittedAccounts) OpenLastCommitted() (*CommittedView, error) {
-	return l.accounts.OpenLastCommitted()
-}
-
-// OpenCommittedAt opens a view of rootHash
-func (l *lastCommittedAccounts) OpenCommittedAt(rootHash []byte) (*CommittedView, error) {
-	return l.accounts.OpenCommittedAt(rootHash)
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

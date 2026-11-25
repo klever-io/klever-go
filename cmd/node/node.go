@@ -282,18 +282,27 @@ type apiState struct {
 	kappController kapp.KAppController
 }
 
+// lastCommittedOf returns a read-only adapter over the last committed root of accounts
+func lastCommittedOf(accounts state.AccountsAdapter) (state.AccountsAdapter, error) {
+	opener, ok := accounts.(state.CommittedOpener)
+	if !ok {
+		return nil, errors.New("accounts adapter cannot open committed views")
+	}
+	return state.NewLastCommittedAccounts(opener)
+}
+
 // createAPIState builds the REST state the way createScQueryService builds the VM query
 // controller (cmd/node/sc.go), but over the last committed state instead of the live tries.
 func createAPIState(stateComponents *factory.StateComponents) (*apiState, error) {
-	accounts, err := state.NewLastCommittedAccounts(stateComponents.AccountsAdapter)
+	accounts, err := lastCommittedOf(stateComponents.AccountsAdapter)
 	if err != nil {
 		return nil, err
 	}
-	kappAccounts, err := state.NewLastCommittedAccounts(stateComponents.KAppsAdapter)
+	kappAccounts, err := lastCommittedOf(stateComponents.KAppsAdapter)
 	if err != nil {
 		return nil, err
 	}
-	peers, err := state.NewLastCommittedAccounts(stateComponents.PeersAdapter)
+	peers, err := lastCommittedOf(stateComponents.PeersAdapter)
 	if err != nil {
 		return nil, err
 	}

@@ -154,11 +154,16 @@ type AccountsAdapter interface {
 	IsPruningEnabled() bool
 	GetAllLeaves(rootHash []byte, ctx context.Context) (*data.TrieIteratorChannels, error)
 	RecreateAllTries(rootHash []byte, ctx context.Context) (map[string]data.Trie, error)
+
+	IsInterfaceNil() bool
+}
+
+// CommittedOpener opens pinned, read-only views of committed roots.
+type CommittedOpener interface {
 	// OpenLastCommitted pins the last committed root and returns a read-only view of it.
 	OpenLastCommitted() (*CommittedView, error)
 	// OpenCommittedAt pins rootHash and returns a read-only view of it; see CommittedView.
 	OpenCommittedAt(rootHash []byte) (*CommittedView, error)
-
 	IsInterfaceNil() bool
 }
 
