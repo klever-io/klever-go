@@ -23,7 +23,8 @@ jobs:
   # always tested.
   test-shard:
     name: test (${{ matrix.shard }})
-    needs: setup-and-lint
+    # Runs alongside lint; result-check requires both
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -173,11 +174,11 @@ jobs:
   sonarqube:
     needs: [setup-and-lint, test]
     runs-on: ubuntu-latest
-    # KLC-2968: skipped for fork pull requests, which get no secrets
+    # KLC-2968: skipped for fork and Dependabot pull requests, which get no Actions secrets
     if: |
       always() &&
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
-      !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
+      !(github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]'))
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -247,20 +248,15 @@ jobs:
   notify:
     needs: [setup-and-lint, test, sonarqube]
     runs-on: ubuntu-latest
-    # KLC-2968: skipped for fork pull requests, which get no secrets
+    # KLC-2968: skipped for fork and Dependabot pull requests, which get no Actions secrets
     if: |
       always() &&
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
-      !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
+      !(github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]'))
     permissions:
       contents: read
       pull-requests: read
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-
       - name: Determine job statuses
         id: job-status
         run: |
@@ -333,6 +329,9 @@ jobs:
           else
             title_label="Commit Message"
           fi
+          # Slack caps a section text at 3000 characters; a squash message's first line is enough
+          title="${EVENT_TITLE%%$'\n'*}"
+          title="${title:0:2900}"
 
           payload=$(jq -n \
             --arg text "🚀 CI/CD Pipeline ${STATUS_ICON} Update for ${REPOSITORY}" \
@@ -342,7 +341,7 @@ jobs:
             --arg event "$GITHUB_EVENT_NAME" \
             --arg author "$AUTHOR" \
             --arg title_label "$title_label" \
-            --arg title "$EVENT_TITLE" \
+            --arg title "$title" \
             --argjson changes "$CHANGES_JSON" \
             --arg sonarqube "$SONARQUBE_STATUS" \
             --arg tests "$TEST_STATUS" \
@@ -395,10 +394,10 @@ jobs:
           SONARQUBE_RESULT: ${{ needs.sonarqube.result }}
           TEST_RESULT: ${{ needs.test.result }}
           TEST_EXIT_CODE: ${{ needs.test.outputs.test_exit_code }}
-          # KLC-2968: sonarqube is skipped for fork pull requests, see that job
-          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          # KLC-2968: sonarqube is skipped for fork and Dependabot pull requests, see that job
+          NO_SECRETS_PR: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]') }}
         run: |
-          if [[ "$IS_FORK_PR" == "true" && "$SONARQUBE_RESULT" == "skipped" ]]; then
+          if [[ "$NO_SECRETS_PR" == "true" && "$SONARQUBE_RESULT" == "skipped" ]]; then
             SONARQUBE_RESULT=success
           fi
           if [[ "$LINT_RESULT" != "success" || "$SONARQUBE_RESULT" != "success" || "$TEST_RESULT" != "success" || "$TEST_EXIT_CODE" != "0" ]]; then

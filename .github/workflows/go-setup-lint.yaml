@@ -80,6 +80,16 @@ jobs:
           fi
           test -s golangci-report.xml
 
+      # KLC-2968: SonarQube does not run for fork and Dependabot pull requests, so new findings
+      # fail lint there instead
+      - name: Fail on new golangci-lint findings
+        if: |
+          github.event_name == 'pull_request' &&
+          (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]')
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: golangci-lint run --new-from-merge-base="origin/$BASE_REF"
+
       - name: Upload lint results
         if: always() && steps.golangci.outcome != 'skipped'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
