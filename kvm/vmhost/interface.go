@@ -250,7 +250,8 @@ type ManagedTypesContext interface {
 // OutputContext defines the functionality needed for interacting with the output context.
 // Account structs and their maps belong to the active state; the items they hold (return data,
 // log entries, storage updates, transfer contents, code) are shared with the state stack:
-// replace them, never write into them. See mergeVMOutputs for the one exception.
+// replace them, never write into them. The one exception is CompleteLogEntriesWithCallType,
+// which sets an unset call type on a returned call's logs.
 type OutputContext interface {
 	StateStack
 	PopMergeActiveState()
