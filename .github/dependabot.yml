@@ -1,0 +1,15 @@
+# KLC-2968: actions are pinned to commit SHAs; Dependabot keeps the pins on current releases
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/go-setup-action
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(ci)"

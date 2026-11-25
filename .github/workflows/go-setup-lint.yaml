@@ -17,6 +17,9 @@ on:
         description: "Lint results from golangci-lint"
         value: ${{ jobs.setup-and-lint.outputs.lint-results }}
 
+permissions:
+  contents: read
+
 jobs:
   setup-and-lint:
     # KLC-2968: GitHub-hosted, a fresh VM per job; klever-go is public and must not use the
@@ -26,7 +29,7 @@ jobs:
       lint-results: ${{ steps.lint.outputs.results }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -57,7 +60,7 @@ jobs:
           go vet -unsafeptr=false $(go list ./... | grep -v /vendor/)
 
       - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: ${{ inputs.golangci-lint-version }}
           install-only: true
@@ -79,7 +82,7 @@ jobs:
 
       - name: Upload lint results
         if: always() && steps.golangci.outcome != 'skipped'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lint-results
           path: |

@@ -20,7 +20,7 @@ runs:
   using: "composite"
   steps:
     - name: Set up Golang
-      uses: actions/setup-go@v7
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         go-version: ${{ inputs.go-version }}
         go-version-file: ${{ inputs.go-version == '' && 'go.mod' || '' }}
@@ -29,7 +29,7 @@ runs:
     - name: Cache Go dependencies
       id: cache_vendor
       if: inputs.cache-enabled == 'true' && runner.environment == 'github-hosted'
-      uses: actions/cache@v6
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       env:
         cache-name: go-cache-vendor
       with:
@@ -52,7 +52,7 @@ runs:
 
     - name: Restore the Go build cache
       if: steps.go_build_cache.outputs.path != '' && github.event_name == 'pull_request'
-      uses: actions/cache/restore@v6
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ steps.go_build_cache.outputs.path }}
         key: ${{ runner.os }}-go-build-${{ inputs.build-cache-key }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
@@ -62,7 +62,7 @@ runs:
 
     - name: Restore and save the Go build cache
       if: steps.go_build_cache.outputs.path != '' && github.event_name != 'pull_request'
-      uses: actions/cache@v6
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ steps.go_build_cache.outputs.path }}
         key: ${{ runner.os }}-go-build-${{ inputs.build-cache-key }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
@@ -81,7 +81,7 @@ runs:
       if: ${{ steps.cache_vendor.outputs.cache-hit != 'true' }}
       shell: bash
       run: |
-        go install github.com/goware/modvendor@latest
+        go install github.com/goware/modvendor@v0.5.0
         go mod vendor
         modvendor -copy="**/*.c **/*.h **/*.proto **/*.a"
 

@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   setup-and-lint:
     uses: ./.github/workflows/go-setup-lint.yaml
@@ -42,7 +45,7 @@ jobs:
         run: rm -rf bin/*
 
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -50,6 +53,8 @@ jobs:
         uses: ./.github/actions/go-setup-action
         with:
           go-version: ${{ vars.GO_VERSION }}
+          # Release output must not come from a cache that other jobs write
+          cache-enabled: 'false'
 
       - name: Build
         run: |
@@ -79,7 +84,7 @@ jobs:
 
       - name: Create Release
         id: create_release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           files: |
             bin/klevergo-node${{ matrix.extension }}
@@ -100,33 +105,33 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
 
       - name: Configure GCP service account
-        uses: google-github-actions/auth@v3
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           credentials_json: '${{ secrets.GCP_CLOUD_RUN_SA }}'
 
       - name: Upload operator files to bucket
-        uses: 'google-github-actions/upload-cloud-storage@v3'
+        uses: google-github-actions/upload-cloud-storage@6397bd7208e18d13ba2619ee21b9873edc94427a # v3.0.0
         with:
           path: 'bin/klevergo-operator${{ matrix.extension }}'
           destination: 'kleverchain-public/koperator/${{ matrix.name }}/${{ env.VERSION }}'
           predefinedAcl: 'publicRead'
 
       - name: Upload node files to bucket
-        uses: 'google-github-actions/upload-cloud-storage@v3'
+        uses: google-github-actions/upload-cloud-storage@6397bd7208e18d13ba2619ee21b9873edc94427a # v3.0.0
         with:
           path: 'bin/klevergo-node${{ matrix.extension }}'
           destination: 'kleverchain-public/knode/${{ matrix.name }}/${{ env.VERSION }}'
           predefinedAcl: 'publicRead'
 
       - name: Upload benchmark files to bucket
-        uses: 'google-github-actions/upload-cloud-storage@v3'
+        uses: google-github-actions/upload-cloud-storage@6397bd7208e18d13ba2619ee21b9873edc94427a # v3.0.0
         with:
           path: 'bin/klevergo-benchmark${{ matrix.extension }}'
           destination: 'kleverchain-public/kbenchmark/${{ matrix.name }}/${{ env.VERSION }}'
           predefinedAcl: 'publicRead'
 
       - name: Upload Klever Blockchain IDE operator files to bucket
-        uses: 'google-github-actions/upload-cloud-storage@v3'
+        uses: google-github-actions/upload-cloud-storage@6397bd7208e18d13ba2619ee21b9873edc94427a # v3.0.0
         with:
           path: 'bin/${{ matrix.name }}'
           destination: 'kleverchain-public/koperator/${{ matrix.name }}/${{ env.VERSION }}'
