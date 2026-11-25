@@ -187,11 +187,12 @@ func (en *extensionNode) commit(force bool, level byte, maxTrieLevelInMemory uin
 		}
 	}
 
-	en.dirty = false
 	err = encodeNodeAndCommitToDB(en, targetDb)
 	if err != nil {
 		return err
 	}
+	// clean only once persisted, so a retried commit writes the node again
+	en.dirty = false
 	if uint(level) == maxTrieLevelInMemory {
 		log.Trace("collapse extension node on commit")
 

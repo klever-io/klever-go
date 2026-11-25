@@ -121,8 +121,14 @@ func (ln *leafNode) commit(force bool, _ byte, _ uint, _ data.DBWriteCacher, tar
 		return nil
 	}
 
+	err = encodeNodeAndCommitToDB(ln, targetDb)
+	if err != nil {
+		return err
+	}
+	// clean only once persisted, so a retried commit writes the node again
 	ln.dirty = false
-	return encodeNodeAndCommitToDB(ln, targetDb)
+
+	return nil
 }
 
 func (ln *leafNode) getEncodedNode() ([]byte, error) {
