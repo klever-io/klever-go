@@ -330,6 +330,58 @@ func TestCommittedView_RollbackPruneOfAPinnedRootNeverDeletesItsRecommit(t *test
 	require.NoError(t, err, "the live root's node was deleted")
 }
 
+// A view pins a root while a later block is rolled back and committed again. Queued behind the held
+// prune, the rollback's cancels would evict the entries the second commit wrote, and the next prune
+// would delete nodes of the live root.
+func TestCommittedView_RollbackWhileAPruneIsHeldKeepsTheRecommittedRoot(t *testing.T) {
+	t.Parallel()
+
+	adb := newPruningProofAccountsDB(t, mock.NewMemDbMock(), &mock.ProtobufMarshalizerMock{})
+	a1, a2 := viewAddress(1), viewAddress(2)
+	putBalance(t, adb, a1, 1)
+	putBalance(t, adb, a2, 1)
+	x, err := adb.Commit()
+	require.NoError(t, err)
+
+	view, err := adb.OpenLastCommitted()
+	require.NoError(t, err)
+
+	putStorage(t, adb, a1, []byte("k"), []byte("v1"))
+	r0, err := adb.Commit()
+	require.NoError(t, err)
+	finalize(adb, x) // held by the view
+
+	putStorage(t, adb, a1, []byte("k"), []byte("v2"))
+	r1, err := adb.Commit()
+	require.NoError(t, err)
+	commitR2 := func() []byte {
+		putStorage(t, adb, a1, []byte("k"), []byte("v1")) // a1's nodes from r0 come back
+		putBalance(t, adb, a2, 1)
+		root, errCommit := adb.Commit()
+		require.NoError(t, errCommit)
+		return root
+	}
+	r2 := commitR2()
+
+	// rollback of r2's block while the prune of x waits
+	require.NoError(t, adb.RecreateTrie(r1))
+	adb.CancelPrune(r1, data.OldRoot)
+	adb.PruneTrie(r2, data.NewRoot)
+
+	require.Equal(t, r2, commitR2(), "the canonical block commits the same root")
+	view.Release()
+	finalize(adb, r0)
+
+	live, err := adb.OpenLastCommitted()
+	require.NoError(t, err)
+	defer live.Release()
+	acc, err := live.GetExistingAccount(a1)
+	require.NoError(t, err, "a1 is unreadable in the live root")
+	value, err := acc.(state.UserAccountHandler).DataTrieTracker().RetrieveValue([]byte("k"))
+	require.NoError(t, err, "a1's storage is unreadable in the live root")
+	require.Equal(t, []byte("v1"), value)
+}
+
 // A view holds a root across several commits while a node of that root comes back in a later one.
 // The held prune must run before the cancels that keep the recreated node, as it would unpinned.
 func TestCommittedView_HeldPruneRunsBeforeTheCancelsThatFollowIt(t *testing.T) {

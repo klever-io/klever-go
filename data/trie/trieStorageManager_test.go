@@ -820,9 +820,8 @@ func TestTrieStorageManager_LaterOperationsWaitBehindAHeldPruneInOrder(t *testin
 	require.Equal(t, []heldPruneOp{
 		{root: string(oldRoot), identifier: data.OldRoot},
 		{root: string(newRoot), identifier: data.NewRoot, cancel: true},
-		{root: string(other), identifier: data.NewRoot, cancel: true},
 		{root: string(newRoot), identifier: data.OldRoot},
-	}, trieStorage.heldOps, "nothing overtakes the held prune, and a queued rollback prune becomes a cancel")
+	}, trieStorage.heldOps, "a finalized block's prunes and cancels wait in order, a rollback runs at once")
 	require.True(t, isStored(trieStorage, oldRoot))
 	require.True(t, isStored(trieStorage, newRoot))
 

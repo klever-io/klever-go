@@ -43,8 +43,8 @@ type trieStorageManager struct {
 	storageOperationMutex sync.RWMutex
 
 	// pins counts the readers holding each root. heldOps queues, in arrival order, a prune of a
-	// pinned root and every prune and cancel after it. Both are guarded by storageOperationMutex,
-	// like every prune.
+	// pinned root and every later prune and cancel of a finalized block. Both are guarded by
+	// storageOperationMutex, like every prune.
 	pins    map[string]int
 	heldOps []heldPruneOp
 }
@@ -220,8 +220,8 @@ func (tsm *trieStorageManager) ExitPruningBufferingMode() {
 	log.Trace("exit pruning buffering state", "operations in progress that block pruning", tsm.pruningBlockingOps)
 }
 
-// Prune removes from db the nodes the commit of rootHash made obsolete for identifier. It waits,
-// in arrival order, behind a prune of a pinned root; see PinRoot.
+// Prune removes from db the nodes the commit of rootHash made obsolete for identifier. A finalized
+// block's prune (OldRoot) waits, in arrival order, behind a prune of a pinned root; see PinRoot.
 func (tsm *trieStorageManager) Prune(rootHash []byte, identifier data.TriePruningIdentifier) {
 	tsm.storageOperationMutex.Lock()
 	defer tsm.storageOperationMutex.Unlock()
@@ -231,10 +231,11 @@ func (tsm *trieStorageManager) Prune(rootHash []byte, identifier data.TriePrunin
 }
 
 // PinRoot keeps the nodes of rootHash in the database until the matching UnpinRoot. A prune of
-// rootHash waits, and so does every prune and cancel after it, in arrival order: a cancel can drop
-// the eviction entry that keeps a node an earlier prune would otherwise delete (ShouldKeepHash). A
-// rollback prune (NewRoot) of a pinned root becomes a cancel, so those nodes leak instead, as in
-// pruning buffering mode. The next Prune or CancelPrune after the last UnpinRoot runs what waits.
+// rootHash waits, and so does every later prune and cancel of a finalized block, in arrival order:
+// a cancel can drop the eviction entry that keeps a node an earlier prune would otherwise delete
+// (ShouldKeepHash). Rollbacks run at once; see runOrHold. A rollback prune (NewRoot) of a pinned
+// root becomes a cancel, so those nodes leak instead, as in pruning buffering mode. The next Prune
+// or CancelPrune after the last UnpinRoot runs what waits.
 // ponytail: one pin holds back every later prune, so nothing is reclaimed while it is held. Hold
 // pins for one read, not longer.
 func (tsm *trieStorageManager) PinRoot(rootHash []byte) {
@@ -262,12 +263,19 @@ func (tsm *trieStorageManager) UnpinRoot(rootHash []byte) {
 	}
 }
 
-// runOrHold runs op, or queues it when it must wait. A rollback prune that cannot run now becomes a
-// cancel: run later, it could delete the nodes of a commit that wrote the same root again. It must
-// be called under storageOperationMutex.
+// runOrHold runs op, or queues it when it must wait. A rollback (an OldRoot cancel or a NewRoot
+// prune) never waits: MarkForEviction is not queued, so a queued rollback could evict the entries a
+// later commit of the same root wrote again. Running it early changes nothing a held prune keeps:
+// an OldRoot prune reads only NewRoot entries (ShouldKeepHash), and the NewRoot entry a rollback
+// evicts is the abandoned block's. A rollback prune becomes a cancel while a prune waits or its
+// root is pinned, so those nodes leak. It must be called under storageOperationMutex.
 func (tsm *trieStorageManager) runOrHold(op heldPruneOp) {
-	if !op.cancel && op.identifier == data.NewRoot && (len(tsm.heldOps) > 0 || tsm.pins[op.root] > 0) {
-		op.cancel = true
+	if isRollback(op) {
+		if !op.cancel && (len(tsm.heldOps) > 0 || tsm.pins[op.root] > 0) {
+			op.cancel = true
+		}
+		tsm.run(op)
+		return
 	}
 	if len(tsm.heldOps) > 0 || tsm.mustWait(op) {
 		log.Trace("trie storage manager: prune held back by a pinned root", "root", []byte(op.root), "identifier", op.identifier, "cancel", op.cancel)
@@ -276,6 +284,15 @@ func (tsm *trieStorageManager) runOrHold(op heldPruneOp) {
 	}
 
 	tsm.run(op)
+}
+
+// isRollback reports whether op comes from a rollback: block processing cancels an OldRoot and
+// prunes a NewRoot only there (PruneStateOnRollback).
+func isRollback(op heldPruneOp) bool {
+	if op.cancel {
+		return op.identifier == data.OldRoot
+	}
+	return op.identifier == data.NewRoot
 }
 
 func (tsm *trieStorageManager) mustWait(op heldPruneOp) bool {
@@ -356,8 +373,8 @@ func (tsm *trieStorageManager) prune(rootHash []byte) {
 	}
 }
 
-// CancelPrune removes the given hash from the eviction waiting list. It waits, in arrival order,
-// behind a prune of a pinned root; see PinRoot.
+// CancelPrune removes the given hash from the eviction waiting list. A finalized block's cancel
+// (NewRoot) waits, in arrival order, behind a prune of a pinned root; see PinRoot.
 func (tsm *trieStorageManager) CancelPrune(rootHash []byte, identifier data.TriePruningIdentifier) {
 	tsm.storageOperationMutex.Lock()
 	defer tsm.storageOperationMutex.Unlock()
