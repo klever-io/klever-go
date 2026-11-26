@@ -2608,16 +2608,16 @@ func TestAccountsDB_SaveAccount_PeerAccountSkipsCodeAndDataTrie(t *testing.T) {
 func TestAccountsDB_RemoveAccount_DataTrieErrors(t *testing.T) {
 	t.Parallel()
 
-	address := []byte("address")
 	rootHash := []byte("roothash")
 
 	marshalizer := &mock.MarshalizerMock{}
-	acc, _ := state.NewUserAccount(address)
+	acc, _ := state.NewUserAccount([]byte("address"))
 	acc.SetRootHash(rootHash)
 	accBytes, _ := marshalizer.Marshal(acc)
 
 	t.Run("Recreate error propagates through RemoveAccount", func(t *testing.T) {
 		t.Parallel()
+		address := []byte("address")
 		expectedErr := errors.New("recreate error")
 
 		ts := &mock.TrieStub{
@@ -2644,6 +2644,7 @@ func TestAccountsDB_RemoveAccount_DataTrieErrors(t *testing.T) {
 
 	t.Run("GetAllHashes error propagates through RemoveAccount", func(t *testing.T) {
 		t.Parallel()
+		address := []byte("address")
 		expectedErr := errors.New("get all hashes error")
 
 		ts := &mock.TrieStub{
