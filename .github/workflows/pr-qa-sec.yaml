@@ -93,8 +93,13 @@ jobs:
           fi
 
   race:
+    name: race (${{ matrix.shard }})
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [kvm, integration, storage-data, rest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -103,10 +108,25 @@ jobs:
         uses: ./.github/actions/go-setup-action
         with:
           go-version: ${{ vars.GO_VERSION }}
-          build-cache-key: race
+          build-cache-key: race-${{ matrix.shard }}
 
       - name: Run tests with the race detector
-        run: make tests-race
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          module=$(go list -m)
+          case "$SHARD" in
+            kvm) packages=$(go list ./kvm/...) ;;
+            integration) packages=$(go list ./integrationTest/...) ;;
+            storage-data) packages=$(go list ./storage/... ./data/...) ;;
+            rest) packages=$(go list ./... | grep -Ev "^${module}/(kvm|integrationTest|storage|data)(/|$)") ;;
+            *) echo "::error::unknown race shard $SHARD"; exit 1 ;;
+          esac
+          if [ -z "$packages" ]; then
+            echo "::error::race shard $SHARD has no packages"
+            exit 1
+          fi
+          make tests-race RACE_PKGS="${packages//$'\n'/ }"
 
   test:
     needs: test-shard
@@ -278,7 +298,7 @@ jobs:
         run: |
           echo "sonarqube_status=${{ needs.sonarqube.result == 'success' && '✅' || '❌' }}" >> $GITHUB_OUTPUT
           echo "test_status=${{ needs.test.outputs.test_exit_code == '0' && '✅' || '❌' }}" >> $GITHUB_OUTPUT
-          echo "race_status=${{ needs.race.result == 'success' && '✅' || '❌' }}" >> $GITHUB_OUTPUT
+          echo "race_status=${{ needs.race.result == 'success' && '✅' || '❌' }}" >> "$GITHUB_OUTPUT"
           if [[ "${{ needs.sonarqube.result }}" != "success" || "${{ needs.test.result }}" != "success" || "${{ needs.test.outputs.test_exit_code }}" != "0" || "${{ needs.race.result }}" != "success" || "${{ needs.setup-and-lint.result }}" != "success" ]]; then
             echo "overall_status=Failure" >> $GITHUB_OUTPUT
             echo "color=#FF0000" >> $GITHUB_OUTPUT

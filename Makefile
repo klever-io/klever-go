@@ -293,8 +293,7 @@ goimports: ## Format Go code and organize imports
 
 .PHONY: tests tests-unit tests-integration tests-kvm tests-race tests-e2e
 
-RACE_PKGS ?= ./core/kapp/... ./core/process/dataValidators/... ./core/process/transaction/... \
-	./data/state/... ./data/trie/... ./network/api/... ./storage/...
+RACE_PKGS ?= ./...
 
 tests: tests-unit tests-integration tests-kvm tests-e2e ## Run all tests
 
