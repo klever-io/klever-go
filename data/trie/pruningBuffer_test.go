@@ -39,3 +39,48 @@ func TestSnapshotsBuffer_RemoveAll(t *testing.T) {
 
 	assert.Equal(t, 0, len(sb.buffer))
 }
+
+func TestPruningBuffer_FullDropsPruneButKeepsCancelPrune(t *testing.T) {
+	t.Parallel()
+
+	pb := newPruningBuffer(1)
+	pb.add([]byte{'a', byte(prune)})
+	pb.add([]byte{'b', byte(prune)})
+	pb.add([]byte{'c', byte(cancelPrune)})
+
+	assert.Equal(t, [][]byte{{'a', byte(prune)}, {'c', byte(cancelPrune)}}, pb.removeAll())
+}
+
+func TestPruningBuffer_CancelPruneSupersedesQueuedPruneOfSameKey(t *testing.T) {
+	t.Parallel()
+
+	pb := newPruningBuffer(10)
+	pb.add([]byte{'a', 1, byte(prune)})
+	pb.add([]byte{'a', 2, byte(prune)})
+	pb.add([]byte{'b', 1, byte(prune)})
+	pb.add([]byte{'a', 1, byte(cancelPrune)})
+
+	expected := [][]byte{{'a', 2, byte(prune)}, {'b', 1, byte(prune)}, {'a', 1, byte(cancelPrune)}}
+	assert.Equal(t, expected, pb.removeAll())
+}
+
+func TestPruningBuffer_PruneQueuedAfterCancelPruneIsKept(t *testing.T) {
+	t.Parallel()
+
+	pb := newPruningBuffer(10)
+	pb.add([]byte{'a', 1, byte(prune)})
+	pb.add([]byte{'a', 1, byte(cancelPrune)})
+	pb.add([]byte{'a', 1, byte(prune)})
+
+	assert.Equal(t, [][]byte{{'a', 1, byte(cancelPrune)}, {'a', 1, byte(prune)}}, pb.removeAll())
+}
+
+func TestPruningBuffer_ZeroSizeKeepsOnlyCancelPrune(t *testing.T) {
+	t.Parallel()
+
+	pb := newPruningBuffer(0)
+	pb.add([]byte{'a', byte(prune)})
+	pb.add([]byte{'b', byte(cancelPrune)})
+
+	assert.Equal(t, [][]byte{{'b', byte(cancelPrune)}}, pb.removeAll())
+}
