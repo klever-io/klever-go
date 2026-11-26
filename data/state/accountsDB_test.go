@@ -916,6 +916,104 @@ func TestAccountsDB_RecreateTrieOkValsShouldWork(t *testing.T) {
 
 }
 
+type snapshotDbStub struct {
+	*mock.MemDbMock
+	numReleased int
+}
+
+func (s *snapshotDbStub) IsInUse() bool          { return false }
+func (s *snapshotDbStub) DecreaseNumReferences() { s.numReleased++ }
+func (s *snapshotDbStub) IncreaseNumReferences() {}
+func (s *snapshotDbStub) MarkForRemoval()        {}
+func (s *snapshotDbStub) SetPath(_ string)       {}
+
+func TestAccountsDB_IsRootHashAvailableInMainDbShouldNotConsultSnapshots(t *testing.T) {
+	t.Parallel()
+
+	snapshotsConsulted := false
+	trieStub := &mock.TrieStub{
+		GetStorageManagerCalled: func() data.StorageManager {
+			return &mock.StorageManagerStub{
+				DatabaseCalled: func() data.DBWriteCacher {
+					return mock.NewMemDbMock()
+				},
+				GetSnapshotThatContainsHashCalled: func(_ []byte) data.SnapshotDbHandler {
+					snapshotsConsulted = true
+					return nil
+				},
+			}
+		},
+		RecreateFromMainDbCalled: func(_ []byte) (data.Trie, error) {
+			return &mock.TrieStub{}, nil
+		},
+		RecreateCalled: func(_ []byte) (data.Trie, error) {
+			assert.Fail(t, "the snapshot fallback that writes to the main db must not run")
+			return nil, nil
+		},
+	}
+
+	adb := generateAccountDBFromTrie(trieStub)
+
+	assert.True(t, adb.IsRootHashAvailable([]byte("root")))
+	assert.False(t, snapshotsConsulted)
+}
+
+func TestAccountsDB_IsRootHashAvailableOnlyInSnapshotShouldReleaseTheSnapshot(t *testing.T) {
+	t.Parallel()
+
+	rootHash := []byte("root")
+	snapshot := &snapshotDbStub{MemDbMock: mock.NewMemDbMock()}
+	mainDb := mock.NewMemDbMock()
+	trieStub := &mock.TrieStub{
+		GetStorageManagerCalled: func() data.StorageManager {
+			return &mock.StorageManagerStub{
+				DatabaseCalled: func() data.DBWriteCacher {
+					return mainDb
+				},
+				GetSnapshotThatContainsHashCalled: func(hash []byte) data.SnapshotDbHandler {
+					assert.Equal(t, rootHash, hash)
+					return snapshot
+				},
+			}
+		},
+		RecreateFromMainDbCalled: func(_ []byte) (data.Trie, error) {
+			return nil, errors.New("hash not found")
+		},
+		RecreateCalled: func(_ []byte) (data.Trie, error) {
+			assert.Fail(t, "the snapshot fallback that writes to the main db must not run")
+			return nil, nil
+		},
+	}
+
+	adb := generateAccountDBFromTrie(trieStub)
+
+	assert.True(t, adb.IsRootHashAvailable(rootHash))
+	assert.Equal(t, 1, snapshot.numReleased)
+	_, err := mainDb.Get(rootHash)
+	assert.NotNil(t, err)
+}
+
+func TestAccountsDB_IsRootHashAvailableMissingEverywhereShouldReturnFalse(t *testing.T) {
+	t.Parallel()
+
+	trieStub := &mock.TrieStub{
+		GetStorageManagerCalled: func() data.StorageManager {
+			return &mock.StorageManagerStub{
+				DatabaseCalled: func() data.DBWriteCacher {
+					return mock.NewMemDbMock()
+				},
+			}
+		},
+		RecreateFromMainDbCalled: func(_ []byte) (data.Trie, error) {
+			return nil, errors.New("hash not found")
+		},
+	}
+
+	adb := generateAccountDBFromTrie(trieStub)
+
+	assert.False(t, adb.IsRootHashAvailable([]byte("root")))
+}
+
 func TestAccountsDB_CancelPrune(t *testing.T) {
 	t.Parallel()
 

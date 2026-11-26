@@ -268,6 +268,76 @@ func TestPruningStorer_Put_ShouldPutInSpecifiedEpoch(t *testing.T) {
 	assert.Equal(t, testVal, res)
 }
 
+func TestPruningStorer_PutInEpoch_ShouldPutInTheGivenEpoch(t *testing.T) {
+	t.Parallel()
+
+	args := getDefaultArgs()
+	args.StartingEpoch = 1
+	persistersByPath := make(map[string]storage.Persister)
+	args.PersisterFactory = &mock.PersisterFactoryStub{
+		CreateCalled: func(path string) (storage.Persister, error) {
+			if _, ok := persistersByPath[path]; ok {
+				return persistersByPath[path], nil
+			}
+			newPers := memorydb.New()
+			persistersByPath[path] = newPers
+
+			return newPers, nil
+		},
+	}
+	ps, _ := pruning.NewPruningStorer(args)
+	ps.SetEpochForPutOperation(1)
+
+	testKey, testVal := []byte("key1"), []byte("val1")
+	err := ps.PutInEpoch(testKey, testVal, 0)
+	assert.Nil(t, err)
+
+	ps.ClearCache()
+
+	_, err = ps.GetFromEpoch(testKey, 1)
+	assert.NotNil(t, err)
+
+	res, err := ps.GetFromEpoch(testKey, 0)
+	assert.Nil(t, err)
+	assert.Equal(t, testVal, res)
+}
+
+func TestPruningStorer_PutInEpoch_PruningDisabledShouldPutInTheOnlyPersister(t *testing.T) {
+	t.Parallel()
+
+	args := getDefaultArgs()
+	args.PruningEnabled = false
+	persistersByPath := make(map[string]storage.Persister)
+	args.PersisterFactory = &mock.PersisterFactoryStub{
+		CreateCalled: func(path string) (storage.Persister, error) {
+			if _, ok := persistersByPath[path]; ok {
+				return persistersByPath[path], nil
+			}
+			newPers := memorydb.New()
+			persistersByPath[path] = newPers
+
+			return newPers, nil
+		},
+	}
+	ps, _ := pruning.NewPruningStorer(args)
+
+	epochs := []uint32{0, 1, 37}
+	testVal := []byte("val1")
+	for _, epoch := range epochs {
+		err := ps.PutInEpoch([]byte(fmt.Sprintf("key%d", epoch)), testVal, epoch)
+		assert.Nil(t, err)
+	}
+
+	ps.ClearCache()
+
+	assert.Equal(t, 1, len(persistersByPath))
+	for _, epoch := range epochs {
+		res, err := ps.Get([]byte(fmt.Sprintf("key%d", epoch)))
+		assert.Nil(t, err)
+		assert.Equal(t, testVal, res)
+	}
+}
+
 func TestPruningStorer_RemoveShouldWork(t *testing.T) {
 	t.Parallel()
 

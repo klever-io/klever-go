@@ -147,6 +147,7 @@ type AccountsAdapter interface {
 	GetNumCheckpoints() uint32
 
 	RecreateTrie(rootHash []byte) error
+	IsRootHashAvailable(rootHash []byte) bool
 	PruneTrie(rootHash []byte, identifier data.TriePruningIdentifier)
 	CancelPrune(rootHash []byte, identifier data.TriePruningIdentifier)
 	SnapshotState(rootHash []byte, ctx context.Context)

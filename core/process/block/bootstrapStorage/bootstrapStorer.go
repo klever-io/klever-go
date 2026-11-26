@@ -2,6 +2,7 @@
 package bootstrapStorage
 
 import (
+	"bytes"
 	"errors"
 	"strconv"
 	"sync/atomic"
@@ -17,6 +18,12 @@ var ErrNilMarshalizer = errors.New("nil marshalizer")
 
 // ErrNilBootStorer signals that an operation has been attempted to or with a nil storer implementation
 var ErrNilBootStorer = errors.New("nil boot storer")
+
+// ErrBootDataHeaderMismatch signals that a boot record does not describe the expected header
+var ErrBootDataHeaderMismatch = errors.New("boot data header mismatch")
+
+// ErrFinalNonceAboveHeader signals that a final nonce is higher than the nonce of the header in the boot record
+var ErrFinalNonceAboveHeader = errors.New("final nonce above boot data header nonce")
 
 type bootstrapStorer struct {
 	store       storage.Storer
@@ -126,6 +133,35 @@ func (bs *bootstrapStorer) SaveLastSlot(slot int64) error {
 	}
 
 	return nil
+}
+
+// RaiseHighestFinalBlockNonce sets the final nonce of the record saved at the given slot to nonce if it is higher,
+// it never lowers it. The record must describe the header with the given hash and nonce can not be above that header
+func (bs *bootstrapStorer) RaiseHighestFinalBlockNonce(slot int64, nonce uint64, headerHash []byte) error {
+	bootData, err := bs.Get(slot)
+	if err != nil {
+		return err
+	}
+
+	lastHeader := bootData.LastHeader
+	if lastHeader == nil || !bytes.Equal(lastHeader.Hash, headerHash) {
+		return ErrBootDataHeaderMismatch
+	}
+	if nonce > lastHeader.Nonce {
+		return ErrFinalNonceAboveHeader
+	}
+	if bootData.HighestFinalBlockNonce >= nonce {
+		return nil
+	}
+
+	bootData.HighestFinalBlockNonce = nonce
+
+	bootDataBytes, err := bs.marshalizer.Marshal(bootData)
+	if err != nil {
+		return err
+	}
+
+	return bs.store.PutInEpoch([]byte(strconv.FormatInt(slot, 10)), bootDataBytes, lastHeader.Epoch)
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

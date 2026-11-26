@@ -222,6 +222,9 @@ var ErrAccountStateDirty = errors.New("accountState was dirty before starting to
 // ErrRootStateDoesNotMatch signals that root state does not match
 var ErrRootStateDoesNotMatch = errors.New("root state does not match")
 
+// ErrStateNotAvailable signals that the state of a block is no longer available in storage
+var ErrStateNotAvailable = errors.New("state not available for block")
+
 // ErrTxRootHashDoesNotMatch signals that tx root hash does not match
 var ErrTxRootHashDoesNotMatch = errors.New("tx root hash does not match")
 

@@ -266,6 +266,7 @@ type BlockProcessor interface {
 	RevertStateToSnapshot(header data.HeaderHandler)
 	PruneStateOnRollback(currHeader data.HeaderHandler, prevHeader data.HeaderHandler)
 	RevertStateToBlock(header data.HeaderHandler) error
+	CheckStateAvailable(header data.HeaderHandler) error
 	CreateNewHeader(slot uint64, nonce uint64) data.HeaderHandler
 	RestoreBlockIntoPools(header data.HeaderHandler) error
 	CreateBlock(initialHdr data.HeaderHandler, haveTime func() bool) (data.HeaderHandler, error)
@@ -368,6 +369,7 @@ type TxVersionCheckerHandler interface {
 // BootStorer is the interface needed by bootstrapper to read/write data in storage
 type BootStorer interface {
 	SaveLastSlot(slot int64) error
+	RaiseHighestFinalBlockNonce(slot int64, nonce uint64, headerHash []byte) error
 	Put(slot int64, bootData *bootstrapStorage.BootstrapData) error
 	Get(slot int64) (*bootstrapStorage.BootstrapData, error)
 	GetHighestSlot() int64

@@ -79,6 +79,10 @@ func (a *accountsAdapter) RecreateTrie(_ []byte) error {
 	return nil
 }
 
+func (a *accountsAdapter) IsRootHashAvailable(_ []byte) bool {
+	return true
+}
+
 // CancelPrune -
 func (a *accountsAdapter) CancelPrune(_ []byte, _ data.TriePruningIdentifier) {
 }

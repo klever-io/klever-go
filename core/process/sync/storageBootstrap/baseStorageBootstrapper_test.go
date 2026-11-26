@@ -327,3 +327,96 @@ func TestStorageBootstrapper_LoadBlocks(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
+
+func newStorageBootstrapperAfterRollBack(t *testing.T, raiseFinalNonce bool) (*storageBootstrapper, *int, *[]uint64) {
+	t.Helper()
+
+	bootStorer, err := bootstrapStorage.NewBootstrapStorer(marshalizer, mock.NewStorerMock("", 0))
+	assert.NoError(t, err)
+
+	headers := make(map[string]*block.Block)
+	for nonce := uint64(3); nonce <= 5; nonce++ {
+		hash := []byte(fmt.Sprintf("hash%d", nonce))
+		headers[string(hash)] = &block.Block{Header: &block.BlockHeader{Nonce: nonce, Slot: nonce + 5}}
+		err = bootStorer.Put(int64(nonce)+5, &bootstrapStorage.BootstrapData{
+			LastHeader:             &bootstrapStorage.BootstrapHeaderInfo{Nonce: nonce, Hash: hash},
+			HighestFinalBlockNonce: nonce - 1,
+		})
+		assert.NoError(t, err)
+	}
+
+	if raiseFinalNonce {
+		err = bootStorer.RaiseHighestFinalBlockNonce(9, 4, []byte("hash4"))
+		assert.NoError(t, err)
+	}
+	err = bootStorer.SaveLastSlot(9)
+	assert.NoError(t, err)
+
+	numSetFinalToLastCheckpoint := 0
+	addedNonces := make([]uint64, 0)
+
+	sb := newValidStorageBootstrapper(&bootstrapStorage.BootstrapData{})
+	sb.bootStorer = bootStorer
+	sb.store = &mock.ChainStorerMock{
+		GetStorerCalled: func(unitType retriever.UnitType) storage.Storer {
+			return &mock.StorerStub{
+				GetCalled: func(key []byte) ([]byte, error) {
+					header, ok := headers[string(key)]
+					if !ok {
+						return nil, errors.New("not found")
+					}
+					return marshalizer.Marshal(header)
+				},
+			}
+		},
+	}
+	sb.forkDetector = &mock.ForkDetectorMock{
+		AddHeaderCalled: func(header data.HeaderHandler, hash []byte, state process.BlockHeaderState, selfNotarizedHeaders []data.HeaderHandler, selfNotarizedHeadersHashes [][]byte) error {
+			addedNonces = append(addedNonces, header.GetNonce())
+			return nil
+		},
+		SetFinalToLastCheckpointCalled: func() {
+			numSetFinalToLastCheckpoint++
+		},
+	}
+
+	return sb, &numSetFinalToLastCheckpoint, &addedNonces
+}
+
+func TestStorageBootstrapper_ApplyBootInfos(t *testing.T) {
+	t.Run("final block equal to head sets final to last checkpoint", func(t *testing.T) {
+		sb, numSetFinalToLastCheckpoint, addedNonces := newStorageBootstrapperAfterRollBack(t, true)
+
+		headerInfo, err := sb.bootStorer.Get(sb.bootStorer.GetHighestSlot())
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(4), headerInfo.LastHeader.Nonce)
+		assert.Equal(t, uint64(4), headerInfo.HighestFinalBlockNonce)
+
+		bootInfos, err := sb.getBootInfos(headerInfo)
+		assert.NoError(t, err)
+		assert.Len(t, bootInfos, 1)
+
+		err = sb.applyBootInfos(bootInfos)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, *numSetFinalToLastCheckpoint)
+		assert.Equal(t, []uint64{4}, *addedNonces)
+	})
+
+	t.Run("final block behind head keeps final from applied headers", func(t *testing.T) {
+		sb, numSetFinalToLastCheckpoint, addedNonces := newStorageBootstrapperAfterRollBack(t, false)
+
+		headerInfo, err := sb.bootStorer.Get(sb.bootStorer.GetHighestSlot())
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(4), headerInfo.LastHeader.Nonce)
+		assert.Equal(t, uint64(3), headerInfo.HighestFinalBlockNonce)
+
+		bootInfos, err := sb.getBootInfos(headerInfo)
+		assert.NoError(t, err)
+		assert.Len(t, bootInfos, 2)
+
+		err = sb.applyBootInfos(bootInfos)
+		assert.NoError(t, err)
+		assert.Equal(t, 0, *numSetFinalToLastCheckpoint)
+		assert.Equal(t, []uint64{3, 4}, *addedNonces)
+	})
+}

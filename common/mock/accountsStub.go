@@ -10,26 +10,27 @@ import (
 
 // AccountsStub -
 type AccountsStub struct {
-	AddJournalEntryCalled    func(je state.JournalAccountEntry)
-	GetExistingAccountCalled func(addressContainer []byte) (state.AccountHandler, error)
-	LoadAccountCalled        func(container []byte) (state.AccountHandler, error)
-	SaveAccountCalled        func(account state.AccountHandler) error
-	RemoveAccountCodeCalled  func(address []byte) error
-	RemoveAccountCalled      func(addressContainer []byte) error
-	CommitCalled             func() ([]byte, error)
-	JournalLenCalled         func() int
-	RevertToSnapshotCalled   func(snapshot int) error
-	RootHashCalled           func() ([]byte, error)
-	RecreateTrieCalled       func(rootHash []byte) error
-	PruneTrieCalled          func(rootHash []byte, identifier data.TriePruningIdentifier)
-	CancelPruneCalled        func(rootHash []byte, identifier data.TriePruningIdentifier)
-	SnapshotStateCalled      func(rootHash []byte)
-	SetStateCheckpointCalled func(rootHash []byte)
-	IsPruningEnabledCalled   func() bool
-	GetAllLeavesCalled       func(rootHash []byte) (*data.TrieIteratorChannels, error)
-	RecreateAllTriesCalled   func(rootHash []byte) (map[string]data.Trie, error)
-	GetNumCheckpointsCalled  func() uint32
-	GetCodeCalled            func([]byte) []byte
+	AddJournalEntryCalled     func(je state.JournalAccountEntry)
+	GetExistingAccountCalled  func(addressContainer []byte) (state.AccountHandler, error)
+	LoadAccountCalled         func(container []byte) (state.AccountHandler, error)
+	SaveAccountCalled         func(account state.AccountHandler) error
+	RemoveAccountCodeCalled   func(address []byte) error
+	RemoveAccountCalled       func(addressContainer []byte) error
+	CommitCalled              func() ([]byte, error)
+	JournalLenCalled          func() int
+	RevertToSnapshotCalled    func(snapshot int) error
+	RootHashCalled            func() ([]byte, error)
+	RecreateTrieCalled        func(rootHash []byte) error
+	IsRootHashAvailableCalled func(rootHash []byte) bool
+	PruneTrieCalled           func(rootHash []byte, identifier data.TriePruningIdentifier)
+	CancelPruneCalled         func(rootHash []byte, identifier data.TriePruningIdentifier)
+	SnapshotStateCalled       func(rootHash []byte)
+	SetStateCheckpointCalled  func(rootHash []byte)
+	IsPruningEnabledCalled    func() bool
+	GetAllLeavesCalled        func(rootHash []byte) (*data.TrieIteratorChannels, error)
+	RecreateAllTriesCalled    func(rootHash []byte) (map[string]data.Trie, error)
+	GetNumCheckpointsCalled   func() uint32
+	GetCodeCalled             func([]byte) []byte
 }
 
 // GetCode -
@@ -162,6 +163,14 @@ func (as *AccountsStub) RecreateTrie(rootHash []byte) error {
 	}
 
 	return errAccNotImplemented
+}
+
+func (as *AccountsStub) IsRootHashAvailable(rootHash []byte) bool {
+	if as.IsRootHashAvailableCalled != nil {
+		return as.IsRootHashAvailableCalled(rootHash)
+	}
+
+	return true
 }
 
 // PruneTrie -

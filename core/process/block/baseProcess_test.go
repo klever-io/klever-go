@@ -1,6 +1,7 @@
 package block
 
 import (
+	"encoding/hex"
 	"errors"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/klever-io/klever-go/crypto/hashing/blake2b"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
+	"github.com/klever-io/klever-go/data/state"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -459,4 +461,99 @@ func Test_checkBlockValidity_FirstBlockAgainstGenesis(t *testing.T) {
 		blk.Header.Timestamp = 1008
 		require.ErrorIs(t, bp.checkBlockValidity(blk), process.ErrInvalidBlockTimestamp, "slot 1 ends at genesis+8s")
 	})
+}
+
+func Test_CheckStateAvailable(t *testing.T) {
+	t.Parallel()
+
+	header := &block.Block{Header: &block.BlockHeader{
+		Nonce:              7,
+		TrieRoot:           []byte("userRoot"),
+		KAppsTrieRoot:      []byte("kappsRoot"),
+		ValidatorsTrieRoot: []byte("validatorsRoot"),
+	}}
+	identifiers := []state.AccountsDbIdentifier{
+		state.UserAccountsState,
+		state.KAppAccountsState,
+		state.PeerAccountsState,
+	}
+	headerRoots := map[state.AccountsDbIdentifier][]byte{
+		state.UserAccountsState: header.GetTrieRoot(),
+		state.KAppAccountsState: header.GetKAppsTrieRoot(),
+		state.PeerAccountsState: header.GetValidatorsTrieRoot(),
+	}
+
+	newProcessor := func(unavailable map[state.AccountsDbIdentifier]bool) (*baseProcessor, map[state.AccountsDbIdentifier][][]byte) {
+		checkedRoots := make(map[state.AccountsDbIdentifier][][]byte)
+		accounts := make(map[state.AccountsDbIdentifier]state.AccountsAdapter)
+		for _, identifier := range identifiers {
+			identifier := identifier
+			accounts[identifier] = &mock.AccountsStub{
+				IsRootHashAvailableCalled: func(rootHash []byte) bool {
+					checkedRoots[identifier] = append(checkedRoots[identifier], rootHash)
+					return !unavailable[identifier]
+				},
+				RecreateTrieCalled: func(_ []byte) error {
+					require.Fail(t, "the check must not recreate a trie")
+					return nil
+				},
+			}
+		}
+
+		return &baseProcessor{accountsDB: accounts}, checkedRoots
+	}
+
+	t.Run("all tries available", func(t *testing.T) {
+		bp, checkedRoots := newProcessor(nil)
+
+		err := bp.CheckStateAvailable(header)
+		require.NoError(t, err)
+
+		for _, identifier := range identifiers {
+			assert.Equal(t, [][]byte{headerRoots[identifier]}, checkedRoots[identifier])
+		}
+	})
+
+	unavailableTries := []struct {
+		name       string
+		identifier state.AccountsDbIdentifier
+		trieName   string
+		checked    []state.AccountsDbIdentifier
+	}{
+		{
+			name:       "user accounts trie not available",
+			identifier: state.UserAccountsState,
+			trieName:   "user accounts trie",
+			checked:    []state.AccountsDbIdentifier{state.UserAccountsState},
+		},
+		{
+			name:       "kapps trie not available",
+			identifier: state.KAppAccountsState,
+			trieName:   "kapps trie",
+			checked:    []state.AccountsDbIdentifier{state.UserAccountsState, state.KAppAccountsState},
+		},
+		{
+			name:       "validators trie not available",
+			identifier: state.PeerAccountsState,
+			trieName:   "validators trie",
+			checked:    identifiers,
+		},
+	}
+
+	for _, tt := range unavailableTries {
+		t.Run(tt.name, func(t *testing.T) {
+			bp, checkedRoots := newProcessor(map[state.AccountsDbIdentifier]bool{tt.identifier: true})
+
+			err := bp.CheckStateAvailable(header)
+			require.ErrorIs(t, err, process.ErrStateNotAvailable)
+			assert.Contains(t, err.Error(), tt.trieName)
+			assert.Contains(t, err.Error(), "nonce 7")
+			assert.Contains(t, err.Error(), hex.EncodeToString(headerRoots[tt.identifier]))
+
+			require.Len(t, checkedRoots, len(tt.checked))
+			for _, identifier := range tt.checked {
+				assert.Equal(t, [][]byte{headerRoots[identifier]}, checkedRoots[identifier])
+			}
+		})
+	}
 }

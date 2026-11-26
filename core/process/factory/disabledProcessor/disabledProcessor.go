@@ -70,6 +70,10 @@ func (p *processor) PruneStateOnRollback(currHeader data.HeaderHandler, prevHead
 
 }
 
+func (p *processor) CheckStateAvailable(_ data.HeaderHandler) error {
+	return nil
+}
+
 // RestoreBlockIntoPools -
 func (p *processor) RestoreBlockIntoPools(header data.HeaderHandler) error {
 	return nil
