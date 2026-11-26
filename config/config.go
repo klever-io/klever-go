@@ -125,14 +125,14 @@ type Config struct {
 	// Config for import DB Mode
 	ImportDbConfig ImportDbConfig `yaml:"importDbConfig"`
 
-	// EnableEpochs configuration
-	EnableEpochs EnableEpochs
+	// EnableEpochs is loaded from enableEpochs.yaml, never from config.yaml
+	EnableEpochs EnableEpochs `yaml:"-"`
 
-	// gasSchedule configuration
-	GasScheduleConfig GasScheduleConfig
+	// GasScheduleConfig is loaded from enableEpochs.yaml, never from config.yaml
+	GasScheduleConfig GasScheduleConfig `yaml:"-"`
 
-	// Shuffler
-	MaxNodesChangeEnableEpoch []MaxNodesChangeConfig
+	// MaxNodesChangeEnableEpoch is loaded from enableEpochs.yaml, never from config.yaml
+	MaxNodesChangeEnableEpoch []MaxNodesChangeConfig `yaml:"-"`
 
 	ConsensusMonitorList []string                   `yaml:"consensusMonitorList"`
 	ConsensusMonitoring  *ConsensusMonitoringConfig `yaml:"consensusMonitoring"`

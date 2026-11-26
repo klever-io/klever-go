@@ -113,3 +113,21 @@ func TestLoadGasScheduleConfig_RejectsDuplicateOperation(t *testing.T) {
 	assert.Contains(t, err.Error(), path)
 	assert.Contains(t, err.Error(), "already set")
 }
+
+func TestLoadFromPath_RejectsKeysLoadedFromEnableEpochsFile(t *testing.T) {
+	t.Parallel()
+
+	for _, key := range []string{"enableepochs", "gasscheduleconfig", "maxnodeschangeenableepoch"} {
+		key := key
+		t.Run(key, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(key+": {}\n"), 0o600))
+
+			_, err := config.LoadFromPath(path)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "field "+key+" not found in type config.Config")
+		})
+	}
+}
