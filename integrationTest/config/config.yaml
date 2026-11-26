@@ -229,11 +229,6 @@ trieSnapshotDB:
   maxBatchSize: 40000
   maxOpenFiles: 10
 
-trieStorageManagerConfig:
-  pruningBufferLen: 100000
-  snapshotsBufferLen: 1000000
-  maxSnapshots: 3
-
 trieStorageManager:
   pruningBufferLen: 100000
   snapshotsBufferLen: 1000000
@@ -413,7 +408,7 @@ storages:
 
 dbLookupExtensions:
   enabled: false
-  BlocksMetadataStorage:
+  blocksMetadataStorage:
     cache:
       name: DbLookupExtensions.BlocksMetadataStorage
       capacity: 20000
@@ -429,7 +424,7 @@ dbLookupExtensions:
       batchDelaySeconds: 2
       maxBatchSize: 20000
       maxOpenFiles: 10
-  EpochByHashStorage:
+  epochByHashStorage:
     cache:
       name: DbLookupExtensions.EpochByHashStorage
       capacity: 20000
@@ -438,7 +433,7 @@ dbLookupExtensions:
       filePath: DbLookupExtensions_EpochByHash
       type: LvlDBSerial
       batchDelaySeconds: 2
-      maxBatchSiz: 20000
+      maxBatchSize: 20000
       maxOpenFiles: 10
 
 storagePruning:
@@ -520,15 +515,6 @@ txSignMarshalizer:
 # Type identifies the marshalizer
 marshalizer:
   type: protobuf
-
-elasticSearch:
-  url: "http://localhost:9200"
-  username: basic_auth_username
-  password: basic_auth_password
-
-maxNodesChangeEnableEpoch:
-  - epochEnable: 0
-    nodesToShuffle: 4
 
 #Ratings configuration
 
@@ -621,77 +607,6 @@ virtualMachine:
     # The following values define the maximum amount of gas to be allocated for VM Queries coming from API
     # If set to 0, then MaxUInt64 will be used
     metaMaxGasPerVmQuery: 1500000000  # Set reasonable limit
-
-builtInFunctions:
-  maxNumAddressesInTransferRole: 100
-
-hardfork:
-  enableTrigger: true
-  enableTriggerFromP2P: true
-  publicKeyToListenFrom: "153dae6cb3963260f309959bf285537b77ae16d82e9933147be7827f7394de8dc97d9d9af41e970bc72aecb44b77e819621081658c37f7000d21e2d0e8963df83233407bde9f46369ba4fcd03b57f40b80b06c191a428cfb5c447ec510e79307"
-  closeAfterExportInMinutes: 10000
-  afterHardFork: false
-  importFolder: "export"
-  startSlot: 10000
-  startNonce: 10000
-  startEpoch: 100
-  genesisTime: 0
-  validatorGracePeriodInEpochs: 1 #defines how long is the rating computation disabled after hardfork
-  exportStateStorageConfig:
-    cache:
-      name: "HardFork.ExportStateStorageConfig"
-      capacity: 5000
-      type: "LRU"
-    db:
-      filePath: "ExportStateStorage/MainDB"
-      type: "LvlDBSerial"
-      batchDelaySeconds: 2
-      maxBatchSize: 1000
-      maxOpenFiles: 10
-  exportKeysStorageConfig:
-    cache:
-      name: "HardFork.ExportKeysStorageConfig"
-      capacity: 5000
-      type: "LRU"
-    db:
-      filePath: "ExportKeysStorageConfig/MainDB"
-      type: "LvlDBSerial"
-      batchDelaySeconds: 2
-      maxBatchSize: 1000
-      maxOpenFiles: 10
-  exportTriesStorageConfig:
-    cache:
-      name: "HardFork.ExportTriesStorageConfig"
-      capacity: 5000
-      type: "LRU"
-    db:
-      filePath: "ExportTrieStorage/MainTrie"
-      type: "LvlDBSerial"
-      batchDelaySeconds: 2
-      maxBatchSize: 1000
-      maxOpenFiles: 10
-  importStateStorageConfig:
-    cache:
-      name: "HardFork.ImportStateStorageConfig"
-      capacity: 5000
-      type: "LRU"
-    db:
-      filePath: "ExportStateStorage/MainDB"
-      type: "LvlDBSerial"
-      batchDelaySeconds: 2
-      maxBatchSize: 1000
-      maxOpenFiles: 10
-  importKeysStorageConfig:
-    cache:
-      name: "HardFork.ImportKeysStorageConfig"
-      capacity: 5000
-      type: "LRU"
-    db:
-      filePath: "ExportKeysStorageConfig/MainDB"
-      type: "LvlDBSerial"
-      batchDelaySeconds: 2
-      maxBatchSize: 1000
-      maxOpenFiles: 10
 
 trieSync:
   numConcurrentTrieSyncers: 200

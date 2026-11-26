@@ -1,9 +1,12 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"math"
+	"os"
 	"reflect"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -122,14 +125,14 @@ type Config struct {
 	// Config for import DB Mode
 	ImportDbConfig ImportDbConfig `yaml:"importDbConfig"`
 
-	// EnableEpochs configuration
-	EnableEpochs EnableEpochs
+	// EnableEpochs is loaded from enableEpochs.yaml, never from config.yaml
+	EnableEpochs EnableEpochs `yaml:"-"`
 
-	// gasSchedule configuration
-	GasScheduleConfig GasScheduleConfig
+	// GasScheduleConfig is loaded from enableEpochs.yaml, never from config.yaml
+	GasScheduleConfig GasScheduleConfig `yaml:"-"`
 
-	// Shuffler
-	MaxNodesChangeEnableEpoch []MaxNodesChangeConfig
+	// MaxNodesChangeEnableEpoch is loaded from enableEpochs.yaml, never from config.yaml
+	MaxNodesChangeEnableEpoch []MaxNodesChangeConfig `yaml:"-"`
 
 	ConsensusMonitorList []string                   `yaml:"consensusMonitorList"`
 	ConsensusMonitoring  *ConsensusMonitoringConfig `yaml:"consensusMonitoring"`
@@ -191,82 +194,84 @@ type WasmVMVersionByEpoch struct {
 	Version    string `yaml:"version"`
 }
 
+// loadYAMLStrict decodes a yaml file into out, rejecting keys that match no struct tag so a typo
+// fails at boot instead of leaving the field at its zero value.
+func loadYAMLStrict(path string, kind string, out interface{}) error {
+	data, err := tools.ReadFile(path)
+	if err != nil {
+		// A missing file is left to the caller, which may fall back to defaults.
+		if !errors.Is(err, os.ErrNotExist) {
+			log.Error("failed to load "+kind+" file", "file", path, "error", err)
+		}
+		return err
+	}
+	if err := decodeSingleYAMLDocument(data, out); err != nil {
+		err = fmt.Errorf("%s file %s: %w", kind, path, err)
+		log.Error("failed to unmarshal "+kind, "error", err)
+		return err
+	}
+	return nil
+}
+
+// decodeSingleYAMLDocument decodes data strictly and rejects a second document, which
+// yaml.UnmarshalStrict would silently skip.
+func decodeSingleYAMLDocument(data []byte, out interface{}) error {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.SetStrict(true)
+	if err := dec.Decode(out); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		return err
+	}
+	// Trailing empty documents (a final "---") are allowed; any content after the first is not.
+	for {
+		var extra interface{}
+		err := dec.Decode(&extra)
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if extra != nil {
+			return errors.New("multiple YAML documents are not supported")
+		}
+	}
+}
+
 // LoadFromPath of all config files
 func LoadFromPath(relativePath string) (Config, error) {
 	var config Config
-	data, err := tools.ReadFile(relativePath)
-	if err != nil {
-		log.Error("failed to load config file", "file", relativePath, err)
-		return config, err
-	}
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		log.Error("failed to unmarshal config", err)
-		return config, err
-	}
-
-	return config, nil
+	err := loadYAMLStrict(relativePath, "config", &config)
+	return config, err
 }
 
 // LoadAPIConfig of all config files
 func LoadAPIConfig(relativePath string) (APIRoutesConfig, error) {
 	var config APIRoutesConfig
-	data, err := tools.ReadFile(relativePath)
-
-	if err != nil {
-		log.Error("failed to load API config file", "file", relativePath, err)
-		return config, err
-	}
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		log.Error("failed to unmarshal config", err)
-		return config, err
-	}
-	return config, nil
+	err := loadYAMLStrict(relativePath, "API config", &config)
+	return config, err
 }
 
 // LoadExternalConfig of all config files
 func LoadExternalConfig(relativePath string) (ExternalConfig, error) {
 	var config ExternalConfig
-	data, err := tools.ReadFile(relativePath)
-	if err != nil {
-		log.Error("failed to load External config file", "file", relativePath, err)
-		return config, err
-	}
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		log.Error("failed to unmarshal config", err)
-		return config, err
-	}
-
-	return config, nil
+	err := loadYAMLStrict(relativePath, "external config", &config)
+	return config, err
 }
 
 // LoadEnableEpochsConfig -
 func LoadEnableEpochsConfig(relativePath string) (EnableEpochsConfig, error) {
 	var config EnableEpochsConfig
-	data, err := tools.ReadFile(relativePath)
-
-	if err != nil {
-		log.Error("failed to load EnableEpochs config file", "file", relativePath, err)
-		return config, err
-	}
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		log.Error("failed to unmarshal enable epochs config", err)
-		return config, err
-	}
-	return config, nil
+	err := loadYAMLStrict(relativePath, "enable epochs config", &config)
+	return config, err
 }
 
 // LoadGasScheduleConfig returns a map[string]uint64 of gas costs read from the provided config file
 func LoadGasScheduleConfig(filepath string) (map[string]map[string]uint64, error) {
 	gasScheduleConfig := make(map[string]interface{})
-
-	data, err := tools.ReadFile(filepath)
-	if err != nil {
-		log.Error("failed to load gas schedule file", "file", filepath, err)
-		return nil, err
-	}
-
-	if err := yaml.Unmarshal(data, &gasScheduleConfig); err != nil {
-		log.Error("failed to unmarshal gas schedule", err)
+	if err := loadYAMLStrict(filepath, "gas schedule", &gasScheduleConfig); err != nil {
 		return nil, err
 	}
 
