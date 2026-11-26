@@ -160,3 +160,27 @@ func TestPeersOnChannel_RefreshShouldBeDone(t *testing.T) {
 	assert.Empty(t, poc.peers[testTopic])
 	poc.mutPeers.Unlock()
 }
+
+func TestPeersOnChannel_ConnectedPeersOnChannelReturnsACopy(t *testing.T) {
+	t.Parallel()
+
+	testTopic := "test_topic"
+	poc, _ := newPeersOnChannel(
+		func(topic string) []peer.ID {
+			return []peer.ID{"peer1", "peer2", "peer3"}
+		},
+		time.Second,
+		time.Hour,
+	)
+	expected := []core.PeerID{"peer1", "peer2", "peer3"}
+
+	// first call goes through refreshPeersOnTopic
+	fetched := poc.ConnectedPeersOnChannel(testTopic)
+	fetched[0] = "changed"
+	assert.Equal(t, expected, poc.ConnectedPeersOnChannel(testTopic))
+
+	// later calls are served from the cache
+	cached := poc.ConnectedPeersOnChannel(testTopic)
+	_ = append(cached[:0], cached[1:]...)
+	assert.Equal(t, expected, poc.ConnectedPeersOnChannel(testTopic))
+}

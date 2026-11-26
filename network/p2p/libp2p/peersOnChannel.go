@@ -1,6 +1,7 @@
 package libp2p
 
 import (
+	"slices"
 	"sync"
 	"time"
 
@@ -57,18 +58,21 @@ func (poc *peersOnChannel) clockTime() time.Time {
 	return time.Now()
 }
 
-// ConnectedPeersOnChannel returns the known peers on a topic
+// ConnectedPeersOnChannel returns a copy of the known peers on a topic
 // if the list was not initialized, it will trigger a manual fetch
+// the copy keeps callers from editing the cached slice in place
 func (poc *peersOnChannel) ConnectedPeersOnChannel(topic string) []core.PeerID {
 	poc.mutPeers.RLock()
 	peers := poc.peers[topic]
 	poc.mutPeers.RUnlock()
 
-	if peers != nil {
-		return peers
+	if peers == nil {
+		peers = poc.refreshPeersOnTopic(topic)
 	}
 
-	return poc.refreshPeersOnTopic(topic)
+	// a refresh always stores a new slice and never writes into the old one,
+	// so copying after the read lock is released is safe
+	return slices.Clone(peers)
 }
 
 // updateConnectedPeersOnTopic updates the connected peers on a topic and the last update timestamp
