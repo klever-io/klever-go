@@ -79,8 +79,9 @@ var (
 // same class of event and no hub of their own.
 const PeerDrivenLogWindow = postQueueDropLogIntervalSeconds * time.Second
 
-// clientAddrsRebuildFloor is the peak below which a drained client index is not rebuilt.
-const clientAddrsRebuildFloor = 1024
+// clientAddrsRebuildFloor is the peak below which a drained client index is not rebuilt, nor
+// its peak tracked. It stays small so the capacity a drained index keeps stays under the budgets.
+const clientAddrsRebuildFloor = 8
 
 // addrSubRebuildFloor is the same for one address's subscriber map. It stays small because the
 // number of such maps is bounded only by live pairs, not by connections.
@@ -184,6 +185,7 @@ type SocketHub struct {
 	clientAddrs map[*client]map[string]struct{}
 	// clientAddrPeak is the largest len(clientAddrs[c]) since that set was last built: Go maps
 	// never shrink, so removeClientFromAddress rebuilds a set that drained below a quarter of it.
+	// Only peaks at or above clientAddrsRebuildFloor are recorded; smaller ones are never read.
 	clientAddrPeak map[*client]int
 	// addrSubPeak is the same high-water mark for each addressSubscription[addr].
 	addrSubPeak map[string]int
@@ -1035,12 +1037,12 @@ func (h *SocketHub) addAddressSubscriptions(addresses []string, c *client, accep
 			existing.acceptTransaction = true
 		}
 		value[c] = existing
-		if len(value) > h.addrSubPeak[address] {
-			h.addrSubPeak[address] = len(value)
+		if n := len(value); n >= addrSubRebuildFloor && n > h.addrSubPeak[address] {
+			h.addrSubPeak[address] = n
 		}
 	}
-	if len(held) > h.clientAddrPeak[c] {
-		h.clientAddrPeak[c] = len(held)
+	if n := len(held); n >= clientAddrsRebuildFloor && n > h.clientAddrPeak[c] {
+		h.clientAddrPeak[c] = n
 	}
 	h.storeTotalAddresses()
 }
@@ -1053,7 +1055,8 @@ func (h *SocketHub) storeTotalAddresses() {
 // emitTotalAddresses exports the node-wide pair count so a full budget can be alerted on.
 // Only StartServer's goroutine calls it, so each emit carries the latest value.
 func (h *SocketHub) emitTotalAddresses() {
-	h.appStatusHandler.SetUInt64Value(core.MetricWSSubscribedAddresses, uint64(h.totalAddressesGauge.Load()))
+	v := max(h.totalAddressesGauge.Load(), 0)
+	h.appStatusHandler.SetUInt64Value(core.MetricWSSubscribedAddresses, uint64(v))
 }
 
 func (h *SocketHub) deleteAll() {
@@ -1303,7 +1306,11 @@ func (h *SocketHub) shrinkAddrSub(addr string, clients map[*client]userOptions) 
 			fresh[c] = opts
 		}
 		h.addressSubscription[addr] = fresh
-		h.addrSubPeak[addr] = len(clients)
+		if len(clients) >= addrSubRebuildFloor {
+			h.addrSubPeak[addr] = len(clients)
+		} else {
+			delete(h.addrSubPeak, addr)
+		}
 	}
 }
 
@@ -1320,7 +1327,11 @@ func (h *SocketHub) shrinkClientAddrs(c *client, held map[string]struct{}) {
 			fresh[addr] = struct{}{}
 		}
 		h.clientAddrs[c] = fresh
-		h.clientAddrPeak[c] = len(held)
+		if len(held) >= clientAddrsRebuildFloor {
+			h.clientAddrPeak[c] = len(held)
+		} else {
+			delete(h.clientAddrPeak, c)
+		}
 	}
 }
 

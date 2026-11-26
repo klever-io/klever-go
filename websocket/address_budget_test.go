@@ -161,8 +161,8 @@ func TestAddressBudget_RefusalsHideTheCaps(t *testing.T) {
 
 	perIP := hub.HandleClientInsertion(accounts, []string{"c"}, ipClient(hub, "1.2.3.4"))
 	global := hub.HandleClientInsertion(accounts, []string{"c", "d"}, ipClient(hub, "5.6.7.8"))
-	assert.True(t, perIP == ErrPerIPAddressBudgetExhausted, "got %v", perIP)
-	assert.True(t, global == ErrGlobalAddressBudgetExhausted, "got %v", global)
+	assert.ErrorIs(t, perIP, ErrPerIPAddressBudgetExhausted)
+	assert.ErrorIs(t, global, ErrGlobalAddressBudgetExhausted)
 	assert.NotErrorIs(t, perIP, ErrGlobalAddressBudgetExhausted)
 	assert.NotErrorIs(t, global, ErrPerIPAddressBudgetExhausted)
 	for _, err := range []error{perIP, global} {
@@ -255,7 +255,7 @@ func TestClientAddrs_SmallIndexIsNotRebuilt(t *testing.T) {
 	require.NoError(t, hub.HandleClientInsertion(accounts, []string{"a", "b", "c", "d", "e"}, c))
 	hub.HandleClientRemoval(accounts, []string{"a", "b", "c", "d"}, c)
 	hub.mu.RLock()
-	assert.Equal(t, 5, hub.clientAddrPeak[c], "below the floor a drained index keeps its peak")
+	assert.NotContains(t, hub.clientAddrPeak, c, "a peak below the floor is never recorded")
 	hub.mu.RUnlock()
 
 	hub.HandleClientRemoval(accounts, []string{"e"}, c)
@@ -263,6 +263,44 @@ func TestClientAddrs_SmallIndexIsNotRebuilt(t *testing.T) {
 	hub.mu.RLock()
 	defer hub.mu.RUnlock()
 	assert.NotContains(t, hub.clientAddrPeak, c, "an emptied index drops its peak")
+}
+
+// A rebuild that lands below the floor drops the peak, so a later regrow under the floor
+// leaves no stale peak smaller than the live map.
+func TestRebuiltIndexes_RegrowBelowFloorStaysConsistent(t *testing.T) {
+	hub := newTestHub(nil)
+	owner := ipClient(hub, "1.2.3.4")
+	addrs := make([]string, 4*clientAddrsRebuildFloor)
+	for i := range addrs {
+		addrs[i] = fmt.Sprintf("addr-%d", i)
+	}
+	require.NoError(t, hub.HandleClientInsertion(accounts, addrs, owner))
+
+	subs := make([]*client, 4*addrSubRebuildFloor)
+	for i := range subs {
+		subs[i] = ipClient(hub, fmt.Sprintf("10.0.2.%d", i))
+		require.NoError(t, hub.HandleClientInsertion(accounts, []string{"shared"}, subs[i]))
+	}
+
+	hub.HandleClientRemoval(accounts, addrs[1:], owner)
+	for _, c := range subs[1:] {
+		hub.HandleClientRemoval(accounts, []string{"shared"}, c)
+	}
+	requireIndexConsistent(t, hub)
+
+	const regrow = 5
+	require.NoError(t, hub.HandleClientInsertion(accounts, addrs[1:regrow], owner))
+	for _, c := range subs[1:regrow] {
+		require.NoError(t, hub.HandleClientInsertion(accounts, []string{"shared"}, c))
+	}
+	requireIndexConsistent(t, hub)
+
+	hub.mu.RLock()
+	defer hub.mu.RUnlock()
+	assert.Len(t, hub.clientAddrs[owner], regrow)
+	assert.Len(t, hub.addressSubscription["shared"], regrow)
+	assert.NotContains(t, hub.clientAddrPeak, owner)
+	assert.NotContains(t, hub.addrSubPeak, "shared")
 }
 
 func TestHandleClientDelete_RemovesOnlyThatClientsPairs(t *testing.T) {
