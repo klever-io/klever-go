@@ -2,7 +2,6 @@ package websocket
 
 import (
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -117,11 +116,7 @@ func rejectHandshake(conn *gorilla.Conn, reason string) {
 // existing sourceThrottler middleware), and it buckets IPv6 by /64 so a single routed
 // allocation cannot masquerade as unlimited distinct sources.
 func RemoteIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return shared.IPBucket(r.RemoteAddr)
-	}
-	return shared.IPBucket(host)
+	return shared.RemoteIPKey(r.RemoteAddr, shared.IPv6BucketBits)
 }
 
 // AllowedOriginChecker returns a gorilla CheckOrigin func for a route that may carry ambient
@@ -219,11 +214,18 @@ func processSubscription(conn *gorilla.Conn, hub *websocket.SocketHub, release f
 		return
 	}
 
+	// Best effort: a full per-IP or node-wide budget is a normal outcome now, so answer it here.
+	if err := hub.PrecheckAddressBudget(parsedTypes, req.Addresses, conn.RemoteAddr()); err != nil {
+		hub.LogRejectedInsertion(subscribeOp, err)
+		rejectHandshake(conn, err.Error())
+		return
+	}
+
 	log.Debug(subscribeOp, "types", fmt.Sprintf("%v", parsedTypes), "addressCount", len(req.Addresses))
 	client := websocket.NewClient(conn, hub)
 	if err := hub.HandleClientInsertion(parsedTypes, req.Addresses, client); err != nil {
-		// Pre-validated above, so what reaches here is a teardown race or the per-connection
-		// cap. The hub picks the level and rate-limits the Warn, so this cannot become a
+		// Pre-validated above, so what reaches here is a teardown race or a budget filled
+		// since the precheck. The hub picks the level and rate-limits the Warn, so this cannot become a
 		// log-amplification lever.
 		hub.LogRejectedInsertion(subscribeOp, err)
 		// Close through the client: NewClient already started loopIn/loopOut, and closing

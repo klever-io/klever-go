@@ -271,6 +271,20 @@ antiflood:
     # WebSocketMaxAddressesPerClient caps the total addresses one connection may watch across all
     # of its subscribe calls. 0 = default.
     webSocketMaxAddressesPerClient: 50000
+    # WebSocketMaxAddressesPerIP and WebSocketMaxTotalAddresses cap watched addresses per source IP
+    # (IPv6 by /56) and node-wide. Behind a proxy all clients share one IP: raise per-IP up to the total.
+    # The total is the memory bound: every other address cap above it is lowered to it, with a warning.
+    # 0 = default.
+    webSocketMaxAddressesPerIP: 100000
+    webSocketMaxTotalAddresses: 2000000
+    # WebSocketMaxAddressesPerIPv6Prefix48 caps watched addresses across all IPv6 sources in one /48.
+    # 0 = default (400000, capped at the total, and raised silently to follow WebSocketMaxAddressesPerIP).
+    webSocketMaxAddressesPerIPv6Prefix48: 0
+    # WebSocketSubscribeRatePerSec and WebSocketSubscribeBurst rate-limit subscribe/unsubscribe frames
+    # per connection (token bucket). 0 = default.
+    # Public nodes: also set GOMEMLIMIT and secured: true on /subscribe (docs/node-api-hardening.md).
+    webSocketSubscribeRatePerSec: 10
+    webSocketSubscribeBurst: 20
     # WebSocketPostWorkers bounds concurrent postWSConnection mirror requests. 0 = default.
     webSocketPostWorkers: 8
     # WebSocketPostQueueSize bounds pending mirror sends queued behind webSocketPostWorkers

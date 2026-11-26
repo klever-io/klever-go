@@ -1,17 +1,21 @@
 package websocket_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/indexer"
 	wsocket "github.com/klever-io/klever-go/network/api/websocket"
 	socket "github.com/klever-io/klever-go/websocket"
 	"github.com/stretchr/testify/assert"
@@ -268,4 +272,92 @@ func TestSubscribe_Secured(t *testing.T) {
 	require.NoError(t, err, "handshake with valid auth must be accepted")
 	require.Equal(t, http.StatusSwitchingProtocols, resp2.StatusCode)
 	_ = conn.Close()
+}
+
+func TestSubscribe_AddressBudgetReportsTheReasonThenCloses(t *testing.T) {
+	hub := socket.NewHub("", "", nil, socket.Limits{MaxAddressesPerSubscribe: 2, MaxAddressesPerClient: 2, MaxAddressesPerIP: 2, MaxTotalAddresses: 2})
+	addr, cleanup := startTestServerOpts(t, hub, wsocket.SubscribeOptions{})
+	defer cleanup()
+
+	holder, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/subscribe", nil)
+	require.NoError(t, err)
+	defer holder.Close()
+	require.NoError(t, holder.WriteJSON(map[string]interface{}{"subscribed_types": []string{"accounts"}, "addresses": []string{"a", "b"}}))
+
+	// Wait read-only for the holder's insertion so the probe never competes for the budget.
+	local := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}
+	require.Eventually(t, func() bool {
+		return hub.PrecheckAddressBudget([]indexer.EventType{indexer.ACCOUNTS}, []string{"c"}, local) != nil
+	}, 5*time.Second, 20*time.Millisecond)
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/subscribe", nil)
+	require.NoError(t, err)
+	defer conn.Close()
+	require.NoError(t, conn.WriteJSON(map[string]interface{}{"subscribed_types": []string{"accounts"}, "addresses": []string{"c"}}))
+	var rejection map[string]string
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(3*time.Second)))
+	require.NoError(t, conn.ReadJSON(&rejection), "the peer must be told the budget is full")
+	require.Contains(t, rejection["error"], "budget")
+	requireClosed(t, conn, "a subscribe past the address budget must be closed, not registered")
+}
+
+// logBuffer collects log output; the log subsystem is global, so writes are concurrent.
+type logBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *logBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *logBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func TestSubscribe_PrecheckRefusalIsLogged(t *testing.T) {
+	hub := socket.NewHub("", "", nil, socket.Limits{MaxAddressesPerSubscribe: 2, MaxAddressesPerClient: 2, MaxAddressesPerIP: 2, MaxTotalAddresses: 2})
+	addr, cleanup := startTestServerOpts(t, hub, wsocket.SubscribeOptions{})
+	defer cleanup()
+
+	holder, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/subscribe", nil)
+	require.NoError(t, err)
+	defer holder.Close()
+	require.NoError(t, holder.WriteJSON(map[string]interface{}{"subscribed_types": []string{"accounts"}, "addresses": []string{"a", "b"}}))
+	// Once the holder is inserted, the next subscribe is refused at the precheck.
+	local := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}
+	require.Eventually(t, func() bool {
+		return hub.PrecheckAddressBudget([]indexer.EventType{indexer.ACCOUNTS}, []string{"c"}, local) != nil
+	}, 5*time.Second, 20*time.Millisecond)
+
+	var observed logBuffer
+	require.NoError(t, logger.AddLogObserver(&observed, &logger.PlainFormatter{}))
+	t.Cleanup(func() { assert.NoError(t, logger.RemoveLogObserver(&observed)) })
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/subscribe", nil)
+	require.NoError(t, err)
+	defer conn.Close()
+	require.NoError(t, conn.WriteJSON(map[string]interface{}{"subscribed_types": []string{"accounts"}, "addresses": []string{"c"}}))
+	var rejection map[string]string
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(3*time.Second)))
+	require.NoError(t, conn.ReadJSON(&rejection))
+	require.Contains(t, rejection["error"], "budget")
+
+	// Logged before the rejection frame is written, so it is already in the buffer.
+	out := observed.String()
+	assert.Contains(t, out, "ws.Subscribe")
+	assert.Contains(t, out, "per-ip")
+}
+
+func TestRemoteIP_KeysIPv6By64(t *testing.T) {
+	a := &http.Request{RemoteAddr: "[2001:db8:1:201::1]:1111"}
+	b := &http.Request{RemoteAddr: "[2001:db8:1:202::1]:2222"}
+	assert.Equal(t, "2001:db8:1:201::", wsocket.RemoteIP(a))
+	assert.NotEqual(t, wsocket.RemoteIP(a), wsocket.RemoteIP(b), "the connection limiter keys each /64 apart")
+	assert.Equal(t, "2001:db8:1:201::", wsocket.RemoteIP(&http.Request{RemoteAddr: "2001:db8:1:201::1"}), "a bare host still buckets")
+	assert.Equal(t, "192.0.2.7", wsocket.RemoteIP(&http.Request{RemoteAddr: "192.0.2.7:1"}))
 }

@@ -14,6 +14,13 @@ const (
 	// defaultMaxAddressesPerClient caps total addresses watched per connection when unset.
 	defaultMaxAddressesPerClient = 50000
 
+	// defaultMaxAddressesPerIP and defaultMaxTotalAddresses cap watched addresses per source
+	// IP and node-wide when unset; the unit is one (address, connection) pair.
+	defaultMaxAddressesPerIP = 100000
+	defaultMaxTotalAddresses = 2000000
+	// defaultMaxAddressesPerIPv6Prefix48 caps the pairs of every IPv6 source inside one /48.
+	defaultMaxAddressesPerIPv6Prefix48 = 400000
+
 	// minMaxMessageSize is the floor (and default) for the inbound frame read limit;
 	// gorilla's default is unlimited (GHSA-4fwh-wrm6-97xm, GAP#2). resolve raises it to
 	// fit a larger per-subscribe address cap.
@@ -47,6 +54,11 @@ const (
 	// answer a server ping before it elapses.
 	defaultPingPeriod = 15 * time.Second
 	defaultPongWait   = 30 * time.Second
+
+	// defaultSubscribeRatePerSec/defaultSubscribeBurst bound how fast one connection may send
+	// subscribe/unsubscribe frames (token bucket) when unset.
+	defaultSubscribeRatePerSec = 10
+	defaultSubscribeBurst      = 20
 )
 
 // Limits bounds /subscribe resource usage. Zero-valued fields fall back to safe
@@ -55,6 +67,13 @@ const (
 type Limits struct {
 	MaxAddressesPerSubscribe int
 	MaxAddressesPerClient    int
+	// MaxAddressesPerIP and MaxTotalAddresses budget watched addresses across connections, per
+	// source IP and node-wide (0 = defaults). perIP is raised to perClient and clamped to the total.
+	MaxAddressesPerIP int
+	MaxTotalAddresses int
+	// MaxAddressesPerIPv6Prefix48 budgets every IPv6 source inside one /48 (0 = default, capped
+	// at the total). Raised to perIP and clamped to the total.
+	MaxAddressesPerIPv6Prefix48 int
 	// PostWorkers bounds concurrent postWSConnection mirror requests; 0 uses
 	// defaultPostWorkerCount.
 	PostWorkers int
@@ -67,33 +86,60 @@ type Limits struct {
 	// dedicated hub instead of mutating shared state.
 	PingPeriod time.Duration
 	PongWait   time.Duration
+	// SubscribeRatePerSec/SubscribeBurst rate-limit subscribe/unsubscribe frames per connection
+	// (0 = defaults). Burst is raised to at least the rate.
+	SubscribeRatePerSec int
+	SubscribeBurst      int
 }
 
 // resolvedLimits holds the effective limits after defaults are applied.
 type resolvedLimits struct {
-	maxAddressesPerSubscribe int
-	maxAddressesPerClient    int
-	maxMessageSize           int64
-	postWorkers              int
-	postQueueSize            int
-	pingPeriod               time.Duration
-	pongWait                 time.Duration
+	maxAddressesPerSubscribe    int
+	maxAddressesPerClient       int
+	maxAddressesPerIP           int
+	maxAddressesPerIPv6Prefix48 int
+	maxTotalAddresses           int
+	maxMessageSize              int64
+	postWorkers                 int
+	postQueueSize               int
+	pingPeriod                  time.Duration
+	pongWait                    time.Duration
+	subscribeRatePerSec         int
+	subscribeBurst              int
 }
 
 func (l Limits) resolve() resolvedLimits {
+	// The node-wide total is the memory bound: it is never raised, and the inner tiers are
+	// clamped down to it, so perSubscribe <= perClient <= perIP <= per-/48 <= total.
+	total := l.MaxTotalAddresses
+	if total <= 0 {
+		total = defaultMaxTotalAddresses
+	}
 	perSubscribe := l.MaxAddressesPerSubscribe
 	if perSubscribe <= 0 {
 		perSubscribe = defaultMaxAddressesPerSubscribe
 	}
+	perSubscribe = clampToTotal("maxAddressesPerSubscribe", perSubscribe, total, l.MaxAddressesPerSubscribe > 0)
 	perClient := l.MaxAddressesPerClient
 	if perClient <= 0 {
 		perClient = defaultMaxAddressesPerClient
 	}
 	// A per-connection cap below the per-call cap is incoherent (one max subscribe could
 	// never fit); clamp it up so a fresh client's first subscribe always fits.
-	if perClient < perSubscribe {
-		perClient = perSubscribe
+	perClient = raiseToTier("maxAddressesPerClient", perClient, perSubscribe, l.MaxAddressesPerClient > 0)
+	perClient = clampToTotal("maxAddressesPerClient", perClient, total, l.MaxAddressesPerClient > 0)
+	perIP := l.MaxAddressesPerIP
+	if perIP <= 0 {
+		perIP = defaultMaxAddressesPerIP
 	}
+	perIP = raiseToTier("maxAddressesPerIP", perIP, perClient, l.MaxAddressesPerIP > 0)
+	perIP = clampToTotal("maxAddressesPerIP", perIP, total, l.MaxAddressesPerIP > 0)
+	perPrefix48 := l.MaxAddressesPerIPv6Prefix48
+	if perPrefix48 <= 0 {
+		perPrefix48 = min(defaultMaxAddressesPerIPv6Prefix48, total)
+	}
+	perPrefix48 = raiseToTier("maxAddressesPerIPv6Prefix48", perPrefix48, perIP, l.MaxAddressesPerIPv6Prefix48 > 0)
+	perPrefix48 = clampToTotal("maxAddressesPerIPv6Prefix48", perPrefix48, total, l.MaxAddressesPerIPv6Prefix48 > 0)
 
 	readLimit := int64(minMaxMessageSize)
 	if derived := int64(perSubscribe)*addressJSONOverhead + 1024; derived > readLimit {
@@ -123,13 +169,56 @@ func (l Limits) resolve() resolvedLimits {
 		pongWait = pingPeriod * 2
 	}
 
-	return resolvedLimits{
-		maxAddressesPerSubscribe: perSubscribe,
-		maxAddressesPerClient:    perClient,
-		maxMessageSize:           readLimit,
-		postWorkers:              postWorkers,
-		postQueueSize:            postQueueSize,
-		pingPeriod:               pingPeriod,
-		pongWait:                 pongWait,
+	subscribeRate := l.SubscribeRatePerSec
+	if subscribeRate <= 0 {
+		subscribeRate = defaultSubscribeRatePerSec
 	}
+	subscribeBurst := l.SubscribeBurst
+	if subscribeBurst <= 0 {
+		subscribeBurst = defaultSubscribeBurst
+	}
+	// Keep at least one second of quota in the bucket, so a client may send it in one go.
+	if subscribeBurst < subscribeRate {
+		subscribeBurst = subscribeRate
+	}
+
+	return resolvedLimits{
+		maxAddressesPerSubscribe:    perSubscribe,
+		maxAddressesPerClient:       perClient,
+		maxAddressesPerIP:           perIP,
+		maxAddressesPerIPv6Prefix48: perPrefix48,
+		maxTotalAddresses:           total,
+		maxMessageSize:              readLimit,
+		postWorkers:                 postWorkers,
+		postQueueSize:               postQueueSize,
+		pingPeriod:                  pingPeriod,
+		pongWait:                    pongWait,
+		subscribeRatePerSec:         subscribeRate,
+		subscribeBurst:              subscribeBurst,
+	}
+}
+
+// raiseToTier lifts an address budget to the tier below it, warning when the value was configured.
+func raiseToTier(name string, value, floor int, configured bool) int {
+	if value >= floor {
+		return value
+	}
+	if configured {
+		log.Warn("websocket address budget raised to the tier below it",
+			"limit", name, "configured", value, "effective", floor)
+	}
+	return floor
+}
+
+// clampToTotal lowers an inner address budget to the node-wide total, warning when the value was configured.
+func clampToTotal(name string, value, total int, configured bool) int {
+	if value <= total {
+		return value
+	}
+	if !configured {
+		return total
+	}
+	log.Warn("websocket address budget clamped to the node-wide total",
+		"limit", name, "configured", value, "effective", total)
+	return total
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/klever-io/klever-go/indexer/data"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 )
 
 type mockFacade struct {
@@ -74,10 +75,11 @@ func assertReturnsQuickly(t *testing.T, timeout time.Duration, failMsg string, f
 
 func newTestClient(hub *SocketHub) *client {
 	return &client{
-		hub:   hub,
-		out:   make(chan interface{}, 10),
-		alive: true,
-		sem:   make(chan struct{}, maxWorkers),
+		hub:              hub,
+		out:              make(chan interface{}, 10),
+		alive:            true,
+		sem:              make(chan struct{}, maxWorkers),
+		subscribeLimiter: rate.NewLimiter(rate.Limit(hub.limits.subscribeRatePerSec), hub.limits.subscribeBurst),
 	}
 }
 
@@ -581,17 +583,19 @@ func TestHandleClientRemoval_FullUnsubscribeRemovesEntry(t *testing.T) {
 	hub := newTestHub(nil)
 	c := newTestClient(hub)
 
-	hub.mu.Lock()
-	hub.addressSubscription["klv1x"] = map[*client]userOptions{c: {acceptAccount: true, acceptTransaction: false}}
-	hub.mu.Unlock()
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS}, []string{"klv1x"}, c))
 
 	hub.HandleClientRemoval([]indexer.EventType{indexer.ACCOUNTS}, []string{"klv1x"}, c)
 
 	hub.mu.Lock()
 	_, exists := hub.addressSubscription["klv1x"]
+	_, indexed := hub.clientAddrs[c]
+	total := hub.totalAddresses
 	hub.mu.Unlock()
 
 	assert.False(t, exists)
+	assert.False(t, indexed)
+	assert.Zero(t, total)
 }
 
 func TestHandleClientRemoval_UnknownAddressNoOp(t *testing.T) {
@@ -624,13 +628,10 @@ func TestHandleClientRemoval_ClientNotInAddressMap(t *testing.T) {
 func TestHandleClientDelete(t *testing.T) {
 	hub := newTestHub(nil)
 	c := newTestClient(hub)
+	// Insert through the hub so the per-client index sees the pair, then kill the client so
+	// the Close inside teardown is a no-op on the nil conn.
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.BLOCKS, indexer.TRANSACTIONS, indexer.ACCOUNTS}, []string{"klv1a"}, c))
 	killClient(c)
-
-	hub.mu.Lock()
-	hub.blockSubscription[c] = struct{}{}
-	hub.transactionSubscription[c] = struct{}{}
-	hub.addressSubscription["klv1a"] = map[*client]userOptions{c: {acceptAccount: true}}
-	hub.mu.Unlock()
 
 	hub.handleClientDelete(c)
 
@@ -638,11 +639,13 @@ func TestHandleClientDelete(t *testing.T) {
 	_, hasBlock := hub.blockSubscription[c]
 	_, hasTx := hub.transactionSubscription[c]
 	_, hasAddr := hub.addressSubscription["klv1a"][c]
+	_, hasKey := hub.addressSubscription["klv1a"]
 	hub.mu.Unlock()
 
 	assert.False(t, hasBlock)
 	assert.False(t, hasTx)
 	assert.False(t, hasAddr)
+	assert.False(t, hasKey, "an emptied address key must be reclaimed (GHSA-4fwh Impact C)")
 }
 
 func TestRemoveClient(t *testing.T) {

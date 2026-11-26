@@ -36,7 +36,7 @@ func TestHandleClientDelete_ReclaimsAddressKeys(t *testing.T) {
 
 	hub.mu.RLock()
 	require.Equal(t, n, len(hub.addressSubscription))
-	require.Equal(t, n, hub.clientAddresses[c])
+	require.Equal(t, n, len(hub.clientAddrs[c]))
 	hub.mu.RUnlock()
 
 	// newTestClient has a nil conn and nil cancel; flip alive=false first so the
@@ -48,7 +48,7 @@ func TestHandleClientDelete_ReclaimsAddressKeys(t *testing.T) {
 	hub.mu.RLock()
 	defer hub.mu.RUnlock()
 	assert.Equal(t, 0, len(hub.addressSubscription), "outer address keys must be reclaimed on disconnect")
-	_, hasCount := hub.clientAddresses[c]
+	_, hasCount := hub.clientAddrs[c]
 	assert.False(t, hasCount, "per-client address count must be cleared on disconnect")
 }
 
@@ -67,7 +67,7 @@ func TestHandleClientInsertion_ClosedClientIsNotRetained(t *testing.T) {
 	hub.mu.RLock()
 	defer hub.mu.RUnlock()
 	assert.Equal(t, 0, len(hub.addressSubscription), "a torn-down client must not be re-added to the address map")
-	_, hasCount := hub.clientAddresses[c]
+	_, hasCount := hub.clientAddrs[c]
 	assert.False(t, hasCount, "a torn-down client must not regain a per-client address count")
 	_, hasBlocks := hub.blockSubscription[c]
 	assert.False(t, hasBlocks, "a torn-down client must not be re-added to the blocks subscription")
@@ -93,7 +93,7 @@ func TestHandleClientInsertion_RejectsAfterHubShutdown(t *testing.T) {
 	hub.mu.RLock()
 	defer hub.mu.RUnlock()
 	assert.Equal(t, 0, len(hub.addressSubscription), "a shut-down hub must not retain address subscriptions")
-	_, hasCount := hub.clientAddresses[c]
+	_, hasCount := hub.clientAddrs[c]
 	assert.False(t, hasCount, "a shut-down hub must not retain a per-client address count")
 	_, hasBlocks := hub.blockSubscription[c]
 	assert.False(t, hasBlocks, "a shut-down hub must not retain a blocks subscription")
@@ -175,7 +175,7 @@ func TestClosedClientIsNotRetainedInSubscriptions(t *testing.T) {
 
 		hub.mu.RLock()
 		addressCount := len(hub.addressSubscription)
-		_, hasCount := hub.clientAddresses[c]
+		_, hasCount := hub.clientAddrs[c]
 		_, hasBlocks := hub.blockSubscription[c]
 		_, hasTxs := hub.transactionSubscription[c]
 		hub.mu.RUnlock()
@@ -219,7 +219,7 @@ func insertThenDeleteOnce(t *testing.T) int {
 	hub.mu.RLock()
 	defer hub.mu.RUnlock()
 	require.Empty(t, hub.addressSubscription, "address subscriptions must not outlive the client")
-	require.NotContains(t, hub.clientAddresses, c, "per-client address count must not outlive the client")
+	require.NotContains(t, hub.clientAddrs, c, "per-client address count must not outlive the client")
 	require.NotContains(t, hub.blockSubscription, c, "blocks subscription must not outlive the client")
 	require.NotContains(t, hub.transactionSubscription, c, "transactions subscription must not outlive the client")
 
@@ -253,7 +253,7 @@ func TestHandleClientInsertion_RejectsOversizedAddress(t *testing.T) {
 	hub.mu.RLock()
 	defer hub.mu.RUnlock()
 	assert.Equal(t, 0, len(hub.addressSubscription), "an oversized address must not be retained as a key")
-	assert.Equal(t, 0, hub.clientAddresses[c], "a rejected subscribe must not consume the address budget")
+	assert.Equal(t, 0, len(hub.clientAddrs[c]), "a rejected subscribe must not consume the address budget")
 }
 
 // TestHandleClientInsertion_AcceptsMaxLengthAddress confirms the length cap is inclusive:
@@ -267,7 +267,7 @@ func TestHandleClientInsertion_AcceptsMaxLengthAddress(t *testing.T) {
 
 	hub.mu.RLock()
 	defer hub.mu.RUnlock()
-	assert.Equal(t, 1, hub.clientAddresses[c])
+	assert.Equal(t, 1, len(hub.clientAddrs[c]))
 }
 
 func TestHandleClientInsertion_RejectsPerClientCap(t *testing.T) {
@@ -277,7 +277,7 @@ func TestHandleClientInsertion_RejectsPerClientCap(t *testing.T) {
 	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS}, []string{"a", "b", "c", "d", "e"}, c))
 
 	hub.mu.RLock()
-	require.Equal(t, 5, hub.clientAddresses[c])
+	require.Equal(t, 5, len(hub.clientAddrs[c]))
 	hub.mu.RUnlock()
 
 	// One more new address (across a second call) must be rejected.
@@ -303,7 +303,7 @@ func TestHandleClientInsertion_DuplicateAddressesCountOnce(t *testing.T) {
 
 	hub.mu.RLock()
 	defer hub.mu.RUnlock()
-	assert.Equal(t, 3, hub.clientAddresses[c], "a duplicated new address must count once")
+	assert.Equal(t, 3, len(hub.clientAddrs[c]), "a duplicated new address must count once")
 }
 
 // TestHandleClientInsertion_NonAddressScopedIgnoresAddresses verifies that a
@@ -320,7 +320,7 @@ func TestHandleClientInsertion_NonAddressScopedIgnoresAddresses(t *testing.T) {
 
 	hub.mu.RLock()
 	defer hub.mu.RUnlock()
-	assert.Equal(t, 0, hub.clientAddresses[c], "non-address-scoped subscribe must not consume the address budget")
+	assert.Equal(t, 0, len(hub.clientAddrs[c]), "non-address-scoped subscribe must not consume the address budget")
 	assert.Equal(t, 0, len(hub.addressSubscription), "non-address-scoped subscribe must not store addresses")
 	_, subscribed := hub.blockSubscription[c]
 	assert.True(t, subscribed, "the global BLOCKS subscription must still be registered")
@@ -380,14 +380,14 @@ func TestClientAddresses_DecrementOnRemoval(t *testing.T) {
 
 	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS}, []string{"a", "b", "c"}, c))
 	hub.mu.RLock()
-	require.Equal(t, 3, hub.clientAddresses[c])
+	require.Equal(t, 3, len(hub.clientAddrs[c]))
 	hub.mu.RUnlock()
 
 	hub.HandleClientRemoval([]indexer.EventType{indexer.ACCOUNTS}, []string{"a"}, c)
 
 	hub.mu.RLock()
 	defer hub.mu.RUnlock()
-	assert.Equal(t, 2, hub.clientAddresses[c], "removing an address must lower the per-client count")
+	assert.Equal(t, 2, len(hub.clientAddrs[c]), "removing an address must lower the per-client count")
 	_, hasA := hub.addressSubscription["a"]
 	assert.False(t, hasA, "fully unsubscribed address key must be reclaimed")
 }
@@ -403,7 +403,7 @@ func TestHandleClientInsertion_ReSubscribeDoesNotDoubleCount(t *testing.T) {
 
 	hub.mu.RLock()
 	defer hub.mu.RUnlock()
-	assert.Equal(t, 1, hub.clientAddresses[c])
+	assert.Equal(t, 1, len(hub.clientAddrs[c]))
 }
 
 // TestClient_IdleConnectionReclaimedAtPongWait covers the core new defense

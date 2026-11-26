@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -42,8 +43,11 @@ const (
 	opLoopIn              = "ws.loopIn"
 	opLoopOut             = "ws.loopOut"
 	opHandleClientRequest = "ws.HandleClientRequest"
+	opDynamicSubscribe    = "ws.dynamicSubscribe"
 
 	postQueueDropLogIntervalSeconds = 10
+	// subscribedAddressesGaugePeriod is how often StartServer exports MetricWSSubscribedAddresses.
+	subscribedAddressesGaugePeriod = time.Second
 
 	// peerFailLogOp labels the shutdown summaries for the peer-driven failure budgets.
 	peerFailLogOp = "ws.peerFailures"
@@ -59,12 +63,29 @@ var (
 	ErrClientClosed = errors.New("client connection is closed")
 	// ErrHubClosed is returned by HandleClientInsertion once the hub has shut down.
 	ErrHubClosed = errors.New("websocket hub is shutting down")
+	// ErrPerIPAddressBudgetExhausted rejects a subscribe that would exceed the source IP's budget.
+	ErrPerIPAddressBudgetExhausted = errors.New("address subscription budget reached")
+	// ErrGlobalAddressBudgetExhausted rejects a subscribe that would exceed the node-wide budget.
+	// Both share one peer-facing text so a peer learns neither the cap nor which budget is full.
+	ErrGlobalAddressBudgetExhausted = errors.New("address subscription budget reached")
+	// errPrefix48BudgetExhausted is the IPv6 /48 tier's refusal; peers see the per-IP error.
+	errPrefix48BudgetExhausted = fmt.Errorf("%w", ErrPerIPAddressBudgetExhausted)
+	// ErrSubscribeRateLimited is the reply to a subscribe/unsubscribe frame over the connection's rate.
+	ErrSubscribeRateLimited = errors.New("subscribe rate limit exceeded")
 )
 
 // PeerDrivenLogWindow is the window behind every peer-driven warning: one line per window,
 // carrying the count of what was folded into it. Shared with the /log routes, which have the
 // same class of event and no hub of their own.
 const PeerDrivenLogWindow = postQueueDropLogIntervalSeconds * time.Second
+
+// clientAddrsRebuildFloor is the peak below which a drained client index is not rebuilt, nor
+// its peak tracked. It stays small so the capacity a drained index keeps stays under the budgets.
+const clientAddrsRebuildFloor = 8
+
+// addrSubRebuildFloor is the same for one address's subscriber map. It stays small because the
+// number of such maps is bounded only by live pairs, not by connections.
+const addrSubRebuildFloor = 8
 
 // dropWarner rate-limits a recurring warning behind a fixed window: every occurrence
 // calls fire(), which folds the count since the last log into one summary line at most
@@ -159,8 +180,25 @@ type SocketHub struct {
 	blockSubscription       map[*client]struct{}
 	transactionSubscription map[*client]struct{}
 	addressSubscription     map[string]map[*client]userOptions
-	clientAddresses         map[*client]int
-	limits                  resolvedLimits
+	// clientAddrs indexes addressSubscription by client: addr is in clientAddrs[c] iff c is
+	// in addressSubscription[addr]. Teardown walks it instead of the whole address map.
+	clientAddrs map[*client]map[string]struct{}
+	// clientAddrPeak is the largest len(clientAddrs[c]) since that set was last built: Go maps
+	// never shrink, so removeClientFromAddress rebuilds a set that drained below a quarter of it.
+	// Only peaks at or above clientAddrsRebuildFloor are recorded; smaller ones are never read.
+	clientAddrPeak map[*client]int
+	// addrSubPeak is the same high-water mark for each addressSubscription[addr].
+	addrSubPeak map[string]int
+	// ipAddresses, prefix48Addresses and totalAddresses count the same pairs as clientAddrs,
+	// keyed by client.ipKey, by client.prefix48Key (IPv6 only) and node-wide.
+	ipAddresses       map[string]int
+	prefix48Addresses map[string]int
+	totalAddresses    int
+	// totalAddressesGauge mirrors totalAddresses for StartServer's ticker: the status facade
+	// writes from a new goroutine per call, so publishing per event could land out of order.
+	totalAddressesGauge atomic.Int64
+	gaugePeriod         time.Duration
+	limits              resolvedLimits
 	// clients is every client the hub has accepted, so deleteAll can close all of them.
 	// The subscription maps alone are not enough: an address-scoped subscribe with an
 	// empty address list (or an unsubscribe that empties the last one) leaves a live
@@ -201,7 +239,8 @@ type SocketHub struct {
 	requestPanicWarn dropWarner
 	otherPanicWarn   dropWarner
 	// appStatusHandler exports the mirror's cumulative drop/failure counts (see
-	// MetricWSMirrorQueueDroppedTotal/MetricWSMirrorPostFailuresTotal) alongside the
+	// MetricWSMirrorQueueDroppedTotal/MetricWSMirrorPostFailuresTotal) and the watched-pair
+	// gauge (MetricWSSubscribedAddresses) alongside the
 	// rate-limited WARN logs above — the log is a periodic sample, this is the exact
 	// total. Defaults to a no-op handler (see NewHub) so it's always safe to call without
 	// a nil check; SetAppStatusHandler swaps in a real one.
@@ -239,7 +278,11 @@ func NewHub(postConnectionURL, postConnectionAPIKey string, facade WSFacade, lim
 	return &SocketHub{
 		clients:                 make(map[*client]struct{}),
 		addressSubscription:     make(map[string]map[*client]userOptions),
-		clientAddresses:         make(map[*client]int),
+		clientAddrs:             make(map[*client]map[string]struct{}),
+		clientAddrPeak:          make(map[*client]int),
+		addrSubPeak:             make(map[string]int),
+		ipAddresses:             make(map[string]int),
+		prefix48Addresses:       make(map[string]int),
 		blockSubscription:       make(map[*client]struct{}),
 		transactionSubscription: make(map[*client]struct{}),
 		postConnectionURL:       postConnectionURL,
@@ -261,6 +304,7 @@ func NewHub(postConnectionURL, postConnectionAPIKey string, facade WSFacade, lim
 		requestPanicWarn:        dropWarner{windowSecs: postQueueDropLogIntervalSeconds},
 		otherPanicWarn:          dropWarner{windowSecs: postQueueDropLogIntervalSeconds},
 		appStatusHandler:        statusHandler.NewNilStatusHandler(),
+		gaugePeriod:             subscribedAddressesGaugePeriod,
 	}
 }
 
@@ -390,11 +434,17 @@ func (h *SocketHub) StartServer(ctx context.Context) {
 	h.mu.Unlock()
 
 	h.startPostWorkers(ctx)
+	gaugeTicker := time.NewTicker(h.gaugePeriod)
+	defer gaugeTicker.Stop()
+	h.emitTotalAddresses()
 	for {
 		select {
+		case <-gaugeTicker.C:
+			h.emitTotalAddresses()
 		case <-ctx.Done():
 			log.Info("delete all client and close gracefully")
 			h.deleteAll()
+			h.emitTotalAddresses()
 			h.postWorkersWG.Wait()
 			// A burst that never reaches another occurrence to trigger fire()'s next
 			// window would otherwise sit unreported in the counter — possibly forever, if
@@ -777,7 +827,17 @@ func (h *SocketHub) LogRejectedInsertion(op string, err error) {
 	}
 
 	if count, ok := h.rejectWarn.fire(); ok {
-		log.Warn(op, "err", loggableError(err), "rejectedSinceLastLog", count)
+		args := []interface{}{"err", loggableError(err), "rejectedSinceLastLog", count}
+		// Peers see one budget message; the log still tells the two apart.
+		switch {
+		case errors.Is(err, errPrefix48BudgetExhausted):
+			args = append(args, "budget", "per-ipv6-48")
+		case errors.Is(err, ErrPerIPAddressBudgetExhausted):
+			args = append(args, "budget", "per-ip")
+		case errors.Is(err, ErrGlobalAddressBudgetExhausted):
+			args = append(args, "budget", "node-wide")
+		}
+		log.Warn(op, args...)
 	}
 }
 
@@ -824,6 +884,8 @@ func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, address
 	if err := h.ValidateSubscription(eventType, addresses); err != nil {
 		return err
 	}
+	// Dedup before the write lock, so a refused frame does not pay for it under h.mu.
+	addresses = uniqueAddresses(addresses)
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -836,10 +898,11 @@ func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, address
 		return ErrClientClosed
 	}
 
-	// Reject before mutating if the per-connection cap would be exceeded; only addresses
-	// new to this client count.
-	if wantsAddresses && h.clientAddresses[c]+h.countNewAddresses(addresses, c) > h.limits.maxAddressesPerClient {
-		return fmt.Errorf("address subscription limit reached for this connection (max %d)", h.limits.maxAddressesPerClient)
+	// Reject before mutating if a cap would be exceeded; only addresses new to this client count.
+	if wantsAddresses {
+		if err := h.checkAddressBudgets(h.countNewAddresses(addresses, c), c); err != nil {
+			return err
+		}
 	}
 
 	// Track the client itself, not just its subscriptions: an address-scoped subscribe with
@@ -853,6 +916,38 @@ func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, address
 	return nil
 }
 
+// checkAddressBudgets reports whether adding n new pairs for c fits the per-connection,
+// per-IP, IPv6 /48 and node-wide budgets. The caller must hold h.mu.
+func (h *SocketHub) checkAddressBudgets(n int, c *client) error {
+	if len(h.clientAddrs[c])+n > h.limits.maxAddressesPerClient {
+		return fmt.Errorf("address subscription limit reached for this connection (max %d)", h.limits.maxAddressesPerClient)
+	}
+	if h.ipAddresses[c.ipKey]+n > h.limits.maxAddressesPerIP {
+		return ErrPerIPAddressBudgetExhausted
+	}
+	if c.prefix48Key != "" && h.prefix48Addresses[c.prefix48Key]+n > h.limits.maxAddressesPerIPv6Prefix48 {
+		return errPrefix48BudgetExhausted
+	}
+	if h.totalAddresses+n > h.limits.maxTotalAddresses {
+		return ErrGlobalAddressBudgetExhausted
+	}
+	return nil
+}
+
+// PrecheckAddressBudget reports whether a fresh connection from remote can take addresses,
+// so the route can refuse with a reason before NewClient. HandleClientInsertion still decides.
+func (h *SocketHub) PrecheckAddressBudget(eventType []indexer.EventType, addresses []string, remote net.Addr) error {
+	if !containsAddressScoped(eventType) {
+		return nil
+	}
+	probe := &client{ipKey: remoteIPKey(remote), prefix48Key: remotePrefix48Key(remote)}
+	addresses = uniqueAddresses(addresses)
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.checkAddressBudgets(h.countNewAddresses(addresses, probe), probe)
+}
+
 // containsAddressScoped reports whether eventType includes a type for which the
 // request's addresses are meaningful (ACCOUNTS or USER_TRANSACTIONS).
 func containsAddressScoped(eventType []indexer.EventType) bool {
@@ -864,24 +959,31 @@ func containsAddressScoped(eventType []indexer.EventType) bool {
 	return false
 }
 
-// countNewAddresses returns how many of addresses are not yet watched by c, counting
-// duplicates within the call once. The caller must hold h.mu.
+// countNewAddresses returns how many of addresses, already deduplicated by uniqueAddresses,
+// are not yet watched by c. The caller must hold h.mu.
 func (h *SocketHub) countNewAddresses(addresses []string, c *client) int {
-	seen := make(map[string]struct{}, len(addresses))
+	held := h.clientAddrs[c]
 	count := 0
+	for _, address := range addresses {
+		if _, has := held[address]; !has {
+			count++
+		}
+	}
+	return count
+}
+
+// uniqueAddresses returns addresses without duplicates, keeping the first occurrence order.
+func uniqueAddresses(addresses []string) []string {
+	seen := make(map[string]struct{}, len(addresses))
+	unique := addresses[:0:0]
 	for _, address := range addresses {
 		if _, dup := seen[address]; dup {
 			continue
 		}
 		seen[address] = struct{}{}
-		if inner, ok := h.addressSubscription[address]; ok {
-			if _, has := inner[c]; has {
-				continue
-			}
-		}
-		count++
+		unique = append(unique, address)
 	}
-	return count
+	return unique
 }
 
 // applyEventTypes registers the global block/transaction subscriptions for c and returns
@@ -902,9 +1004,11 @@ func (h *SocketHub) applyEventTypes(eventType []indexer.EventType, c *client) (a
 	return acceptAccounts, acceptTransactions
 }
 
-// addAddressSubscriptions adds c to each address with the given accept flags, bumping the
-// per-client count for newly added (address, client) pairs. The caller must hold h.mu.
+// addAddressSubscriptions adds c to each address with the given accept flags, indexing
+// newly added (address, client) pairs and counting them per IP and node-wide. The caller
+// must hold h.mu.
 func (h *SocketHub) addAddressSubscriptions(addresses []string, c *client, acceptAccounts, acceptTransactions bool) {
+	held := h.clientAddrs[c]
 	for _, address := range addresses {
 		value, ok := h.addressSubscription[address]
 		if !ok {
@@ -913,7 +1017,16 @@ func (h *SocketHub) addAddressSubscriptions(addresses []string, c *client, accep
 		}
 
 		if _, has := value[c]; !has {
-			h.clientAddresses[c]++
+			if held == nil {
+				held = make(map[string]struct{})
+				h.clientAddrs[c] = held
+			}
+			held[address] = struct{}{}
+			h.ipAddresses[c.ipKey]++
+			if c.prefix48Key != "" {
+				h.prefix48Addresses[c.prefix48Key]++
+			}
+			h.totalAddresses++
 		}
 
 		existing := value[c]
@@ -924,7 +1037,26 @@ func (h *SocketHub) addAddressSubscriptions(addresses []string, c *client, accep
 			existing.acceptTransaction = true
 		}
 		value[c] = existing
+		if n := len(value); n >= addrSubRebuildFloor && n > h.addrSubPeak[address] {
+			h.addrSubPeak[address] = n
+		}
 	}
+	if n := len(held); n >= clientAddrsRebuildFloor && n > h.clientAddrPeak[c] {
+		h.clientAddrPeak[c] = n
+	}
+	h.storeTotalAddresses()
+}
+
+// storeTotalAddresses updates the gauge mirror. The caller must hold h.mu.
+func (h *SocketHub) storeTotalAddresses() {
+	h.totalAddressesGauge.Store(int64(h.totalAddresses))
+}
+
+// emitTotalAddresses exports the node-wide pair count so a full budget can be alerted on.
+// Only StartServer's goroutine calls it, so each emit carries the latest value.
+func (h *SocketHub) emitTotalAddresses() {
+	v := max(h.totalAddressesGauge.Load(), 0)
+	h.appStatusHandler.SetUInt64Value(core.MetricWSSubscribedAddresses, uint64(v))
 }
 
 func (h *SocketHub) deleteAll() {
@@ -939,7 +1071,13 @@ func (h *SocketHub) deleteAll() {
 	clear(h.clients)
 
 	clear(h.addressSubscription)
-	clear(h.clientAddresses)
+	clear(h.clientAddrs)
+	clear(h.clientAddrPeak)
+	clear(h.addrSubPeak)
+	clear(h.ipAddresses)
+	clear(h.prefix48Addresses)
+	h.totalAddresses = 0
+	h.storeTotalAddresses()
 	clear(h.blockSubscription)
 	clear(h.transactionSubscription)
 }
@@ -952,16 +1090,19 @@ func (h *SocketHub) handleClientDelete(c *client) {
 	delete(h.blockSubscription, c)
 	delete(h.transactionSubscription, c)
 	c.Close()
-	// Remove the client from every watched address and reclaim the outer key when its
+	// Remove the client from every address it watches and reclaim the outer key when its
 	// inner map empties. Without this, a disconnect leaks one map entry per address
 	// permanently (GHSA-4fwh-wrm6-97xm, Impact C).
-	for addr, clients := range h.addressSubscription {
+	held := h.clientAddrs[c]
+	for addr := range held {
+		clients := h.addressSubscription[addr]
 		delete(clients, c)
-		if len(clients) == 0 {
-			delete(h.addressSubscription, addr)
-		}
+		h.shrinkAddrSub(addr, clients)
 	}
-	delete(h.clientAddresses, c)
+	delete(h.clientAddrs, c)
+	delete(h.clientAddrPeak, c)
+	h.releaseAddresses(c, len(held))
+	h.storeTotalAddresses()
 }
 
 func (h *SocketHub) HandleClientRequest(c *client, req WSRequest) {
@@ -1076,6 +1217,7 @@ func (h *SocketHub) handleDynamicSubscribe(c *client, req WSRequest) {
 		if errors.Is(err, ErrHubClosed) {
 			err = ErrClientClosed
 		}
+		h.LogRejectedInsertion(opDynamicSubscribe, err)
 		c.send(WSResponse{ID: req.ID, Error: err.Error()})
 		return
 	}
@@ -1120,6 +1262,7 @@ func (h *SocketHub) HandleClientRemoval(eventTypes []indexer.EventType, addresse
 	for _, addr := range addresses {
 		h.removeClientFromAddress(addr, c, removeAccounts, removeTransactions)
 	}
+	h.storeTotalAddresses()
 }
 
 func (h *SocketHub) removeClientFromAddress(addr string, c *client, removeAccounts, removeTransactions bool) {
@@ -1139,21 +1282,74 @@ func (h *SocketHub) removeClientFromAddress(addr string, c *client, removeAccoun
 	}
 	if !existing.acceptAccount && !existing.acceptTransaction {
 		delete(clients, c)
-		h.decrClientAddresses(c)
+		held := h.clientAddrs[c]
+		delete(held, addr)
+		h.shrinkClientAddrs(c, held)
+		h.releaseAddresses(c, 1)
+		h.shrinkAddrSub(addr, clients)
 	} else {
 		clients[c] = existing
 	}
-	if len(clients) == 0 {
+}
+
+// shrinkAddrSub drops addr's emptied subscriber map, or rebuilds one that drained below a
+// quarter of its peak, so churn on shared addresses cannot retain capacity outside the budgets.
+// The caller must hold h.mu.
+func (h *SocketHub) shrinkAddrSub(addr string, clients map[*client]userOptions) {
+	switch peak := h.addrSubPeak[addr]; {
+	case len(clients) == 0:
 		delete(h.addressSubscription, addr)
+		delete(h.addrSubPeak, addr)
+	case peak >= addrSubRebuildFloor && len(clients) < peak/4:
+		fresh := make(map[*client]userOptions, len(clients))
+		for c, opts := range clients {
+			fresh[c] = opts
+		}
+		h.addressSubscription[addr] = fresh
+		if len(clients) >= addrSubRebuildFloor {
+			h.addrSubPeak[addr] = len(clients)
+		} else {
+			delete(h.addrSubPeak, addr)
+		}
 	}
 }
 
-// decrClientAddresses lowers a client's tracked address count, removing the entry
-// at zero so the map cannot accumulate stale clients.
-func (h *SocketHub) decrClientAddresses(c *client) {
-	if h.clientAddresses[c] <= 1 {
-		delete(h.clientAddresses, c)
-		return
+// shrinkClientAddrs drops c's emptied index, or rebuilds one that drained below a quarter of
+// its peak, so the map's capacity cannot outlive the budgets. The caller must hold h.mu.
+func (h *SocketHub) shrinkClientAddrs(c *client, held map[string]struct{}) {
+	switch peak := h.clientAddrPeak[c]; {
+	case len(held) == 0:
+		delete(h.clientAddrs, c)
+		delete(h.clientAddrPeak, c)
+	case peak >= clientAddrsRebuildFloor && len(held) < peak/4:
+		fresh := make(map[string]struct{}, len(held))
+		for addr := range held {
+			fresh[addr] = struct{}{}
+		}
+		h.clientAddrs[c] = fresh
+		if len(held) >= clientAddrsRebuildFloor {
+			h.clientAddrPeak[c] = len(held)
+		} else {
+			delete(h.clientAddrPeak, c)
+		}
 	}
-	h.clientAddresses[c]--
+}
+
+// releaseAddresses lowers c's per-IP, /48 and node-wide counts by n released pairs, dropping
+// an entry at zero. The caller must hold h.mu and has already unindexed the pairs.
+func (h *SocketHub) releaseAddresses(c *client, n int) {
+	h.totalAddresses -= n
+	releaseKey(h.ipAddresses, c.ipKey, n)
+	if c.prefix48Key != "" {
+		releaseKey(h.prefix48Addresses, c.prefix48Key, n)
+	}
+}
+
+// releaseKey lowers counts[key] by n, deleting it at zero.
+func releaseKey(counts map[string]int, key string, n int) {
+	if left := counts[key] - n; left > 0 {
+		counts[key] = left
+	} else {
+		delete(counts, key)
+	}
 }

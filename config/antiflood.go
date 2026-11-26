@@ -73,6 +73,18 @@ type WebServerAntifloodConfig struct {
 	// WebSocketMaxAddressesPerClient caps the total addresses one connection may watch
 	// across all of its subscribe calls. 0 = built-in default.
 	WebSocketMaxAddressesPerClient uint32 `yaml:"webSocketMaxAddressesPerClient"`
+	// WebSocketMaxAddressesPerIP and WebSocketMaxTotalAddresses cap watched addresses per source
+	// IP and node-wide. Behind a proxy all clients share one IP: raise per-IP up to the total.
+	// 0 = built-in default.
+	WebSocketMaxAddressesPerIP uint32 `yaml:"webSocketMaxAddressesPerIP"`
+	WebSocketMaxTotalAddresses uint32 `yaml:"webSocketMaxTotalAddresses"`
+	// WebSocketMaxAddressesPerIPv6Prefix48 caps watched addresses across every IPv6 source in one
+	// /48. 0 = built-in default (capped at the total).
+	WebSocketMaxAddressesPerIPv6Prefix48 uint32 `yaml:"webSocketMaxAddressesPerIPv6Prefix48"`
+	// WebSocketSubscribeRatePerSec and WebSocketSubscribeBurst rate-limit subscribe/unsubscribe
+	// frames per connection (token bucket). 0 = built-in default.
+	WebSocketSubscribeRatePerSec uint32 `yaml:"webSocketSubscribeRatePerSec"`
+	WebSocketSubscribeBurst      uint32 `yaml:"webSocketSubscribeBurst"`
 	// WebSocketPostWorkers bounds concurrent postWSConnection mirror requests. 0 = built-in
 	// default.
 	WebSocketPostWorkers uint32 `yaml:"webSocketPostWorkers"`

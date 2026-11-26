@@ -1,8 +1,12 @@
 package shared
 
-import "net/netip"
+import (
+	"net"
+	"net/netip"
+)
 
-const ipv6BucketBits = 64
+// IPv6BucketBits is the IPv6 prefix IPBucket keys on.
+const IPv6BucketBits = 64
 
 // nat64WellKnown is the RFC 6052 well-known NAT64 prefix; the client IPv4 is the last 32 bits.
 // Masking it by /64 would put every client behind one translator in a single bucket and let one
@@ -35,6 +39,12 @@ var nat64WellKnown = netip.MustParsePrefix("64:ff9b::/96")
 // keep their own net.SplitHostPort error handling. An unparseable host is returned verbatim
 // rather than collapsed, so distinct junk values never share a bucket.
 func IPBucket(host string) string {
+	return IPBucketBits(host, IPv6BucketBits)
+}
+
+// IPBucketBits is IPBucket with the IPv6 prefix length chosen by the caller; IPv4, NAT64 and
+// unparseable hosts are keyed exactly as IPBucket keys them.
+func IPBucketBits(host string, ipv6Bits int) string {
 	addr, err := netip.ParseAddr(host)
 	if err != nil {
 		return host
@@ -50,5 +60,14 @@ func IPBucket(host string) string {
 		return netip.AddrFrom4([4]byte{a[12], a[13], a[14], a[15]}).String()
 	}
 
-	return netip.PrefixFrom(addr, ipv6BucketBits).Masked().Addr().String()
+	return netip.PrefixFrom(addr, ipv6Bits).Masked().Addr().String()
+}
+
+// RemoteIPKey buckets a raw remote address, "host:port" or a bare host, by IPBucketBits.
+func RemoteIPKey(remoteAddr string, ipv6Bits int) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return IPBucketBits(remoteAddr, ipv6Bits)
+	}
+	return IPBucketBits(host, ipv6Bits)
 }
