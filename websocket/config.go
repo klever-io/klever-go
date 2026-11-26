@@ -119,7 +119,7 @@ func (l Limits) resolve() resolvedLimits {
 	if perSubscribe <= 0 {
 		perSubscribe = defaultMaxAddressesPerSubscribe
 	}
-	perSubscribe = clampToTotal("maxAddressesPerSubscribe", perSubscribe, total)
+	perSubscribe = clampToTotal("maxAddressesPerSubscribe", perSubscribe, total, l.MaxAddressesPerSubscribe > 0)
 	perClient := l.MaxAddressesPerClient
 	if perClient <= 0 {
 		perClient = defaultMaxAddressesPerClient
@@ -127,19 +127,19 @@ func (l Limits) resolve() resolvedLimits {
 	// A per-connection cap below the per-call cap is incoherent (one max subscribe could
 	// never fit); clamp it up so a fresh client's first subscribe always fits.
 	perClient = raiseToTier("maxAddressesPerClient", perClient, perSubscribe, l.MaxAddressesPerClient > 0)
-	perClient = clampToTotal("maxAddressesPerClient", perClient, total)
+	perClient = clampToTotal("maxAddressesPerClient", perClient, total, l.MaxAddressesPerClient > 0)
 	perIP := l.MaxAddressesPerIP
 	if perIP <= 0 {
 		perIP = defaultMaxAddressesPerIP
 	}
 	perIP = raiseToTier("maxAddressesPerIP", perIP, perClient, l.MaxAddressesPerIP > 0)
-	perIP = clampToTotal("maxAddressesPerIP", perIP, total)
+	perIP = clampToTotal("maxAddressesPerIP", perIP, total, l.MaxAddressesPerIP > 0)
 	perPrefix48 := l.MaxAddressesPerIPv6Prefix48
 	if perPrefix48 <= 0 {
 		perPrefix48 = min(defaultMaxAddressesPerIPv6Prefix48, total)
 	}
 	perPrefix48 = raiseToTier("maxAddressesPerIPv6Prefix48", perPrefix48, perIP, l.MaxAddressesPerIPv6Prefix48 > 0)
-	perPrefix48 = clampToTotal("maxAddressesPerIPv6Prefix48", perPrefix48, total)
+	perPrefix48 = clampToTotal("maxAddressesPerIPv6Prefix48", perPrefix48, total, l.MaxAddressesPerIPv6Prefix48 > 0)
 
 	readLimit := int64(minMaxMessageSize)
 	if derived := int64(perSubscribe)*addressJSONOverhead + 1024; derived > readLimit {
@@ -210,10 +210,13 @@ func raiseToTier(name string, value, floor int, configured bool) int {
 	return floor
 }
 
-// clampToTotal lowers an inner address budget to the node-wide total, warning with both values.
-func clampToTotal(name string, value, total int) int {
+// clampToTotal lowers an inner address budget to the node-wide total, warning when the value was configured.
+func clampToTotal(name string, value, total int, configured bool) int {
 	if value <= total {
 		return value
+	}
+	if !configured {
+		return total
 	}
 	log.Warn("websocket address budget clamped to the node-wide total",
 		"limit", name, "configured", value, "effective", total)

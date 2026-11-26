@@ -278,8 +278,8 @@ antiflood:
     webSocketMaxAddressesPerIP: 100000
     webSocketMaxTotalAddresses: 2000000
     # WebSocketMaxAddressesPerIPv6Prefix48 caps watched addresses across all IPv6 sources in one /48.
-    # 0 = default.
-    webSocketMaxAddressesPerIPv6Prefix48: 400000
+    # 0 = default (400000, capped at the total, and raised silently to follow WebSocketMaxAddressesPerIP).
+    webSocketMaxAddressesPerIPv6Prefix48: 0
     # WebSocketSubscribeRatePerSec and WebSocketSubscribeBurst rate-limit subscribe/unsubscribe frames
     # per connection (token bucket). 0 = default.
     # Public nodes: also set GOMEMLIMIT and secured: true on /subscribe (docs/node-api-hardening.md).
