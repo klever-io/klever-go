@@ -615,14 +615,14 @@ func (bfd *baseForkDetector) isConsensusStuck() bool {
 	}
 
 	currentSlot := tools.SafeI64ToU64(bfd.slotManager.Index())
-	lastCheckpointSlot := bfd.lastCheckpoint().slot
-	slotsDifference, err := tools.SafeSubUint64(currentSlot, lastCheckpointSlot)
+	lastCheckpoint := bfd.lastCheckpoint()
+	slotsDifference, err := tools.SafeSubUint64(currentSlot, lastCheckpoint.slot)
 	if err != nil {
 		// The checkpoint is ahead of the local slot index. Subtracting would wrap
 		// and force a rollback of a block that was just committed.
 		// checkBlockBasicValidity accepts headers one slot ahead, so a node whose
 		// clock trails its peers can reach this without a peer misbehaving.
-		bfd.warnCheckpointAhead(currentSlot, lastCheckpointSlot)
+		bfd.warnCheckpointAhead(currentSlot, lastCheckpoint)
 		return false
 	}
 	bfd.checkpointAheadWarned.Store(false)
@@ -640,15 +640,15 @@ func (bfd *baseForkDetector) isConsensusStuck() bool {
 
 // warnCheckpointAhead logs once when the last checkpoint moves ahead of the
 // local slot index. The latch clears once that subtraction succeeds again.
-func (bfd *baseForkDetector) warnCheckpointAhead(currentSlot uint64, checkpointSlot uint64) {
+func (bfd *baseForkDetector) warnCheckpointAhead(currentSlot uint64, checkpoint *checkpointInfo) {
 	if bfd.checkpointAheadWarned.Swap(true) {
 		return
 	}
 
 	log.Warn("last checkpoint is ahead of the local slot index, node clock appears to trail the network",
 		"local slot index", currentSlot,
-		"checkpoint slot", checkpointSlot,
-		"checkpoint nonce", bfd.lastCheckpoint().nonce)
+		"checkpoint slot", checkpoint.slot,
+		"checkpoint nonce", checkpoint.nonce)
 }
 
 func (bfd *baseForkDetector) isSyncing() bool {

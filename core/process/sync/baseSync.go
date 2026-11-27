@@ -320,10 +320,10 @@ func (boot *baseBootstrap) computeNodeState() {
 	} else {
 		lastNonce = currentHeader.GetNonce()
 		lastSlot = currentHeader.GetSlot()
-		boot.hasLastBlock = boot.forkDetector.ProbableHighestNonce() <= boot.chainHandler.GetCurrentBlockHeader().GetNonce()
+		boot.hasLastBlock = boot.forkDetector.ProbableHighestNonce() <= lastNonce
 		log.Debug("computeNodeState",
 			"probableHighestNonce", boot.forkDetector.ProbableHighestNonce(),
-			"currentBlockNonce", boot.chainHandler.GetCurrentBlockHeader().GetNonce(),
+			"currentBlockNonce", lastNonce,
 			"boot.hasLastBlock", boot.hasLastBlock)
 	}
 
@@ -358,10 +358,9 @@ func (boot *baseBootstrap) computeNodeState() {
 		"isNodeStateCalculated", boot.isNodeStateCalculated,
 		"isNodeSynchronized", boot.isNodeSynchronized)
 
-	// One slot snapshot for the lag and the claim, so a pass that straddles a
-	// slot boundary cannot claim the next slot.
-	tipSlot, _ := boot.committedTip()
-	lag := boot.slotLag(boot.slotIndex, tipSlot)
+	// One slot snapshot and the tip read above for the lag and the claim, so a
+	// pass that straddles a slot boundary cannot claim the next slot.
+	lag := boot.slotLag(boot.slotIndex, lastSlot)
 	tryRequest := boot.shouldTryToRequestHeaders(lag)
 	// The not-synced catch-up path must keep retrying inside a slot. Claiming
 	// here would make a lost burst wait a full slot, and a not-synced call that
@@ -449,8 +448,8 @@ func (boot *baseBootstrap) slotsSinceLastCommittedBlock() uint64 {
 func (boot *baseBootstrap) slotLag(slotIndex int64, tipSlot uint64) uint64 {
 	lag, err := tools.SafeSubUint64(tools.SafeI64ToU64(slotIndex), tipSlot)
 	if err != nil {
-		// Debug, not warn: this runs under mutNodeState. The warning for the
-		// same clock-trails-tip state is baseForkDetector.warnCheckpointAhead.
+		// Debug: the once-per-episode warning for this clock-trails-tip state
+		// is baseForkDetector.warnCheckpointAhead.
 		log.Debug("last committed block is ahead of the local slot index",
 			"local slot index", slotIndex,
 			"last committed block slot", tipSlot)
@@ -470,6 +469,11 @@ func (boot *baseBootstrap) requestHeadersIfSyncIsStuck(warnSyncedStall bool) {
 	tipSlot, tipNonce := boot.committedTip()
 	lag := boot.slotLag(boot.slotManager.Index(), tipSlot)
 	if lag <= process.MaxSlotsWithoutNewBlockReceived {
+		if warnSyncedStall {
+			// Hand the unused warning back: no later pass may see this lag
+			// clear, and a held latch would silence the rest of the stall.
+			boot.syncedStallWarned.CompareAndSwap(true, false)
+		}
 		return
 	}
 

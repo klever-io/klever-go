@@ -1416,6 +1416,17 @@ func TestRequestHeadersIfSyncIsStuck(t *testing.T) {
 		assert.Equal(t, uint64(8), stub.requestedNonces[0])
 		assert.Equal(t, uint64(27), stub.requestedNonces[len(stub.requestedNonces)-1])
 	})
+
+	// The not-synced path reaches the burst without a lag check, so this guard
+	// alone stops a full burst while the clock trails the committed tip.
+	t.Run("no burst when the committed block is ahead of the slot index", func(t *testing.T) {
+		t.Parallel()
+
+		boot, stub := newStuckRequestBoot(50, headerAt(100, 7))
+		fireStuck(boot, false)
+
+		assert.Empty(t, stub.requestedNonces)
+	})
 }
 
 // doJobOnSyncBlockFail decides whether a failed sync attempt rolls the chain
@@ -1765,4 +1776,74 @@ func TestComputeNodeState_SyncedStallClaimsSnapshottedSlot(t *testing.T) {
 	boot.computeNodeState()
 	require.Equal(t, int64(31), boot.slotIndex)
 	require.Equal(t, 2, spawns, "slot 31 must still get its burst")
+}
+
+// A burst that stands down because one block landed in between must hand its
+// warning back. Otherwise no pass sees the lag clear, the latch stays held and
+// the rest of the stall is silent. Not parallel: log observer.
+func TestComputeNodeState_StoodDownBurstReleasesStallWarning(t *testing.T) {
+	counter := CountLogLines(t, stallWarnMessage)
+
+	stub := &blockBootstrapperStub{}
+	boot := newComputeNodeStateBoot(30, 7, stub)
+	tip := headerAt(19, 7)
+	boot.chainHandler = &mock.BlockChainMock{
+		GetGenesisHeaderCalled:      func() data.HeaderHandler { return headerAt(0, 0) },
+		GetCurrentBlockHeaderCalled: func() data.HeaderHandler { return tip },
+	}
+	var held func()
+	boot.spawnRequest = func(run func()) { held = run }
+
+	// Slot 30, tip slot 19: lag 11 claims the warning.
+	boot.computeNodeState()
+	require.True(t, boot.isNodeSynchronized)
+	require.NotNil(t, held)
+
+	// One block lands before the burst runs: lag 10, it stands down.
+	tip = headerAt(20, 8)
+	held()
+	require.Empty(t, stub.requestedNonces)
+	require.Zero(t, counter.Count())
+
+	// Slot 31: lag 11 again on the same stall, and it must warn.
+	held = nil
+	boot.isNodeStateCalculated = false
+	boot.slotManager.(*consensusMock.SlotManagerMock).SlotIndex = 31
+	boot.computeNodeState()
+	require.NotNil(t, held)
+	held()
+
+	require.Equal(t, 1, counter.Count())
+	require.Equal(t, uint64(9), stub.requestedNonces[0])
+}
+
+// The lag must use the slot snapshot too. Tip slot 20 puts slot 30 at the
+// threshold and slot 31 past it, so a tick mid-pass must not start a burst.
+func TestComputeNodeState_LagUsesSnapshottedSlot(t *testing.T) {
+	t.Parallel()
+
+	boot := newComputeNodeStateBoot(30, 7, &blockBootstrapperStub{})
+	boot.chainHandler = &mock.BlockChainMock{
+		GetGenesisHeaderCalled:      func() data.HeaderHandler { return headerAt(0, 0) },
+		GetCurrentBlockHeaderCalled: func() data.HeaderHandler { return headerAt(20, 7) },
+	}
+	spawns := 0
+	boot.spawnRequest = func(func()) { spawns++ }
+	slotManager := boot.slotManager.(*consensusMock.SlotManagerMock)
+	boot.statusHandler = &mock.AppStatusHandlerStub{
+		SetUInt64ValueHandler: func(key string, _ uint64) {
+			if key == core.MetricIsSyncing {
+				slotManager.SlotIndex = 31
+			}
+		},
+	}
+
+	boot.computeNodeState()
+	require.Equal(t, int64(30), boot.slotIndex)
+	require.Zero(t, spawns)
+
+	boot.isNodeStateCalculated = false
+	boot.computeNodeState()
+	require.Equal(t, int64(31), boot.slotIndex)
+	require.Equal(t, 1, spawns)
 }
