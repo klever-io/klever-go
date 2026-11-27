@@ -23,6 +23,10 @@ import (
 // fails before it is cloned.
 
 func TestManagedCallingHooks_OversizedDestination_PreForkVersusPostFork(t *testing.T) {
+	if test.RaceDetectorEnabled {
+		t.Skip("the race detector slows execution past the smart contract execution timeout")
+	}
+
 	const gasLeft = uint64(10_000_000)
 	const destLen = 4 * 1024 * 1024
 

@@ -38,7 +38,7 @@ func TestBigFloatIntPartByteLen_MatchesConvertedLength(t *testing.T) {
 		t.Helper()
 		intPart, _ := op.Int(nil)
 		expected := int64((intPart.BitLen() + 7) / 8)
-		require.Equal(t, expected, bigFloatIntPartByteLen(op), "op %s", op.Text('g', 20))
+		require.Equal(t, expected, bigFloatIntPartByteLen(op), "op %.20g", op)
 	}
 
 	t.Run("zeros", func(t *testing.T) {

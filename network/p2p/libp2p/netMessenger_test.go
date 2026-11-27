@@ -1093,6 +1093,11 @@ func TestLibp2pMessenger_PeerAddressConnectedPeerShouldWork(t *testing.T) {
 func TestLibp2pMessenger_PeerAddressNotConnectedShouldReturnFromPeerstore(t *testing.T) {
 	netw := mocknet.New()
 	mes, _ := libp2p.NewMockMessenger(createMockNetworkArgs(), netw)
+	originalHost := mes.Host()
+	defer func() {
+		_ = mes.Close()
+		_ = originalHost.Close()
+	}()
 
 	networkHandler := &mock.NetworkStub{
 		ConnsCalled: func() []network.Conn {
@@ -2110,6 +2115,11 @@ func TestNetworkMessenger_GetConnectedPeersInfo(t *testing.T) {
 		"unknown",
 	}
 	mes, _ := libp2p.NewMockMessenger(createMockNetworkArgs(), netw)
+	originalHost := mes.Host()
+	defer func() {
+		_ = mes.Close()
+		_ = originalHost.Close()
+	}()
 	mes.SetHost(&mock.ConnectableHostStub{
 		NetworkCalled: func() network.Network {
 			return &mock.NetworkStub{

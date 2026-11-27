@@ -4,8 +4,6 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
-var hasherSpongeEmptyHash []byte
-
 const hashSize = 16
 
 // HasherSpongeMock that will be used for testing
@@ -21,10 +19,7 @@ func (sha HasherSpongeMock) Compute(s string) []byte {
 
 // EmptyHash will return the equivalent of empty string SHA's
 func (sha HasherSpongeMock) EmptyHash() []byte {
-	if len(hasherSpongeEmptyHash) == 0 {
-		hasherSpongeEmptyHash = sha.Compute("")
-	}
-	return hasherSpongeEmptyHash
+	return sha.Compute("")
 }
 
 // Size returns the required size in bytes

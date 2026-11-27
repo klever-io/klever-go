@@ -291,7 +291,9 @@ goimports: ## Format Go code and organize imports
 # Tests                                                                       #
 ###############################################################################
 
-.PHONY: tests tests-unit tests-integration tests-kvm tests-e2e
+.PHONY: tests tests-unit tests-integration tests-kvm tests-race tests-e2e
+
+RACE_PKGS ?= ./...
 
 tests: tests-unit tests-integration tests-kvm tests-e2e ## Run all tests
 
@@ -306,6 +308,9 @@ tests-integration: ## Run integration tests
 tests-kvm: ## Run KVM (smart contract) tests
 	go clean -testcache
 	go test ${VERBOSE} -timeout 1500s ./kvm/...
+
+tests-race: ## Run the race detector over RACE_PKGS
+	go test ${VERBOSE} -race -short -count=1 ${RACE_PKGS}
 
 tests-e2e: ## Run end-to-end tests
 	if [ ! -d klever-go-e2e ]; then git clone git@github.com:klever-io/klever-go-e2e.git; fi

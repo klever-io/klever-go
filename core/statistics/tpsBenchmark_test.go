@@ -229,9 +229,6 @@ func TestTpsBenchmark_TpsShouldUpdateButTxsCountShouldNot(t *testing.T) {
 }
 
 func TestTpsBenchmark_Concurrent(t *testing.T) {
-	if testing.Short() {
-		t.Skip("this is not a short test")
-	}
 	t.Parallel()
 
 	numOfTests := 25
@@ -470,9 +467,6 @@ func TestTpsBenchmark_Snapshot(t *testing.T) {
 // (integer quotient). Per-getter calls would tear this invariant when Update() interleaves
 // between calls; Snapshot() takes a single RLock so all three fields advance together.
 func TestTpsBenchmark_SnapshotConsistencyUnderConcurrentUpdates(t *testing.T) {
-	if testing.Short() {
-		t.Skip("this is not a short test")
-	}
 	t.Parallel()
 
 	tpsBenchmark, _ := statistics.NewTPSBenchmark(uint64(6))

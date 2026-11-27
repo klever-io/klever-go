@@ -46,16 +46,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set +e  # the exit code is recorded and checked by the test job
-          module=$(go list -m)
-          case "$SHARD" in
-            kvm) packages=$(go list ./kvm/...) ;;
-            integration) packages=$(go list ./integrationTest/...) ;;
-            storage-data) packages=$(go list ./storage/... ./data/...) ;;
-            rest) packages=$(go list ./... | grep -Ev "^${module}/(kvm|integrationTest|storage|data)(/|$)") ;;
-            *) echo "::error::unknown test shard $SHARD"; exit 1 ;;
-          esac
-          if [ -z "$packages" ]; then
-            echo "::error::test shard $SHARD has no packages"
+          if ! packages=$(.github/scripts/shard-packages.sh "$SHARD"); then
+            echo "::error::cannot list the packages of test shard $SHARD"
             exit 1
           fi
 
@@ -91,6 +83,42 @@ jobs:
             echo "::error::go test in shard $SHARD exited with $code"
             exit 1
           fi
+
+  race:
+    name: race (${{ matrix.name }})
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: kvm-integration
+            shards: kvm integration
+          - name: storage-data
+            shards: storage-data
+          - name: rest
+            shards: rest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Go Setup
+        uses: ./.github/actions/go-setup-action
+        with:
+          go-version: ${{ vars.GO_VERSION }}
+          build-cache-key: race-${{ matrix.name }}
+
+      - name: Run tests with the race detector
+        env:
+          SHARDS: ${{ matrix.shards }}
+        run: |
+          read -ra shard_names <<<"$SHARDS"
+          if ! packages=$(.github/scripts/shard-packages.sh "${shard_names[@]}"); then
+            echo "::error::cannot list the packages of race shard $SHARDS"
+            exit 1
+          fi
+          make tests-race RACE_PKGS="${packages//$'\n'/ }"
 
   test:
     needs: test-shard
@@ -246,7 +274,7 @@ jobs:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
   notify:
-    needs: [setup-and-lint, test, sonarqube]
+    needs: [setup-and-lint, test, race, sonarqube]
     runs-on: ubuntu-latest
     # KLC-2968: skipped for fork and Dependabot pull requests, which get no Actions secrets
     if: |
@@ -262,7 +290,8 @@ jobs:
         run: |
           echo "sonarqube_status=${{ needs.sonarqube.result == 'success' && '✅' || '❌' }}" >> $GITHUB_OUTPUT
           echo "test_status=${{ needs.test.outputs.test_exit_code == '0' && '✅' || '❌' }}" >> $GITHUB_OUTPUT
-          if [[ "${{ needs.sonarqube.result }}" != "success" || "${{ needs.test.result }}" != "success" || "${{ needs.test.outputs.test_exit_code }}" != "0" || "${{ needs.setup-and-lint.result }}" != "success" ]]; then
+          echo "race_status=${{ needs.race.result == 'success' && '✅' || '❌' }}" >> "$GITHUB_OUTPUT"
+          if [[ "${{ needs.sonarqube.result }}" != "success" || "${{ needs.test.result }}" != "success" || "${{ needs.test.outputs.test_exit_code }}" != "0" || "${{ needs.race.result }}" != "success" || "${{ needs.setup-and-lint.result }}" != "success" ]]; then
             echo "overall_status=Failure" >> $GITHUB_OUTPUT
             echo "color=#FF0000" >> $GITHUB_OUTPUT
             echo "icon=❌" >> $GITHUB_OUTPUT
@@ -316,6 +345,7 @@ jobs:
           STATUS_COLOR: ${{ steps.job-status.outputs.color }}
           SONARQUBE_STATUS: ${{ steps.job-status.outputs.sonarqube_status }}
           TEST_STATUS: ${{ steps.job-status.outputs.test_status }}
+          RACE_STATUS: ${{ steps.job-status.outputs.race_status }}
           COVERAGE: ${{ needs.test.outputs.coverage }}
           EVENT_TITLE: ${{ github.event.pull_request.title || github.event.head_commit.message || github.sha }}
           CHANGES_JSON: ${{ steps.context.outputs.changes }}
@@ -345,6 +375,7 @@ jobs:
             --argjson changes "$CHANGES_JSON" \
             --arg sonarqube "$SONARQUBE_STATUS" \
             --arg tests "$TEST_STATUS" \
+            --arg race "$RACE_STATUS" \
             --arg coverage "$COVERAGE" \
             --arg run_url "$REPOSITORY_URL/actions/runs/$RUN_ID" \
             --arg report_url "$REPORT_URL" \
@@ -369,7 +400,7 @@ jobs:
                     "*Changes:*\n• Files changed: \($changes.changed) (+\($changes.additions)/-\($changes.deletions))\n• First 10 changed files:\n```"
                     + ($changes.files | join("\n")) + "```")}},
                   {type: "section", text: {type: "mrkdwn", text: (
-                    "*Job Results:*\n• SonarQube: " + $sonarqube + "\n• Tests: " + $tests + "\n• Project Coverage: " + $coverage + "\n")}},
+                    "*Job Results:*\n• SonarQube: " + $sonarqube + "\n• Tests: " + $tests + "\n• Race detector: " + $race + "\n• Project Coverage: " + $coverage + "\n")}},
                   {type: "actions", elements: [
                     {type: "button", text: {type: "plain_text", text: "View Actions Run"}, url: $run_url},
                     {type: "button", text: {type: "plain_text", text: "View SonarQube Report"}, url: $report_url},
@@ -384,7 +415,7 @@ jobs:
           curl --fail --silent --show-error -X POST -H 'Content-type: application/json' --data "$payload" "$SLACK_WEBHOOK_URL"
 
   result-check:
-    needs: [setup-and-lint, sonarqube, test]
+    needs: [setup-and-lint, sonarqube, test, race]
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     steps:
@@ -394,13 +425,14 @@ jobs:
           SONARQUBE_RESULT: ${{ needs.sonarqube.result }}
           TEST_RESULT: ${{ needs.test.result }}
           TEST_EXIT_CODE: ${{ needs.test.outputs.test_exit_code }}
+          RACE_RESULT: ${{ needs.race.result }}
           # KLC-2968: sonarqube is skipped for fork and Dependabot pull requests, see that job
           NO_SECRETS_PR: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]') }}
         run: |
           if [[ "$NO_SECRETS_PR" == "true" && "$SONARQUBE_RESULT" == "skipped" ]]; then
             SONARQUBE_RESULT=success
           fi
-          if [[ "$LINT_RESULT" != "success" || "$SONARQUBE_RESULT" != "success" || "$TEST_RESULT" != "success" || "$TEST_EXIT_CODE" != "0" ]]; then
-            echo "::error::Required jobs did not all pass: lint=$LINT_RESULT, sonarqube=$SONARQUBE_RESULT, test=$TEST_RESULT (exit=$TEST_EXIT_CODE)."
+          if [[ "$LINT_RESULT" != "success" || "$SONARQUBE_RESULT" != "success" || "$TEST_RESULT" != "success" || "$TEST_EXIT_CODE" != "0" || "$RACE_RESULT" != "success" ]]; then
+            echo "::error::Required jobs did not all pass: lint=$LINT_RESULT, sonarqube=$SONARQUBE_RESULT, test=$TEST_RESULT (exit=$TEST_EXIT_CODE), race=$RACE_RESULT."
             exit 1
           fi
