@@ -113,8 +113,8 @@ jobs:
         env:
           SHARDS: ${{ matrix.shards }}
         run: |
-          read -ra shards <<<"$SHARDS"
-          if ! packages=$(.github/scripts/shard-packages.sh "${shards[@]}"); then
+          read -ra shard_names <<<"$SHARDS"
+          if ! packages=$(.github/scripts/shard-packages.sh "${shard_names[@]}"); then
             echo "::error::cannot list the packages of race shard $SHARDS"
             exit 1
           fi

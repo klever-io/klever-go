@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	blockchainConfig "github.com/klever-io/klever-go/config"
+	test "github.com/klever-io/klever-go/kvm/testcommon"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/kvm/vmhost/vmhooks"
 	"github.com/klever-io/klever-go/vmcommon"
@@ -211,7 +212,11 @@ func TestManagedGetReturnData_PostForkReusedItemIsBoundedByGas(t *testing.T) {
 	// flat cost each and hold ~100 MB; post-fork each costs ~5.1M on the item's bytes alone, so the
 	// gas left pays for under two of them
 	const gasLeft = uint64(10_000_000)
-	const numHandles, itemLen = 1000, 100 * 1024
+	const itemLen = 100 * 1024
+	numHandles := 1000
+	if test.RaceDetectorEnabled {
+		numHandles = 100
+	}
 
 	var preCall, postCall returnDataCall
 	pre := runManagedHook(t, preForkV6EnableEpochs(), gasLeft,
@@ -223,7 +228,7 @@ func TestManagedGetReturnData_PostForkReusedItemIsBoundedByGas(t *testing.T) {
 		pre.returnCode, pre.gasUsed, pre.allocated, post.returnCode, post.allocated)
 
 	require.Equal(t, vmcommon.Ok, pre.returnCode)
-	require.Equal(t, numHandles*preCall.getReturnDataCost, pre.gasUsed)
+	require.Equal(t, uint64(numHandles)*preCall.getReturnDataCost, pre.gasUsed)
 	require.GreaterOrEqual(t, pre.allocated, uint64(numHandles*itemLen))
 
 	require.Equal(t, vmcommon.VMOutOfGas, post.returnCode)
