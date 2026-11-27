@@ -275,11 +275,12 @@ func (bn *branchNode) commit(force bool, level byte, maxTrieLevelInMemory uint, 
 			return err
 		}
 	}
-	bn.dirty = false
 	err = encodeNodeAndCommitToDB(bn, targetDb)
 	if err != nil {
 		return err
 	}
+	// clean only once persisted, so a retried commit writes the node again
+	bn.dirty = false
 	if uint(level) == maxTrieLevelInMemory {
 		log.Trace("collapse branch node on commit")
 
