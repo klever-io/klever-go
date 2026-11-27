@@ -1187,8 +1187,7 @@ func headerAt(slot uint64, nonce uint64) data.HeaderHandler {
 }
 
 func requestsHeaders(boot *baseBootstrap) bool {
-	ok, _ := boot.shouldTryToRequestHeaders()
-	return ok
+	return boot.shouldTryToRequestHeaders(boot.slotsSinceLastCommittedBlock())
 }
 
 func fireStuck(boot *baseBootstrap, stalledWhileSynced bool) {

@@ -358,14 +358,15 @@ func (boot *baseBootstrap) computeNodeState() {
 		"isNodeStateCalculated", boot.isNodeStateCalculated,
 		"isNodeSynchronized", boot.isNodeSynchronized)
 
-	tryRequest, lag := boot.shouldTryToRequestHeaders()
+	lag := boot.slotsSinceLastCommittedBlock()
+	tryRequest := boot.shouldTryToRequestHeaders(lag)
 	// The not-synced catch-up path must keep retrying inside a slot. Claiming
 	// here would make a lost burst wait a full slot, and a not-synced call that
 	// claimed first would swallow the synced stall warning.
 	stalledWhileSynced := tryRequest && boot.isNodeSynchronized
 	// Forced-rollback passes return early with a false tryRequest while the
 	// node is still stalled, so only a caught-up lag ends the episode.
-	if boot.slotsSinceLastCommittedBlock() <= process.MaxSlotsWithoutNewBlockReceived {
+	if lag <= process.MaxSlotsWithoutNewBlockReceived {
 		boot.syncedStallWarned.Store(false)
 	}
 	if tryRequest && (!stalledWhileSynced || boot.claimSyncedStallSlot()) {
@@ -383,35 +384,34 @@ func (boot *baseBootstrap) spawn(run func()) {
 }
 
 // shouldTryToRequestHeaders reports whether a header burst should be considered
-// and the slot lag that decision used. The predicate itself does not request
-// anything.
-func (boot *baseBootstrap) shouldTryToRequestHeaders() (bool, uint64) {
+// for lag, the slots since the last committed block. The predicate itself does
+// not request anything.
+func (boot *baseBootstrap) shouldTryToRequestHeaders(lag uint64) bool {
 	if boot.slotManager.BeforeGenesis() {
-		return false, 0
+		return false
 	}
 	if boot.isForcedRollBackOneBlock() {
-		return false, 0
+		return false
 	}
 	if boot.isForcedRollBackToNonce() {
-		return false, 0
+		return false
 	}
 	// Import mode replays history, so the lag is unbounded and there are no
 	// peers. GetNodeState stays NsNotSynchronized there, which is why this runs
 	// before the not-synced return: otherwise the burst still fires.
 	if boot.isInImportMode {
-		return false, 0
+		return false
 	}
 
-	lag := boot.slotsSinceLastCommittedBlock()
 	if !boot.isNodeSynchronized {
-		return true, lag
+		return true
 	}
 
 	// Fork-detector counters stay frozen while header intake is blocked, so a
 	// node can report itself synced at a stale nonce (issue #90). Slot lag does
 	// not use those counters. The old every-20-slots trigger fired once in that
 	// slot, on the pass after the forced rollback.
-	return lag > process.MaxSlotsWithoutNewBlockReceived, lag
+	return lag > process.MaxSlotsWithoutNewBlockReceived
 }
 
 // claimSyncedStallSlot records the current slot as already used for a synced
