@@ -1,14 +1,7 @@
 package mock
 
 import (
-	"sync"
-
 	"golang.org/x/crypto/sha3"
-)
-
-var (
-	keccakEmptyHash []byte
-	keccakOnce      sync.Once
 )
 
 // KeccakMock is a sha3-Keccak implementation of the hasher interface.
@@ -17,9 +10,6 @@ type KeccakMock struct {
 
 // Compute takes a string, and returns the sha3-Keccak hash of that string
 func (k KeccakMock) Compute(s string) []byte {
-	if len(s) == 0 {
-		return k.EmptyHash()
-	}
 	h := sha3.NewLegacyKeccak256()
 	_, _ = h.Write([]byte(s))
 	return h.Sum(nil)
@@ -27,13 +17,7 @@ func (k KeccakMock) Compute(s string) []byte {
 
 // EmptyHash returns the sha3-Keccak hash of the empty string
 func (k KeccakMock) EmptyHash() []byte {
-	keccakOnce.Do(func() {
-		h := sha3.NewLegacyKeccak256()
-		keccakEmptyHash = h.Sum(nil)
-	})
-	result := make([]byte, len(keccakEmptyHash))
-	copy(result, keccakEmptyHash)
-	return result
+	return k.Compute("")
 }
 
 // Size returns the size, in number of bytes, of a sha3-Keccak hash

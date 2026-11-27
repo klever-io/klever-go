@@ -1,14 +1,7 @@
 package mock
 
 import (
-	"sync"
-
 	"golang.org/x/crypto/blake2b"
-)
-
-var (
-	hasherSpongeEmptyHash []byte
-	hasherSpongeOnce      sync.Once
 )
 
 const hashSize = 16
@@ -26,12 +19,7 @@ func (sha HasherSpongeMock) Compute(s string) []byte {
 
 // EmptyHash will return the equivalent of empty string SHA's
 func (sha HasherSpongeMock) EmptyHash() []byte {
-	hasherSpongeOnce.Do(func() {
-		hasherSpongeEmptyHash = sha.Compute("")
-	})
-	result := make([]byte, len(hasherSpongeEmptyHash))
-	copy(result, hasherSpongeEmptyHash)
-	return result
+	return sha.Compute("")
 }
 
 // Size returns the required size in bytes

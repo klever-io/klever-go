@@ -26,9 +26,6 @@ import (
 // concern that "any future test or tool that constructs messengers in parallel"
 // must be safe.
 func TestNetworkMessenger_ParallelConstructionIsRaceFree(t *testing.T) {
-	if testing.Short() {
-		t.Skip("this is not a short test")
-	}
 
 	t.Run("mock messengers in parallel", func(t *testing.T) {
 		const numMessengers = 8

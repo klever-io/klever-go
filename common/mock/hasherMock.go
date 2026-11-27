@@ -1,14 +1,6 @@
 package mock
 
-import (
-	"crypto/sha256"
-	"sync"
-)
-
-var (
-	sha256EmptyHash []byte
-	sha256Once      sync.Once
-)
+import "crypto/sha256"
 
 // HasherMock that will be used for testing
 type HasherMock struct {
@@ -23,12 +15,7 @@ func (sha HasherMock) Compute(s string) []byte {
 
 // EmptyHash will return the equivalent of empty string SHA's
 func (sha HasherMock) EmptyHash() []byte {
-	sha256Once.Do(func() {
-		sha256EmptyHash = sha.Compute("")
-	})
-	result := make([]byte, len(sha256EmptyHash))
-	copy(result, sha256EmptyHash)
-	return result
+	return sha.Compute("")
 }
 
 // Size return the required size in bytes

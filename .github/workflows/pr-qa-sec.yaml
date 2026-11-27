@@ -46,16 +46,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set +e  # the exit code is recorded and checked by the test job
-          module=$(go list -m)
-          case "$SHARD" in
-            kvm) packages=$(go list ./kvm/...) ;;
-            integration) packages=$(go list ./integrationTest/...) ;;
-            storage-data) packages=$(go list ./storage/... ./data/...) ;;
-            rest) packages=$(go list ./... | grep -Ev "^${module}/(kvm|integrationTest|storage|data)(/|$)") ;;
-            *) echo "::error::unknown test shard $SHARD"; exit 1 ;;
-          esac
-          if [ -z "$packages" ]; then
-            echo "::error::test shard $SHARD has no packages"
+          if ! packages=$(.github/scripts/shard-packages.sh "$SHARD"); then
+            echo "::error::cannot list the packages of test shard $SHARD"
             exit 1
           fi
 
@@ -93,13 +85,20 @@ jobs:
           fi
 
   race:
-    name: race (${{ matrix.shard }})
+    name: race (${{ matrix.name }})
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        shard: [kvm, integration, storage-data, rest]
+        include:
+          - name: kvm-integration
+            shards: kvm integration
+          - name: storage-data
+            shards: storage-data
+          - name: rest
+            shards: rest
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -108,22 +107,15 @@ jobs:
         uses: ./.github/actions/go-setup-action
         with:
           go-version: ${{ vars.GO_VERSION }}
-          build-cache-key: race-${{ matrix.shard }}
+          build-cache-key: race-${{ matrix.name }}
 
       - name: Run tests with the race detector
         env:
-          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ matrix.shards }}
         run: |
-          module=$(go list -m)
-          case "$SHARD" in
-            kvm) packages=$(go list ./kvm/...) ;;
-            integration) packages=$(go list ./integrationTest/...) ;;
-            storage-data) packages=$(go list ./storage/... ./data/...) ;;
-            rest) packages=$(go list ./... | grep -Ev "^${module}/(kvm|integrationTest|storage|data)(/|$)") ;;
-            *) echo "::error::unknown race shard $SHARD"; exit 1 ;;
-          esac
-          if [ -z "$packages" ]; then
-            echo "::error::race shard $SHARD has no packages"
+          read -ra shards <<<"$SHARDS"
+          if ! packages=$(.github/scripts/shard-packages.sh "${shards[@]}"); then
+            echo "::error::cannot list the packages of race shard $SHARDS"
             exit 1
           fi
           make tests-race RACE_PKGS="${packages//$'\n'/ }"
