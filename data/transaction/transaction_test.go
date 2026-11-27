@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"testing"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
@@ -1254,4 +1256,63 @@ func TestAddTransaction_ValidatorBLSSignature(t *testing.T) {
 			assert.Empty(t, tx.GetContracts())
 		}
 	})
+}
+
+func TestPushContract_DeterministicMapOrder(t *testing.T) {
+	t.Parallel()
+
+	contract := &transaction.SmartContract{
+		Address:   []byte("sc-address"),
+		CallValue: map[string]*transaction.CallValue{},
+	}
+	for _, id := range []string{"KLV", "KFI", "USDT-1A2B", "ABC-0001", "ZZZ-9999", "DVK-34ZH", "NFT-1234/1", "MMM-5555"} {
+		contract.CallValue[id] = &transaction.CallValue{Amount: int64(len(id))}
+	}
+
+	var first []byte
+	for i := 0; i < 50; i++ {
+		tx := &transaction.Transaction{RawData: &transaction.Transaction_Raw{}}
+		require.NoError(t, tx.PushContract(transaction.TXContract_SmartContractType, contract))
+
+		value := tx.GetContracts()[0].GetParameter().GetValue()
+		if first == nil {
+			first = value
+			continue
+		}
+		require.Equal(t, first, value, "packing %d differs", i)
+	}
+
+	keys := callValueWireKeys(t, first)
+	require.Len(t, keys, len(contract.CallValue))
+	require.True(t, sort.StringsAreSorted(keys), "keys not sorted: %v", keys)
+}
+
+// callValueWireKeys returns the SmartContract.CallValue keys in wire order.
+func callValueWireKeys(t *testing.T, b []byte) []string {
+	t.Helper()
+
+	var keys []string
+	for len(b) > 0 {
+		num, typ, n := protowire.ConsumeTag(b)
+		require.GreaterOrEqual(t, n, 0)
+		b = b[n:]
+		if num != 3 || typ != protowire.BytesType {
+			n = protowire.ConsumeFieldValue(num, typ, b)
+			require.GreaterOrEqual(t, n, 0)
+			b = b[n:]
+			continue
+		}
+
+		entry, n := protowire.ConsumeBytes(b)
+		require.GreaterOrEqual(t, n, 0)
+		b = b[n:]
+
+		keyNum, _, kn := protowire.ConsumeTag(entry)
+		require.Equal(t, protowire.Number(1), keyNum)
+		key, kl := protowire.ConsumeString(entry[kn:])
+		require.GreaterOrEqual(t, kl, 0)
+		keys = append(keys, key)
+	}
+
+	return keys
 }

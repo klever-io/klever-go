@@ -261,7 +261,9 @@ func (t *Transaction) AddTransaction(txArgs TXArgs) error {
 }
 
 func (t *Transaction) PushContract(cType TXContract_ContractType, contract protoreflect.ProtoMessage) error {
-	param, err := anypb.New(contract)
+	// Deterministic so map fields are written in sorted key order.
+	param := new(anypb.Any)
+	err := anypb.MarshalFrom(param, contract, proto.MarshalOptions{Deterministic: true})
 	if err != nil {
 		return err
 	}
