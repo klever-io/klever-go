@@ -1059,6 +1059,128 @@ func TestRemoveAccountsHistory_VerifyIndexParameter(t *testing.T) {
 	}
 }
 
+func TestRemoveAccountsHistory_RemovesKDAHistoryWhenEnabled(t *testing.T) {
+	t.Parallel()
+
+	timestamp := int64(54321)
+	var capturedIndexes []string
+
+	args := createMockElasticProcessorArgs()
+	args.EnabledIndexes[accountsKDAHistoryIndex] = struct{}{}
+	args.DBClient = &imock.DatabaseWriterStub{
+		DoBulkRemoveByTimestampCalled: func(index string, ts time.Duration) error {
+			require.Equal(t, toMilliseconds(timestamp), ts)
+			capturedIndexes = append(capturedIndexes, index)
+			return nil
+		},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	err = elasticProc.RemoveAccountsHistory(timestamp)
+	require.NoError(t, err)
+	require.Equal(t, []string{accountsHistoryIndex, accountsKDAHistoryIndex}, capturedIndexes)
+}
+
+func TestRemoveAccountsHistory_KDAHistoryOnly(t *testing.T) {
+	t.Parallel()
+
+	var capturedIndexes []string
+
+	args := createMockElasticProcessorArgs()
+	args.EnabledIndexes = map[string]struct{}{accountsKDAHistoryIndex: {}}
+	args.DBClient = &imock.DatabaseWriterStub{
+		DoBulkRemoveByTimestampCalled: func(index string, ts time.Duration) error {
+			capturedIndexes = append(capturedIndexes, index)
+			return nil
+		},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	require.NoError(t, elasticProc.RemoveAccountsHistory(54321))
+	require.Equal(t, []string{accountsKDAHistoryIndex}, capturedIndexes)
+}
+
+// kdaHistoryRows returns the accountskdahistory rows of a block bulk, keyed by _id. The bulk
+// also carries accountskda deletes, which have no source line, so it is not read pairwise.
+func kdaHistoryRows(t *testing.T, buffSlice *data.BufferSlice) map[string]data.AccountBalanceHistory {
+	t.Helper()
+
+	rows := make(map[string]data.AccountBalanceHistory)
+	for _, buff := range buffSlice.Buffers() {
+		lines := splitNDJSON(buff.Bytes())
+		for i := 0; i < len(lines)-1; i++ {
+			meta := struct {
+				Index struct {
+					Index string `json:"_index"`
+					ID    string `json:"_id"`
+				} `json:"index"`
+			}{}
+			if json.Unmarshal(lines[i], &meta) != nil || meta.Index.Index != accountsKDAHistoryIndex {
+				continue
+			}
+			row := data.AccountBalanceHistory{}
+			require.NoError(t, json.Unmarshal(lines[i+1], &row))
+			rows[meta.Index.ID] = row
+		}
+	}
+
+	return rows
+}
+
+func TestElasticProcessor_IndexAlteredAccountsWritesKDAHistory(t *testing.T) {
+	t.Parallel()
+
+	timestamp := int64(1234567890)
+	block := &data.PreparedBlockData{
+		Accounts: map[string]*data.AccountInfo{"klv1a": {Address: "klv1a"}},
+		AccountsKDA: []*data.AccountKDA{
+			{AccountAddress: "klv1a", AssetID: "KFI", Balance: 100, FrozenBalance: 20, UnfrozenBalance: 5},
+			{AccountAddress: "klv1a", AssetID: "COLL-1A2B/7", Balance: 0},
+			{AccountAddress: "klv1a", AssetID: KLVAssetID, Balance: 0},
+		},
+	}
+
+	t.Run("enabled index writes one row per address and asset", func(t *testing.T) {
+		t.Parallel()
+
+		arguments := createMockElasticProcessorArgs()
+		arguments.EnabledIndexes = map[string]struct{}{accountsIndex: {}, accountsKDAHistoryIndex: {}}
+		elasticDatabase := newTestElasticSearchDatabase(&imock.DatabaseWriterStub{}, arguments)
+
+		buffSlice := data.NewBufferSlice(data.DefaultMaxBulkSize)
+		require.NoError(t, elasticDatabase.indexAlteredAccounts(timestamp, block, buffSlice))
+
+		rows := kdaHistoryRows(t, buffSlice)
+		require.Len(t, rows, 2)
+		require.NotContains(t, rows, "klv1a-KLV_1234567890", "KLV balance is not in the KDA trie")
+		for _, row := range rows {
+			require.Equal(t, "klv1a", row.Address)
+			require.Equal(t, toMilliseconds(timestamp), row.Timestamp)
+		}
+		kfi := rows["klv1a-KFI_1234567890"]
+		require.Equal(t, "KFI", kfi.TokenIdentifier)
+		require.Equal(t, int64(100), kfi.Balance)
+		require.Equal(t, int64(20), kfi.FrozenBalance)
+		require.Equal(t, int64(5), kfi.UnfrozenBalance)
+		require.Contains(t, rows, "klv1a-COLL-1A2B/7_1234567890", "a balance that dropped to zero is still a history point")
+	})
+
+	t.Run("disabled index writes nothing", func(t *testing.T) {
+		t.Parallel()
+
+		arguments := createMockElasticProcessorArgs()
+		elasticDatabase := newTestElasticSearchDatabase(&imock.DatabaseWriterStub{}, arguments)
+
+		buffSlice := data.NewBufferSlice(data.DefaultMaxBulkSize)
+		require.NoError(t, elasticDatabase.indexAlteredAccounts(timestamp, block, buffSlice))
+		require.Empty(t, kdaHistoryRows(t, buffSlice))
+	})
+}
+
 func TestCalculateUnfrozenBalance(t *testing.T) {
 	t.Parallel()
 

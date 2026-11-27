@@ -79,6 +79,7 @@ func getTemplatesKibana() map[string]*bytes.Buffer {
 	indexTemplates[marketplacesIndex] = withKibana.Marketplaces.ToBuffer()
 	indexTemplates[marketplaceOrdersIndex] = withKibana.MarketplaceOrders.ToBuffer()
 	indexTemplates[accountsHistoryIndex] = withKibana.AccountsHistory.ToBuffer()
+	indexTemplates[accountsKDAHistoryIndex] = withKibana.AccountsKDAHistory.ToBuffer()
 	indexTemplates[kdaPoolsIndex] = withKibana.KDAPools.ToBuffer()
 	indexTemplates[iTOsIndex] = withKibana.ITOs.ToBuffer()
 
@@ -102,6 +103,7 @@ func getTemplatesNoKibana() map[string]*bytes.Buffer {
 	indexTemplates[marketplacesIndex] = noKibana.Marketplaces.ToBuffer()
 	indexTemplates[marketplaceOrdersIndex] = noKibana.MarketplaceOrders.ToBuffer()
 	indexTemplates[accountsHistoryIndex] = noKibana.AccountsHistory.ToBuffer()
+	indexTemplates[accountsKDAHistoryIndex] = noKibana.AccountsKDAHistory.ToBuffer()
 	indexTemplates[kdaPoolsIndex] = noKibana.KDAPools.ToBuffer()
 	indexTemplates[iTOsIndex] = noKibana.ITOs.ToBuffer()
 
@@ -115,6 +117,7 @@ func getPolicies() map[string]*bytes.Buffer {
 	indexesPolicies[blockPolicy] = withKibana.BlocksPolicy.ToBuffer()
 	indexesPolicies[ratingPolicy] = withKibana.RatingPolicy.ToBuffer()
 	indexesPolicies[accountsHistoryPolicy] = withKibana.AccountsHistoryPolicy.ToBuffer()
+	indexesPolicies[accountsKDAHistoryPolicy] = withKibana.AccountsKDAHistoryPolicy.ToBuffer()
 
 	return indexesPolicies
 }
