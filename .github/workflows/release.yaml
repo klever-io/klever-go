@@ -39,7 +39,6 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       VERSION: ${{ github.ref_name }}
-      GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
 
     steps:
       - name: Cleanup bin directory
