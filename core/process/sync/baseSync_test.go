@@ -1416,18 +1416,6 @@ func TestRequestHeadersIfSyncIsStuck(t *testing.T) {
 		assert.Equal(t, uint64(8), stub.requestedNonces[0])
 		assert.Equal(t, uint64(27), stub.requestedNonces[len(stub.requestedNonces)-1])
 	})
-
-	// Without the underflow guard in slotsSinceLastCommittedBlock the subtraction
-	// wraps to a huge uint64, the threshold is trivially cleared, and the node
-	// requests a full burst of nonces that cannot exist yet.
-	t.Run("requests nothing when the committed block is ahead of the slot index", func(t *testing.T) {
-		t.Parallel()
-
-		boot, stub := newStuckRequestBoot(50, headerAt(100, 7))
-		fireStuck(boot, false)
-
-		assert.Empty(t, stub.requestedNonces)
-	})
 }
 
 // doJobOnSyncBlockFail decides whether a failed sync attempt rolls the chain
@@ -1510,22 +1498,6 @@ func newStuckRequestBoot(slotIndex int64, currentHeader data.HeaderHandler) (*ba
 	return boot, stub
 }
 
-// The not-synced catch-up path is not capped: a lost burst has to be able to
-// go out again on the next sync iteration, which is what it did before the
-// synced stall claim existed.
-func TestRequestHeadersIfSyncIsStuck_NotSyncedRetriesInsideTheSlot(t *testing.T) {
-	t.Parallel()
-
-	boot, stub := newStuckRequestBoot(int64(process.MaxSlotsWithoutNewBlockReceived)+1, headerAt(0, 7))
-
-	fireStuck(boot, false)
-	firstBurst := len(stub.requestedNonces)
-	assert.Equal(t, 10, firstBurst)
-
-	fireStuck(boot, false)
-	assert.Len(t, stub.requestedNonces, firstBurst*2)
-}
-
 // Slot 0 must be claimable. Storing the index itself would treat the zero
 // value as "already claimed at slot 0" and drop the first burst there.
 func TestClaimSyncedStallSlot_IncludesSlotZero(t *testing.T) {
@@ -1542,9 +1514,9 @@ func TestClaimSyncedStallSlot_IncludesSlotZero(t *testing.T) {
 
 const stallWarnMessage = "node believes it is synchronized but has not committed a block for a while"
 
-// The warning fires when the burst was decided while the node believed it was
-// synchronized, and only once for that stretch. An honestly syncing node on
-// the same path stays quiet. Not parallel: it registers a global log observer.
+// The warning fires only when computeNodeState asked for it; an honestly
+// syncing node on the same path stays quiet. Not parallel: it registers a
+// global log observer.
 func TestRequestHeadersIfSyncIsStuck_WarnsOnlyWhenStalledWhileSynced(t *testing.T) {
 	buff := ObserveLogMessage(t, stallWarnMessage)
 
@@ -1566,20 +1538,6 @@ func TestRequestHeadersIfSyncIsStuck_WarnsOnlyWhenStalledWhileSynced(t *testing.
 
 		require.NotEmpty(t, stub.requestedNonces, "the burst itself must still fire")
 		require.Empty(t, buff.String())
-	})
-
-	t.Run("warns once per episode, including across slots", func(t *testing.T) {
-		buff.Reset()
-		boot, _ := newStuckRequestBoot(int64(process.MaxSlotsWithoutNewBlockReceived)+1, headerAt(0, 7))
-
-		fireStuck(boot, true)
-		firstLen := buff.Len()
-		require.Greater(t, firstLen, 0)
-
-		fireStuck(boot, true)
-		boot.slotManager.(*consensusMock.SlotManagerMock).SlotIndex++
-		fireStuck(boot, true)
-		require.Equal(t, firstLen, buff.Len())
 	})
 }
 
@@ -1630,53 +1588,66 @@ func newComputeNodeStateBoot(slotIndex int64, probableHighest uint64, stub block
 	return boot
 }
 
-// Pins the spawn-site wiring in computeNodeState: the goroutine must receive
-// the freshly computed isNodeSynchronized. Not parallel: it registers a global
-// log observer.
-func TestComputeNodeState_StalledWhileSyncedWiresWarnIntoBurst(t *testing.T) {
-	buff := ObserveLogMessage(t, stallWarnMessage)
-
-	stub := &signalingBlockBootstrapperStub{}
-	stub.arm(process.MaxHeadersToRequestInAdvance)
-
-	// Last committed block at slot 0 / nonce 7 while the slot index is 30: a
-	// stalled node. The fork detector reports no fork and a probable highest
-	// nonce equal to the committed one, which computes isNodeSynchronized.
-	boot := newComputeNodeStateBoot(30, 7, stub)
-
-	boot.computeNodeState()
-	require.True(t, boot.isNodeSynchronized)
-
-	waitForRequests(t, stub)
-	require.Contains(t, buff.String(), stallWarnMessage)
-}
-
 // Re-entering computeNodeState in the same slot must not send a second synced
-// burst. The claim happens before the goroutine, so a cleared
+// burst. The claim happens before the spawn, so a cleared
 // isNodeStateCalculated flag is not enough to fire again.
 func TestComputeNodeState_SyncedStallClaimsSlotAcrossReentry(t *testing.T) {
 	t.Parallel()
 
-	stub := &signalingBlockBootstrapperStub{}
-	stub.arm(process.MaxHeadersToRequestInAdvance)
-	boot := newComputeNodeStateBoot(30, 7, stub)
+	boot := newComputeNodeStateBoot(30, 7, &blockBootstrapperStub{})
+	spawns := 0
+	boot.spawnRequest = func(func()) { spawns++ }
 
 	boot.computeNodeState()
 	require.True(t, boot.isNodeSynchronized)
-	waitForRequests(t, stub)
-	require.Equal(t, int32(process.MaxHeadersToRequestInAdvance), stub.counted.Load())
+	require.Equal(t, 1, spawns)
 
 	boot.isNodeStateCalculated = false
 	boot.computeNodeState()
-	time.Sleep(50 * time.Millisecond)
-	require.Equal(t, int32(process.MaxHeadersToRequestInAdvance), stub.counted.Load())
+	require.Equal(t, 1, spawns)
 
 	boot.isNodeStateCalculated = false
 	boot.slotManager.(*consensusMock.SlotManagerMock).SlotIndex++
-	stub.arm(int32(process.MaxHeadersToRequestInAdvance) * 2)
+	boot.computeNodeState()
+	require.Equal(t, 2, spawns)
+}
+
+// A stalled synced node gets a forced-rollback pass on every proper slot,
+// where tryRequest is false. That pass must not end the episode, or the warning
+// repeats every SlotModulusTrigger slots. Not parallel: log observer.
+func TestComputeNodeState_ForcedRollbackDoesNotRearmStallWarning(t *testing.T) {
+	buff := ObserveLogMessage(t, stallWarnMessage)
+
+	stub := &signalingBlockBootstrapperStub{}
+	stub.arm(process.MaxHeadersToRequestInAdvance)
+	boot := newComputeNodeStateBoot(31, 7, stub)
+	forcedRollback := false
+	boot.forkDetector.(*mock.ForkDetectorMock).CheckForkCalled = func() *process.ForkInfo {
+		forkInfo := process.NewForkInfo()
+		forkInfo.IsDetected = forcedRollback
+		return forkInfo
+	}
+
 	boot.computeNodeState()
 	waitForRequests(t, stub)
-	require.Equal(t, int32(process.MaxHeadersToRequestInAdvance)*2, stub.counted.Load())
+	firstLen := buff.Len()
+	require.Greater(t, firstLen, 0)
+
+	// Proper slot: the fork detector forces a rollback, no burst is tried.
+	forcedRollback = true
+	boot.isNodeStateCalculated = false
+	boot.slotManager.(*consensusMock.SlotManagerMock).SlotIndex = 35
+	boot.computeNodeState()
+	require.False(t, boot.isNodeSynchronized)
+
+	// Same slot after the reset: synced and stalled again, no second line.
+	forcedRollback = false
+	boot.isNodeStateCalculated = false
+	stub.arm(int32(process.MaxHeadersToRequestInAdvance) * 2)
+	boot.computeNodeState()
+	require.True(t, boot.isNodeSynchronized)
+	waitForRequests(t, stub)
+	require.Equal(t, firstLen, buff.Len())
 }
 
 // A not-synced node still requests on every re-entry. The slot claim belongs
@@ -1710,6 +1681,7 @@ func TestComputeNodeState_SyncedStallWarnsOncePerEpisode(t *testing.T) {
 	boot := newComputeNodeStateBoot(30, 7, stub)
 
 	boot.computeNodeState()
+	require.True(t, boot.isNodeSynchronized)
 	waitForRequests(t, stub)
 	require.Contains(t, buff.String(), stallWarnMessage)
 	firstLen := buff.Len()

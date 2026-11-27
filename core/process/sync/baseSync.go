@@ -128,7 +128,9 @@ type baseBootstrap struct {
 	// syncedStallWarned is set for one stretch of synced stalls and cleared
 	// when that stretch ends, so the warning is a single line per episode.
 	syncedStallWarned atomic.Bool
-	cancelFunc        func()
+	// spawnRequest starts a header burst; nil runs it in a new goroutine.
+	spawnRequest func(func())
+	cancelFunc   func()
 	hasStarted        bool
 
 	// For Backtest Purpose
@@ -361,12 +363,23 @@ func (boot *baseBootstrap) computeNodeState() {
 	// here would make a lost burst wait a full slot, and a not-synced call that
 	// claimed first would swallow the synced stall warning.
 	stalledWhileSynced := tryRequest && boot.isNodeSynchronized
-	if !stalledWhileSynced {
+	// Forced-rollback passes return early with a false tryRequest while the
+	// node is still stalled, so only a caught-up lag ends the episode.
+	if boot.slotsSinceLastCommittedBlock() <= process.MaxSlotsWithoutNewBlockReceived {
 		boot.syncedStallWarned.Store(false)
 	}
 	if tryRequest && (!stalledWhileSynced || boot.claimSyncedStallSlot()) {
-		go boot.requestHeadersIfSyncIsStuck(lag, stalledWhileSynced)
+		warn := stalledWhileSynced && boot.syncedStallWarned.CompareAndSwap(false, true)
+		boot.spawn(func() { boot.requestHeadersIfSyncIsStuck(lag, warn) })
 	}
+}
+
+func (boot *baseBootstrap) spawn(run func()) {
+	if boot.spawnRequest != nil {
+		boot.spawnRequest(run)
+		return
+	}
+	go run()
 }
 
 // shouldTryToRequestHeaders reports whether a header burst should be considered
@@ -434,15 +447,15 @@ func (boot *baseBootstrap) slotsSinceLastCommittedBlock() uint64 {
 }
 
 // requestHeadersIfSyncIsStuck requests the missing headers when lag exceeds
-// MaxSlotsWithoutNewBlockReceived. stalledWhileSynced warns once per episode:
-// the node is advertising NsSynchronized and MetricIsSyncing stays 0. The warn
-// stays in this goroutine so it is not formatted under mutNodeState.
-func (boot *baseBootstrap) requestHeadersIfSyncIsStuck(lag uint64, stalledWhileSynced bool) {
+// MaxSlotsWithoutNewBlockReceived. warnSyncedStall is decided once per episode
+// by computeNodeState: the node is advertising NsSynchronized and
+// MetricIsSyncing stays 0. The line is formatted here, outside mutNodeState.
+func (boot *baseBootstrap) requestHeadersIfSyncIsStuck(lag uint64, warnSyncedStall bool) {
 	if lag <= process.MaxSlotsWithoutNewBlockReceived {
 		return
 	}
 
-	if stalledWhileSynced && boot.syncedStallWarned.CompareAndSwap(false, true) {
+	if warnSyncedStall {
 		log.Warn("node believes it is synchronized but has not committed a block for a while",
 			"slots since last committed block", lag,
 			"last committed nonce", boot.getNonceForCurrentBlock(),
