@@ -1,6 +1,7 @@
 package headerCheck
 
 import (
+	"errors"
 	"math/bits"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -113,6 +114,7 @@ func (hsv *HeaderSigVerifier) VerifySignature(header data.HeaderHandler) error {
 		epoch,
 	)
 	if err != nil {
+		logIfEpochConfigMissing(err, header, epoch, "signature")
 		return err
 	}
 
@@ -293,9 +295,29 @@ func (hsv *HeaderSigVerifier) getLeader(header data.HeaderHandler) (crypto.Publi
 
 	headerConsensusGroup, err := hsv.nodesCoordinator.ComputeConsensusGroup(prevRandSeed, header.GetSlot(), epoch)
 	if err != nil {
+		logIfEpochConfigMissing(err, header, epoch, "leader")
 		return nil, err
 	}
 
 	leaderPubKeyValidator := headerConsensusGroup[0]
 	return hsv.keyGen.PublicKeyFromByteArray(leaderPubKeyValidator.PubKey())
+}
+
+// logIfEpochConfigMissing logs when a header is rejected because the epoch's
+// consensus config is not built yet. lookupEpoch is the epoch that was queried,
+// which is the previous epoch for an epoch-start header. Debug on purpose: an
+// unauthenticated peer can trigger this with a future epoch.
+func logIfEpochConfigMissing(err error, header data.HeaderHandler, lookupEpoch uint32, stage string) {
+	if !errors.Is(err, sharding.ErrEpochNodesConfigDoesNotExist) {
+		return
+	}
+
+	log.Debug("header rejected, epoch consensus config not built yet",
+		"stage", stage,
+		"missing config for epoch", lookupEpoch,
+		"header epoch", header.GetEpoch(),
+		"nonce", header.GetNonce(),
+		"slot", header.GetSlot(),
+		"is epoch start", header.GetIsEpochStart(),
+	)
 }

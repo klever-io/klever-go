@@ -1,6 +1,7 @@
 package slot_test
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -169,4 +170,34 @@ func TestSlot_RemainingTimeInCurrentSlotShouldReturnNegativeValue(t *testing.T) 
 
 	assert.Equal(t, time.Duration(int64(s.TimeDuration())-timeElapsed), remainingTime)
 	assert.True(t, remainingTime < 0)
+}
+
+// Chronology updates the slot while sync and consensus goroutines read it.
+// Run with -race: without the slot mutex this reports a data race.
+func TestSlot_ConcurrentUpdateAndRead(t *testing.T) {
+	t.Parallel()
+
+	genesisTime := time.Now()
+	s, err := slot.NewSlotManager(genesisTime, genesisTime, time.Millisecond, &mock.SyncTimerMock{}, 0)
+	assert.Nil(t, err)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			s.UpdateSlot(genesisTime.Add(time.Duration(i) * time.Millisecond))
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			_ = s.Index()
+			_ = s.Timestamp()
+			_ = s.BeforeGenesis()
+		}
+	}()
+	wg.Wait()
+
+	assert.Equal(t, int64(999), s.Index())
 }

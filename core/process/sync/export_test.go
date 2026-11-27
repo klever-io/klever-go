@@ -1,10 +1,15 @@
 package sync
 
 import (
+	"testing"
+
+	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
+	"github.com/stretchr/testify/require"
 )
 
 func (boot *MetaBootstrap) ReceivedHeaders(header data.HeaderHandler, key []byte) {
@@ -185,4 +190,18 @@ func (boot *baseBootstrap) GetMapNonceSyncedWithErrorsLen() int {
 
 func (boot *baseBootstrap) CleanNoncesSyncedWithErrorsBehindFinal() {
 	boot.cleanNoncesSyncedWithErrorsBehindFinal()
+}
+
+// CountLogLines registers a counter for lines with message msg and removes it
+// when the test ends.
+func CountLogLines(t testing.TB, msg string) *mock.LogLineCounter {
+	t.Helper()
+
+	counter := mock.NewLogLineCounter(msg)
+	require.Nil(t, logger.AddLogObserver(counter, counter))
+	t.Cleanup(func() {
+		require.Nil(t, logger.RemoveLogObserver(counter))
+	})
+
+	return counter
 }
