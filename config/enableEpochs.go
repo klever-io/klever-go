@@ -34,6 +34,7 @@ type EnableEpochs struct {
 	FixAuditChangesV5       uint32 `yaml:"fixAuditChangesV5"`
 	FixAuditChangesV6       uint32 `yaml:"fixAuditChangesV6"`
 	FixAuditChangesV7       uint32 `yaml:"fixAuditChangesV7"`
+	FixAuditChangesV8       uint32 `yaml:"fixAuditChangesV8"`
 }
 
 // Validate checks that the configured activation epochs are mutually consistent. It runs
@@ -81,6 +82,15 @@ func (e EnableEpochs) Validate() error {
 		return fmt.Errorf("fixAuditChangesV7 (%d) must be after fixAuditChangesV6 (%d), "+
 			"otherwise the V7 changes apply retroactively to blocks committed under V6 rules",
 			e.FixAuditChangesV7, e.FixAuditChangesV6)
+	}
+
+	// fixAuditChangesV8 must be strictly after fixAuditChangesV7: sharing or preceding it
+	// would apply the V8 changes to blocks already committed under V7 rules. A V7 left at
+	// the placeholder is not a real schedule, so it is not checked.
+	if e.FixAuditChangesV7 != 0 && e.FixAuditChangesV8 <= e.FixAuditChangesV7 {
+		return fmt.Errorf("fixAuditChangesV8 (%d) must be after fixAuditChangesV7 (%d), "+
+			"otherwise the V8 changes apply retroactively to blocks committed under V7 rules",
+			e.FixAuditChangesV8, e.FixAuditChangesV7)
 	}
 
 	return nil

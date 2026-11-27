@@ -21,6 +21,7 @@ type ForkControllerStub struct {
 	FixAuditChangesV5Value       bool
 	FixAuditChangesV6Value       bool
 	FixAuditChangesV7Value       bool
+	FixAuditChangesV8Value       bool
 	EpochConfirmedCalled         bool
 	LastConfirmedEpoch           uint32
 
@@ -36,6 +37,10 @@ type ForkControllerStub struct {
 	// FixAuditChangesV7InEpoch. When nil the stub falls back to FixAuditChangesV7Value, so
 	// the epoch-aware gate matches the boolean one for tests that only set the latter.
 	FixAuditChangesV7Epoch *uint32
+	// FixAuditChangesV8Epoch, when non-nil, is the activation epoch answered by
+	// FixAuditChangesV8InEpoch. When nil the stub falls back to FixAuditChangesV8Value, so
+	// the epoch-aware gate matches the boolean one for tests that only set the latter.
+	FixAuditChangesV8Epoch *uint32
 }
 
 func NewForkControllerStub() *ForkControllerStub {
@@ -82,6 +87,8 @@ func (s *ForkControllerStub) SetFork(forkName string, value bool) *ForkControlle
 		s.FixAuditChangesV6Value = value
 	case "FixAuditChangesV7":
 		s.FixAuditChangesV7Value = value
+	case "FixAuditChangesV8":
+		s.FixAuditChangesV8Value = value
 	}
 
 	return s
@@ -106,6 +113,7 @@ func (s *ForkControllerStub) SetAll(value bool) {
 	s.FixAuditChangesV5Value = value
 	s.FixAuditChangesV6Value = value
 	s.FixAuditChangesV7Value = value
+	s.FixAuditChangesV8Value = value
 	s.LastConfirmedEpoch = 0
 }
 
@@ -131,6 +139,8 @@ func (s *ForkControllerStub) SetByConfig(config config.EnableEpochs) {
 	s.FixAuditChangesV6Epoch = &config.FixAuditChangesV6
 	s.FixAuditChangesV7Value = config.FixAuditChangesV7 == 0
 	s.FixAuditChangesV7Epoch = &config.FixAuditChangesV7
+	s.FixAuditChangesV8Value = config.FixAuditChangesV8 == 0
+	s.FixAuditChangesV8Epoch = &config.FixAuditChangesV8
 	s.LastConfirmedEpoch = 0
 }
 
@@ -247,6 +257,21 @@ func (s *ForkControllerStub) FixAuditChangesV7InEpoch(epoch uint32) bool {
 	}
 
 	return epoch >= *s.FixAuditChangesV7Epoch
+}
+
+// FixAuditChangesV8 returns the stubbed value
+func (s *ForkControllerStub) FixAuditChangesV8() bool {
+	return s.FixAuditChangesV8Value
+}
+
+// FixAuditChangesV8InEpoch returns the stubbed value for an explicit epoch, using the
+// configured activation epoch when one was set and the boolean value otherwise
+func (s *ForkControllerStub) FixAuditChangesV8InEpoch(epoch uint32) bool {
+	if s.FixAuditChangesV8Epoch == nil {
+		return s.FixAuditChangesV8Value
+	}
+
+	return epoch >= *s.FixAuditChangesV8Epoch
 }
 
 // EpochConfirmed records that the method was called and stores the epoch
