@@ -2,6 +2,7 @@ package slot
 
 import (
 	"math"
+	"sync"
 	"time"
 
 	"github.com/klever-io/klever-go/common"
@@ -17,6 +18,9 @@ type slotManager struct {
 	timeDuration time.Duration // represents the duration of the slot in current chronology
 	syncTimer    ntp.SyncTimer
 	startSlot    int64
+	// mut guards index and timestamp: chronology updates them while other
+	// goroutines read.
+	mut sync.RWMutex
 }
 
 // NewSlotManager defines a new slot object
@@ -49,10 +53,12 @@ func (s *slotManager) UpdateSlot(currentTimestamp time.Time) {
 
 	index := int64(math.Floor(float64(delta)/float64(s.timeDuration.Nanoseconds()))) + s.startSlot
 
+	s.mut.Lock()
 	if s.index != index {
 		s.index = index
 		s.timestamp = s.GenesisTimestamp().Add(time.Duration((index - s.startSlot) * s.timeDuration.Nanoseconds()))
 	}
+	s.mut.Unlock()
 }
 
 func (s *slotManager) ValidateSlotTimestamp(slot int64, timestamp int64) bool {
@@ -69,16 +75,22 @@ func (s *slotManager) GenesisTimestamp() time.Time {
 
 // BeforeGenesis returns true if slot index is before start slot
 func (s *slotManager) BeforeGenesis() bool {
-	return s.index <= s.startSlot
+	return s.Index() <= s.startSlot
 }
 
 // Index returns the index of the slot in current epoch
 func (s *slotManager) Index() int64 {
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+
 	return s.index
 }
 
 // Timestamp returns the time stamp of the slot
 func (s *slotManager) Timestamp() time.Time {
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+
 	return s.timestamp
 }
 
