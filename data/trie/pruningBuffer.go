@@ -1,6 +1,8 @@
 package trie
 
 import (
+	"bytes"
+	"slices"
 	"sync"
 )
 
@@ -21,8 +23,15 @@ func (pb *pruningBuffer) add(rootHash []byte) {
 	pb.mutOp.Lock()
 	defer pb.mutOp.Unlock()
 
-	// #nosec G115
-	if uint32(len(pb.buffer)) == pb.size {
+	// A cancel is never dropped and supersedes a queued prune of the same key, which FIFO replay
+	// would otherwise run first. A full buffer only drops prunes, which leak nodes at worst.
+	if isCancelPrune(rootHash) {
+		pruneEntry := append(bytes.Clone(rootHash[:len(rootHash)-1]), byte(prune))
+		pb.buffer = slices.DeleteFunc(pb.buffer, func(entry []byte) bool { return bytes.Equal(entry, pruneEntry) })
+		if pb.isFull() {
+			log.Warn("pruning buffer is full, keeping cancel prune", "rootHash", rootHash, "len", len(pb.buffer))
+		}
+	} else if pb.isFull() {
 		log.Warn("pruning buffer is full", "rootHash", rootHash)
 		return
 	}
@@ -49,4 +58,12 @@ func (pb *pruningBuffer) len() int {
 	defer pb.mutOp.RUnlock()
 
 	return len(pb.buffer)
+}
+
+func (pb *pruningBuffer) isFull() bool {
+	return uint32(len(pb.buffer)) >= pb.size // #nosec G115
+}
+
+func isCancelPrune(bufferedHash []byte) bool {
+	return len(bufferedHash) > 0 && pruningOperation(bufferedHash[len(bufferedHash)-1]) == cancelPrune
 }

@@ -734,3 +734,38 @@ func TestShouldNotRemoveSnapshotDbIfItIsStillInUse(t *testing.T) {
 	assert.Nil(t, val)
 	assert.NotNil(t, err)
 }
+
+func TestTrieCancelPruneOnFullPruningBufferKeepsQueuedPruneFromDeleting(t *testing.T) {
+	t.Parallel()
+
+	run := func(cancel bool) (*trieStorageManager, []byte) {
+		tr, trieStorage, _ := newEmptyTrie()
+		_ = tr.Update([]byte("doe"), []byte("reindeer"))
+		_ = tr.Update([]byte("dog"), []byte("puppy"))
+		_ = tr.Commit()
+		oldRootHash, _ := tr.RootHash()
+		_ = tr.Update([]byte("dog"), []byte("doee"))
+		_ = tr.Commit()
+		trieStorage.CancelPrune(oldRootHash, data.NewRoot)
+
+		trieStorage.pruningBuffer = newPruningBuffer(1)
+		trieStorage.EnterPruningBufferingMode()
+		trieStorage.Prune(oldRootHash, data.OldRoot)
+		if cancel {
+			trieStorage.CancelPrune(oldRootHash, data.OldRoot)
+		}
+		trieStorage.ExitPruningBufferingMode()
+		trieStorage.Prune([]byte("flush"), data.OldRoot)
+
+		return trieStorage, oldRootHash
+	}
+
+	trieStorage, oldRootHash := run(false)
+	_, err := trieStorage.Database().Get(oldRootHash)
+	require.NotNil(t, err, "control: the queued prune deletes the old root")
+
+	trieStorage, oldRootHash = run(true)
+	_, err = trieStorage.Database().Get(oldRootHash)
+	assert.Nil(t, err)
+	assert.Equal(t, 0, trieStorage.pruningBuffer.len())
+}
