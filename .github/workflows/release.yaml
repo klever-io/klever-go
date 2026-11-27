@@ -18,6 +18,7 @@ jobs:
 
   build:
     permissions:
+      id-token: write
       contents: write
     needs: [setup-and-lint]
     runs-on: ${{ matrix.os }}
@@ -38,7 +39,6 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       VERSION: ${{ github.ref_name }}
-      GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
 
     steps:
       - name: Cleanup bin directory
@@ -107,7 +107,8 @@ jobs:
       - name: Configure GCP service account
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
-          credentials_json: '${{ secrets.GCP_CLOUD_RUN_SA }}'
+          workload_identity_provider: projects/1045602110429/locations/global/workloadIdentityPools/github-actions/providers/github-releases
+          service_account: gh-release-uploads@common-staging-310514.iam.gserviceaccount.com
 
       - name: Upload operator files to bucket
         uses: google-github-actions/upload-cloud-storage@6397bd7208e18d13ba2619ee21b9873edc94427a # v3.0.0
