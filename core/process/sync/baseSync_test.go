@@ -1518,26 +1518,25 @@ const stallWarnMessage = "node believes it is synchronized but has not committed
 // syncing node on the same path stays quiet. Not parallel: it registers a
 // global log observer.
 func TestRequestHeadersIfSyncIsStuck_WarnsOnlyWhenStalledWhileSynced(t *testing.T) {
-	buff := ObserveLogMessage(t, stallWarnMessage)
-
 	t.Run("warns when the node believed it was synchronized", func(t *testing.T) {
-		buff.Reset()
+		recorder := observeWarn(t, stallWarnMessage)
 		boot, _ := newStuckRequestBoot(int64(process.MaxSlotsWithoutNewBlockReceived)+1, headerAt(0, 7))
 
 		fireStuck(boot, true)
 
-		require.Contains(t, buff.String(), "node believes it is synchronized")
-		require.Contains(t, buff.String(), "slots since last committed block")
+		lines := recorder.snapshot()
+		require.Len(t, lines, 1)
+		require.Contains(t, lines[0], "slots since last committed block")
 	})
 
 	t.Run("stays silent while honestly syncing", func(t *testing.T) {
-		buff.Reset()
+		counter := CountLogLines(t, stallWarnMessage)
 		boot, stub := newStuckRequestBoot(int64(process.MaxSlotsWithoutNewBlockReceived)+1, headerAt(0, 7))
 
 		fireStuck(boot, false)
 
 		require.NotEmpty(t, stub.requestedNonces, "the burst itself must still fire")
-		require.Empty(t, buff.String())
+		require.Zero(t, counter.Count())
 	})
 }
 
@@ -1616,7 +1615,7 @@ func TestComputeNodeState_SyncedStallClaimsSlotAcrossReentry(t *testing.T) {
 // where tryRequest is false. That pass must not end the episode, or the warning
 // repeats every SlotModulusTrigger slots. Not parallel: log observer.
 func TestComputeNodeState_ForcedRollbackDoesNotRearmStallWarning(t *testing.T) {
-	buff := ObserveLogMessage(t, stallWarnMessage)
+	counter := CountLogLines(t, stallWarnMessage)
 
 	stub := &signalingBlockBootstrapperStub{}
 	stub.arm(process.MaxHeadersToRequestInAdvance)
@@ -1630,8 +1629,8 @@ func TestComputeNodeState_ForcedRollbackDoesNotRearmStallWarning(t *testing.T) {
 
 	boot.computeNodeState()
 	waitForRequests(t, stub)
-	firstLen := buff.Len()
-	require.Greater(t, firstLen, 0)
+	firstCount := counter.Count()
+	require.Greater(t, firstCount, 0)
 
 	// Proper slot: the fork detector forces a rollback, no burst is tried.
 	forcedRollback = true
@@ -1647,7 +1646,7 @@ func TestComputeNodeState_ForcedRollbackDoesNotRearmStallWarning(t *testing.T) {
 	boot.computeNodeState()
 	require.True(t, boot.isNodeSynchronized)
 	waitForRequests(t, stub)
-	require.Equal(t, firstLen, buff.Len())
+	require.Equal(t, firstCount, counter.Count())
 }
 
 // A not-synced node still requests on every re-entry. The slot claim belongs
@@ -1674,7 +1673,7 @@ func TestComputeNodeState_NotSyncedReentryStillRequests(t *testing.T) {
 // The synced stall warning is one line for the whole stretch, then fires again
 // after the lag drops and the stall returns. Not parallel: log observer.
 func TestComputeNodeState_SyncedStallWarnsOncePerEpisode(t *testing.T) {
-	buff := ObserveLogMessage(t, stallWarnMessage)
+	counter := CountLogLines(t, stallWarnMessage)
 
 	stub := &signalingBlockBootstrapperStub{}
 	stub.arm(process.MaxHeadersToRequestInAdvance)
@@ -1683,15 +1682,15 @@ func TestComputeNodeState_SyncedStallWarnsOncePerEpisode(t *testing.T) {
 	boot.computeNodeState()
 	require.True(t, boot.isNodeSynchronized)
 	waitForRequests(t, stub)
-	require.Contains(t, buff.String(), stallWarnMessage)
-	firstLen := buff.Len()
+	firstCount := counter.Count()
+	require.Greater(t, firstCount, 0)
 
 	boot.isNodeStateCalculated = false
 	boot.slotManager.(*consensusMock.SlotManagerMock).SlotIndex++
 	stub.arm(int32(process.MaxHeadersToRequestInAdvance) * 2)
 	boot.computeNodeState()
 	waitForRequests(t, stub)
-	require.Equal(t, firstLen, buff.Len())
+	require.Equal(t, firstCount, counter.Count())
 
 	// Caught up: the next pass clears the latch and does not request.
 	boot.isNodeStateCalculated = false
@@ -1715,5 +1714,5 @@ func TestComputeNodeState_SyncedStallWarnsOncePerEpisode(t *testing.T) {
 	stub.arm(int32(process.MaxHeadersToRequestInAdvance) * 3)
 	boot.computeNodeState()
 	waitForRequests(t, stub)
-	require.Greater(t, buff.Len(), firstLen)
+	require.Greater(t, counter.Count(), firstCount)
 }

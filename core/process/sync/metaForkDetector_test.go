@@ -228,7 +228,7 @@ const checkpointAheadWarnMessage = "last checkpoint is ahead of the local slot i
 // warning is once per episode: again only after the checkpoint is no longer
 // ahead. Not parallel: it registers a global log observer.
 func TestMetaForkDetector_CheckpointAheadWarnsOncePerEpisode(t *testing.T) {
-	buff := sync.ObserveLogMessage(t, checkpointAheadWarnMessage)
+	counter := sync.CountLogLines(t, checkpointAheadWarnMessage)
 
 	const checkpointSlot = uint64(100)
 
@@ -246,15 +246,14 @@ func TestMetaForkDetector_CheckpointAheadWarnsOncePerEpisode(t *testing.T) {
 	forkInfo := bfd.CheckFork()
 	require.False(t, forkInfo.IsDetected)
 
-	firstLen := buff.Len()
-	require.Greater(t, firstLen, 0)
-	require.Contains(t, buff.String(), "last checkpoint is ahead of the local slot index")
+	firstCount := counter.Count()
+	require.Greater(t, firstCount, 0)
 
 	// Same slot, and the next slot while the checkpoint is still ahead: silent.
 	_ = bfd.CheckFork()
 	sloterMock.SlotIndex = 51
 	_ = bfd.CheckFork()
-	require.Equal(t, firstLen, buff.Len())
+	require.Equal(t, firstCount, counter.Count())
 
 	// Subtraction succeeds, so the latch clears. 200 is a multiple of
 	// SlotModulusTrigger; the clear happens before the stuck decision.
@@ -263,13 +262,13 @@ func TestMetaForkDetector_CheckpointAheadWarnsOncePerEpisode(t *testing.T) {
 
 	sloterMock.SlotIndex = 50
 	_ = bfd.CheckFork()
-	require.Greater(t, buff.Len(), firstLen)
+	require.Greater(t, counter.Count(), firstCount)
 }
 
 // Slot index 0 must still warn. The latch is a bool, so an unset field does
 // not collide with that slot the way a slot-valued throttle would.
 func TestMetaForkDetector_CheckpointAheadWarnsAtSlotIndexZero(t *testing.T) {
-	buff := sync.ObserveLogMessage(t, checkpointAheadWarnMessage)
+	counter := sync.CountLogLines(t, checkpointAheadWarnMessage)
 
 	sloterMock := &consensusMock.SlotManagerMock{
 		SlotIndex:          0,
@@ -286,5 +285,5 @@ func TestMetaForkDetector_CheckpointAheadWarnsAtSlotIndexZero(t *testing.T) {
 	forkInfo := bfd.CheckFork()
 	require.False(t, forkInfo.IsDetected)
 
-	require.Contains(t, buff.String(), "last checkpoint is ahead of the local slot index")
+	require.Greater(t, counter.Count(), 0)
 }

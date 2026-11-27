@@ -131,7 +131,7 @@ type baseBootstrap struct {
 	// spawnRequest starts a header burst; nil runs it in a new goroutine.
 	spawnRequest func(func())
 	cancelFunc   func()
-	hasStarted        bool
+	hasStarted   bool
 
 	// For Backtest Purpose
 	chanStopNodeProcess chan endProcess.ArgEndProcess
