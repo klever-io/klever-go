@@ -1191,7 +1191,7 @@ func requestsHeaders(boot *baseBootstrap) bool {
 }
 
 func fireStuck(boot *baseBootstrap, stalledWhileSynced bool) {
-	boot.requestHeadersIfSyncIsStuck(boot.slotsSinceLastCommittedBlock(), stalledWhileSynced)
+	boot.requestHeadersIfSyncIsStuck(stalledWhileSynced)
 }
 
 // blockBootstrapperStub is the smallest blockBootstrapper that
@@ -1504,11 +1504,9 @@ func TestClaimSyncedStallSlot_IncludesSlotZero(t *testing.T) {
 
 	boot, _ := newStuckRequestBoot(0, headerAt(0, 7))
 
-	require.True(t, boot.claimSyncedStallSlot())
-	require.False(t, boot.claimSyncedStallSlot())
-
-	boot.slotManager.(*consensusMock.SlotManagerMock).SlotIndex = 1
-	require.True(t, boot.claimSyncedStallSlot())
+	require.True(t, boot.claimSyncedStallSlot(0))
+	require.False(t, boot.claimSyncedStallSlot(0))
+	require.True(t, boot.claimSyncedStallSlot(1))
 }
 
 const stallWarnMessage = "node believes it is synchronized but has not committed a block for a while"
@@ -1628,8 +1626,7 @@ func TestComputeNodeState_ForcedRollbackDoesNotRearmStallWarning(t *testing.T) {
 
 	boot.computeNodeState()
 	waitForRequests(t, stub)
-	firstCount := counter.Count()
-	require.Greater(t, firstCount, 0)
+	require.Equal(t, 1, counter.Count())
 
 	// Proper slot: the fork detector forces a rollback, no burst is tried.
 	forcedRollback = true
@@ -1645,7 +1642,7 @@ func TestComputeNodeState_ForcedRollbackDoesNotRearmStallWarning(t *testing.T) {
 	boot.computeNodeState()
 	require.True(t, boot.isNodeSynchronized)
 	waitForRequests(t, stub)
-	require.Equal(t, firstCount, counter.Count())
+	require.Equal(t, 1, counter.Count())
 }
 
 // A not-synced node still requests on every re-entry. The slot claim belongs
@@ -1681,15 +1678,14 @@ func TestComputeNodeState_SyncedStallWarnsOncePerEpisode(t *testing.T) {
 	boot.computeNodeState()
 	require.True(t, boot.isNodeSynchronized)
 	waitForRequests(t, stub)
-	firstCount := counter.Count()
-	require.Greater(t, firstCount, 0)
+	require.Equal(t, 1, counter.Count())
 
 	boot.isNodeStateCalculated = false
 	boot.slotManager.(*consensusMock.SlotManagerMock).SlotIndex++
 	stub.arm(int32(process.MaxHeadersToRequestInAdvance) * 2)
 	boot.computeNodeState()
 	waitForRequests(t, stub)
-	require.Equal(t, firstCount, counter.Count())
+	require.Equal(t, 1, counter.Count())
 
 	// Caught up: the next pass clears the latch and does not request.
 	boot.isNodeStateCalculated = false
@@ -1713,5 +1709,31 @@ func TestComputeNodeState_SyncedStallWarnsOncePerEpisode(t *testing.T) {
 	stub.arm(int32(process.MaxHeadersToRequestInAdvance) * 3)
 	boot.computeNodeState()
 	waitForRequests(t, stub)
-	require.Greater(t, counter.Count(), firstCount)
+	require.Equal(t, 2, counter.Count())
+}
+
+// The burst runs after computeNodeState decided it. If the node commits the
+// missing blocks in between, the burst must see the fresh tip and stand down
+// instead of requesting nonces that do not exist yet. Not parallel: log observer.
+func TestComputeNodeState_DelayedBurstRevalidatesLag(t *testing.T) {
+	counter := CountLogLines(t, stallWarnMessage)
+
+	stub := &blockBootstrapperStub{}
+	boot := newComputeNodeStateBoot(30, 7, stub)
+	var held func()
+	boot.spawnRequest = func(run func()) { held = run }
+
+	boot.computeNodeState()
+	require.True(t, boot.isNodeSynchronized)
+	require.NotNil(t, held)
+
+	// Caught up before the burst runs.
+	boot.chainHandler = &mock.BlockChainMock{
+		GetGenesisHeaderCalled:      func() data.HeaderHandler { return headerAt(0, 0) },
+		GetCurrentBlockHeaderCalled: func() data.HeaderHandler { return headerAt(30, 32) },
+	}
+	held()
+
+	require.Empty(t, stub.requestedNonces)
+	require.Zero(t, counter.Count())
 }

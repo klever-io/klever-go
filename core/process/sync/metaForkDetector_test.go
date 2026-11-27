@@ -246,14 +246,13 @@ func TestMetaForkDetector_CheckpointAheadWarnsOncePerEpisode(t *testing.T) {
 	forkInfo := bfd.CheckFork()
 	require.False(t, forkInfo.IsDetected)
 
-	firstCount := counter.Count()
-	require.Greater(t, firstCount, 0)
+	require.Equal(t, 1, counter.Count())
 
 	// Same slot, and the next slot while the checkpoint is still ahead: silent.
 	_ = bfd.CheckFork()
 	sloterMock.SlotIndex = 51
 	_ = bfd.CheckFork()
-	require.Equal(t, firstCount, counter.Count())
+	require.Equal(t, 1, counter.Count())
 
 	// Subtraction succeeds, so the latch clears. 200 is a multiple of
 	// SlotModulusTrigger; the clear happens before the stuck decision.
@@ -262,7 +261,7 @@ func TestMetaForkDetector_CheckpointAheadWarnsOncePerEpisode(t *testing.T) {
 
 	sloterMock.SlotIndex = 50
 	_ = bfd.CheckFork()
-	require.Greater(t, counter.Count(), firstCount)
+	require.Equal(t, 2, counter.Count())
 }
 
 // Slot index 0 must still warn. The latch is a bool, so an unset field does
@@ -285,5 +284,5 @@ func TestMetaForkDetector_CheckpointAheadWarnsAtSlotIndexZero(t *testing.T) {
 	forkInfo := bfd.CheckFork()
 	require.False(t, forkInfo.IsDetected)
 
-	require.Greater(t, counter.Count(), 0)
+	require.Equal(t, 1, counter.Count())
 }
