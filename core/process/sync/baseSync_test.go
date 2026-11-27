@@ -12,6 +12,7 @@ import (
 
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core"
 	consensusMock "github.com/klever-io/klever-go/core/consensus/mock"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/block/bootstrapStorage"
@@ -1736,4 +1737,32 @@ func TestComputeNodeState_DelayedBurstRevalidatesLag(t *testing.T) {
 
 	require.Empty(t, stub.requestedNonces)
 	require.Zero(t, counter.Count())
+}
+
+// A pass that straddles a slot boundary must claim the slot it snapshotted.
+// Claiming the next slot would suppress that slot's own burst.
+func TestComputeNodeState_SyncedStallClaimsSnapshottedSlot(t *testing.T) {
+	t.Parallel()
+
+	boot := newComputeNodeStateBoot(30, 7, &blockBootstrapperStub{})
+	spawns := 0
+	boot.spawnRequest = func(func()) { spawns++ }
+	slotManager := boot.slotManager.(*consensusMock.SlotManagerMock)
+	// Published right after the snapshot: the chronology ticks mid-pass.
+	boot.statusHandler = &mock.AppStatusHandlerStub{
+		SetUInt64ValueHandler: func(key string, _ uint64) {
+			if key == core.MetricIsSyncing {
+				slotManager.SlotIndex = 31
+			}
+		},
+	}
+
+	boot.computeNodeState()
+	require.Equal(t, int64(30), boot.slotIndex)
+	require.Equal(t, 1, spawns)
+
+	boot.isNodeStateCalculated = false
+	boot.computeNodeState()
+	require.Equal(t, int64(31), boot.slotIndex)
+	require.Equal(t, 2, spawns, "slot 31 must still get its burst")
 }
